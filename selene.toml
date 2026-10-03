@@ -1,0 +1,3 @@
+# Selene linter configuration.
+# Run `selene src` to lint.
+std = "roblox"

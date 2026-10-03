@@ -1,0 +1,18 @@
+# Normalize all text files to LF in the repository and in working copies,
+# regardless of each developer's core.autocrlf setting.
+* text=auto eol=lf
+
+# Windows-only scripts are checked out with CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary Roblox and media files: never convert or diff as text.
+*.rbxl binary
+*.rbxm binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ogg binary
+*.mp3 binary
+*.fbx binary
