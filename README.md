@@ -1,14 +1,10 @@
 # robloxgame
 
-An anime-inspired auto-battler for Roblox, in the spirit of Teamfight Tactics.
+tft clone
 
 ## Current stage
 
-**Foundation / setup.** The repository currently contains only the development
-environment and a minimal sync check (each script prints a message on startup).
-**No gameplay systems are implemented yet.** Planned systems (shop, economy,
-boards, combat, traits, etc.) are described in [CLAUDE.md](CLAUDE.md) as design
-goals only.
+i ain done shi yet
 
 ## Repository structure
 
