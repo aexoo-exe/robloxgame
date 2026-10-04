@@ -20,7 +20,9 @@ robloxgame/
 ├── scripts/
 │   ├── setup.ps1          One-time bootstrap of repository tools
 │   ├── start.ps1          Starts a dev session (Rojo server)
-│   └── test.ps1           Runs the Lune tests
+│   ├── test.ps1           Runs the Lune tests
+│   └── simulate.ps1       Runs the headless match simulation
+├── sim/                   Headless bot match simulation (not synced to Roblox)
 ├── tests/                 Lune tests for the pure shared modules (not synced to Roblox)
 └── src/
     ├── client/            Client code   -> StarterPlayer.StarterPlayerScripts.Client (LocalScript)
@@ -160,15 +162,18 @@ Stop the server with `Ctrl+C`.
 Run these from the repository folder:
 
 ```powershell
-stylua src tests          # format all Luau files
-stylua --check src tests  # check formatting without changing files
-selene src tests          # lint
-powershell -ExecutionPolicy Bypass -File scripts	est.ps1  # run the tests
+stylua src tests sim          # format all Luau files
+stylua --check src tests sim  # check formatting without changing files
+selene src tests sim          # lint
+powershell -ExecutionPolicy Bypass -File scripts\test.ps1      # run the tests
+powershell -ExecutionPolicy Bypass -File scripts\simulate.ps1  # headless 8-bot match pacing
 ```
 
 The tests run with [Lune](https://github.com/lune-org/lune) outside Roblox Studio. They cover
-the modules in `src/shared` that use no Roblox APIs: the hex grid, board placement rules and
-the combat simulation. These modules require each other with
+the modules in `src/shared` that use no Roblox APIs: hex grid, board rules, economy, shop,
+star upgrades, pairing, match rules and the combat simulation. `scripts\simulate.ps1` plays
+full matches between scripted bots with those same modules and prints pacing numbers (rounds,
+match length, winner level, fight timeouts). These modules require each other with
 `if script then require(script.Parent.X) else require("./X")` so the same code loads in both
 Roblox and Lune.
 
@@ -184,7 +189,7 @@ Roblox and Lune.
   ```
 
 - Make focused commits with descriptive messages.
-- Before committing, run `stylua --check src tests`, `selene src tests` and `scripts	est.ps1`.
+- Before committing, run `stylua --check src tests sim`, `selene src tests sim` and `scripts\test.ps1`.
 - Push your branch and open a pull request into `main`.
 - Do not force-push shared branches or rewrite history.
 - Do not commit built place files (`*.rbxl`, `*.rbxlx`), secrets, or
