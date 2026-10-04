@@ -54,7 +54,7 @@ local function render()
 
 	for _, unit in units do
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
-		local view = UnitView.new(unit.unitType, RenderConfig.ownUnitColor, position, Arena.folder)
+		local view = UnitView.new(unit.unitType, unit.starLevel, RenderConfig.ownUnitColor, position, Arena.folder)
 		view.part:SetAttribute("UnitId", unit.id)
 		views[unit.id] = view
 	end

@@ -1,4 +1,5 @@
--- A placeholder unit: a colored block with its name and a health bar above it.
+-- A placeholder unit: a colored block with its name, star level and a health bar above it.
+-- Higher-star units are drawn slightly larger (RenderConfig.starSizeScale).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -13,30 +14,36 @@ export type UnitView = {
 	healthFill: Frame,
 }
 
-local function partPosition(groundPosition: Vector3): Vector3
-	return groundPosition + Vector3.new(0, RenderConfig.unitSize.Y / 2, 0)
+local function partPosition(groundPosition: Vector3, part: Part): Vector3
+	return groundPosition + Vector3.new(0, part.Size.Y / 2, 0)
 end
 
-function UnitView.new(name: string, color: Color3, groundPosition: Vector3, parent: Instance): UnitView
+function UnitView.new(
+	name: string,
+	starLevel: number,
+	color: Color3,
+	groundPosition: Vector3,
+	parent: Instance
+): UnitView
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Anchored = true
 	part.CanCollide = false
-	part.Size = RenderConfig.unitSize
-	part.Position = partPosition(groundPosition)
+	part.Size = RenderConfig.unitSize * RenderConfig.starSizeScale[starLevel]
+	part.Position = partPosition(groundPosition, part)
 	part.Color = color
 	part.Material = Enum.Material.SmoothPlastic
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.fromOffset(90, 30)
-	billboard.StudsOffset = Vector3.new(0, RenderConfig.unitSize.Y / 2 + 1, 0)
+	billboard.StudsOffset = Vector3.new(0, part.Size.Y / 2 + 1, 0)
 	billboard.AlwaysOnTop = true
 	billboard.Parent = part
 
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, 0, 0, 18)
 	label.BackgroundTransparency = 1
-	label.Text = name
+	label.Text = name .. " " .. string.rep(RenderConfig.starSymbol, starLevel)
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0
 	label.Font = Enum.Font.GothamBold
@@ -62,7 +69,7 @@ end
 
 -- Moves the unit to a ground position, sliding over `duration` seconds if given.
 function UnitView.moveTo(view: UnitView, groundPosition: Vector3, duration: number?)
-	local goal = partPosition(groundPosition)
+	local goal = partPosition(groundPosition, view.part)
 	if duration and duration > 0 then
 		local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
 		TweenService:Create(view.part, tweenInfo, { Position = goal }):Play()

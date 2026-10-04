@@ -1,12 +1,14 @@
 -- Placeholder shop and economy panel on the right edge of the screen: gold, level, XP progress,
 -- units on the board against the cap, five shop buttons, reroll, buy XP and sell. Buttons only send
--- requests; everything shown comes from the server's PlayerStateUpdated and BoardUpdated.
+-- requests and are disabled outside Preparation; everything shown comes from the server's
+-- PlayerStateUpdated and BoardUpdated.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local LevelConfig = require(Shared:WaitForChild("LevelConfig"))
+local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
@@ -29,12 +31,24 @@ local function createButton(parent: Instance, order: number, height: number): Te
 	return button
 end
 
+-- Shows a button as usable or not. Disabled buttons also ignore clicks (see the handlers).
+local function setUsable(button: TextButton, usable: boolean)
+	button.AutoButtonColor = usable
+	button.BackgroundTransparency = if usable then 0 else 0.6
+	button.TextTransparency = if usable then 0 else 0.4
+end
+
 function ShopPanel.start()
+	local matchState = ReplicatedStorage:WaitForChild("MatchState")
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 	local requestBuyUnit = remotes:WaitForChild(RemoteNames.RequestBuyUnit)
 	local requestSellUnit = remotes:WaitForChild(RemoteNames.RequestSellUnit)
 	local requestReroll = remotes:WaitForChild(RemoteNames.RequestReroll)
 	local requestBuyXp = remotes:WaitForChild(RemoteNames.RequestBuyXp)
+
+	local function isPreparation(): boolean
+		return matchState:GetAttribute("Phase") == Phase.Preparation
+	end
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "ShopPanel"
@@ -72,11 +86,16 @@ function ShopPanel.start()
 	status.Text = "Waiting for server..."
 	status.Parent = panel
 
+	local view = nil
+	local placedCount = 0
+
 	local shopButtons = {}
 	for slot = 1, ShopConfig.slots do
 		local button = createButton(panel, slot, 40)
 		button.Activated:Connect(function()
-			requestBuyUnit:FireServer(slot)
+			if isPreparation() and view and view.shop[slot] then
+				requestBuyUnit:FireServer(slot)
+			end
 		end)
 		shopButtons[slot] = button
 	end
@@ -84,31 +103,37 @@ function ShopPanel.start()
 	local rerollButton = createButton(panel, 10, 32)
 	rerollButton.Text = string.format("Reroll (%d gold)", ShopConfig.rerollCost)
 	rerollButton.Activated:Connect(function()
-		requestReroll:FireServer()
+		if isPreparation() then
+			requestReroll:FireServer()
+		end
 	end)
 
 	local buyXpButton = createButton(panel, 11, 32)
 	buyXpButton.Text = string.format("Buy %d XP (%d gold)", LevelConfig.buyXpAmount, LevelConfig.buyXpCost)
 	buyXpButton.Activated:Connect(function()
-		requestBuyXp:FireServer()
+		if isPreparation() then
+			requestBuyXp:FireServer()
+		end
 	end)
 
 	local sellButton = createButton(panel, 12, 32)
 	sellButton.Text = "Sell selected unit"
 	sellButton.Activated:Connect(function()
 		local unitId = BoardController.getSelectedUnitId()
-		if unitId then
+		if isPreparation() and unitId then
 			requestSellUnit:FireServer(unitId)
 		end
 	end)
 
-	local view = nil
-	local placedCount = 0
-
 	local function refresh()
+		local preparation = isPreparation()
+		setUsable(rerollButton, preparation)
+		setUsable(buyXpButton, preparation)
+		setUsable(sellButton, preparation)
 		if not view then
 			return
 		end
+
 		local xpText = if view.xpToNextLevel > 0 then string.format("%d/%d", view.xp, view.xpToNextLevel) else "MAX"
 		status.Text = string.format(
 			"Gold: %d\nLevel %d   XP %s\nBoard: %d/%d units",
@@ -123,13 +148,10 @@ function ShopPanel.start()
 			if unitType then
 				local unit = UnitConfig[unitType]
 				button.Text = string.format("%s  (%d gold)\n%s", unitType, unit.cost, unit.role)
-				button.AutoButtonColor = true
-				button.BackgroundTransparency = 0
 			else
 				button.Text = "(bought)"
-				button.AutoButtonColor = false
-				button.BackgroundTransparency = 0.6
 			end
+			setUsable(button, preparation and unitType ~= false)
 		end
 	end
 
@@ -146,7 +168,9 @@ function ShopPanel.start()
 		end
 		refresh()
 	end)
+	matchState:GetAttributeChangedSignal("Phase"):Connect(refresh)
 
+	refresh()
 	screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end
 

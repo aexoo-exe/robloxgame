@@ -10,6 +10,9 @@ return table.freeze({
 	benchDistance = 6, -- from the center of the nearest row to the bench slots
 
 	unitSize = Vector3.new(2.2, 3.5, 2.2),
+	-- Size multiplier by star level (1, 2, 3), and the symbol repeated after a unit's name.
+	starSizeScale = table.freeze({ 1, 1.15, 1.3 }),
+	starSymbol = "★",
 
 	ownCellColor = Color3.fromRGB(70, 95, 130),
 	enemyCellColor = Color3.fromRGB(120, 75, 75),
@@ -19,6 +22,7 @@ return table.freeze({
 	healthBarColor = Color3.fromRGB(80, 220, 100),
 	hitFlashColor = Color3.fromRGB(255, 255, 255),
 	hitFlashDuration = 0.08, -- seconds
+	refusalNoticeDuration = 2, -- seconds a "request refused" message stays on screen
 
 	-- Camera position relative to arenaCenter. It looks at arenaCenter.
 	cameraOffset = Vector3.new(0, 46, 34),

@@ -24,6 +24,7 @@ local states: { [Player]: PlayerState.PlayerState } = {}
 local preparationOpen = false
 local boardUpdated: RemoteEvent
 local playerStateUpdated: RemoteEvent
+local requestRefused: RemoteEvent
 local seedRandom = Random.new()
 
 local function sendState(player: Player)
@@ -57,15 +58,21 @@ end
 
 -- Connects a request remote to a PlayerState action. Arguments come from the client and are
 -- untrusted; the action validates them. Requests outside Preparation or from players without a
--- board are ignored, as are requests the action refuses.
-local function connectRequest(remoteName: string, action: (PlayerState.PlayerState, ...any) -> boolean)
+-- board are ignored. When the action refuses a request with a reason, the player is told why.
+local function connectRequest(remoteName: string, action: (PlayerState.PlayerState, ...any) -> (boolean, string?))
 	Remotes.create(remoteName).OnServerEvent:Connect(function(player: Player, ...)
 		if not preparationOpen then
 			return
 		end
 		local state = states[player]
-		if state and action(state, ...) then
+		if not state then
+			return
+		end
+		local accepted, reason = action(state, ...)
+		if accepted then
 			sendState(player)
+		elseif reason then
+			requestRefused:FireClient(player, reason)
 		end
 	end)
 end
@@ -120,6 +127,7 @@ end
 function PlayerService.start()
 	boardUpdated = Remotes.create(RemoteNames.BoardUpdated)
 	playerStateUpdated = Remotes.create(RemoteNames.PlayerStateUpdated)
+	requestRefused = Remotes.create(RemoteNames.RequestRefused)
 	connectRequest(RemoteNames.RequestMoveUnit, PlayerState.moveUnit)
 	connectRequest(RemoteNames.RequestBuyUnit, PlayerState.buyUnit)
 	connectRequest(RemoteNames.RequestSellUnit, PlayerState.sellUnit)

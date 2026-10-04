@@ -49,7 +49,8 @@ local function play(playback)
 	for _, unit in result.units do
 		unitsByIndex[unit.index] = unit
 		local color = if unit.side == localSide then RenderConfig.ownUnitColor else RenderConfig.enemyUnitColor
-		views[unit.index] = UnitView.new(unit.unitType, color, toWorld(unit.column, unit.row), Arena.folder)
+		views[unit.index] =
+			UnitView.new(unit.unitType, unit.starLevel, color, toWorld(unit.column, unit.row), Arena.folder)
 	end
 
 	local function apply(event)

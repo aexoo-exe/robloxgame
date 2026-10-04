@@ -19,6 +19,8 @@ return table.freeze({
 	BoardUpdated = "BoardUpdated",
 	-- Server -> owning client: gold, level, XP and shop (PlayerState.getView).
 	PlayerStateUpdated = "PlayerStateUpdated",
+	-- Server -> owning client: (reason: string) why a request was refused, from PlayerState.Refusal.
+	RequestRefused = "RequestRefused",
 
 	-- Server -> all clients: { startsAt, sideUserIds, result } where result is a CombatSim result.
 	-- Clients play the events back starting at server time `startsAt`.
