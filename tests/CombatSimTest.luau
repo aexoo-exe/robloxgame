@@ -118,6 +118,7 @@ table.insert(tests, {
 				unitTypes = unitTypes,
 				maxTicks = maxTicks,
 				timeoutDrawMargin = margin,
+				critChance = 0, -- exact damage
 			}))
 		end
 
@@ -146,6 +147,7 @@ table.insert(tests, {
 			unitTypes = bodies,
 			maxTicks = 50,
 			timeoutDrawMargin = 0.01,
+			critChance = 0, -- exact damage
 		}))
 		assert(result.survivors[1] == 1 and result.survivors[2] == 3, "all units should survive")
 		assert(result.healthPercent[2] < 0.75, "the husks should have lost health")

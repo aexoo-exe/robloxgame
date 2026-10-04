@@ -187,6 +187,7 @@ table.insert(tests, {
 			ticksPerSecond = 20,
 			maxTicks = 900,
 			seed = 1,
+			critChance = 0, -- exact damage
 		})
 		expectEqual(result.units[1].maxHealth, 1260, "2-star max health")
 		expectEqual(result.units[1].starLevel, 2, "2-star summary")
