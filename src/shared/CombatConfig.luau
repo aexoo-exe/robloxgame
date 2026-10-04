@@ -13,9 +13,10 @@ return table.freeze({
 
 	-- Opponents for a player who is alone, by round. Round n uses entry n; rounds past the end of
 	-- the list reuse the last entry. Positions are in the enemy's own board coordinates
-	-- (row 1 = back row, BoardConfig.rows = front row). Unit counts roughly track the player's
-	-- unit cap (= level). Tuned against a simple bot (no rerolls, buys XP above 20 gold): round 1 is
-	-- an even mirror match and later rounds stay winnable. See docs/shop-economy-plan.md.
+	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.
+	-- Unit counts roughly track the player's unit cap (= level). Tuned against a simple bot (no
+	-- rerolls, buys XP above 20 gold): round 1 is an even mirror match, and from round 9 the boards
+	-- add 2-star units so solo play keeps getting harder. See docs/star-upgrades-plan.md.
 	enemyBoardsByRound = table.freeze({
 		-- Round 1: player is level 2 (2 units)
 		table.freeze({ unit("Tank1", 4, 4), unit("Archer1", 4, 1) }),
@@ -41,16 +42,52 @@ return table.freeze({
 			unit("Tank2", 3, 4),
 			unit("Striker2", 5, 3),
 			unit("Archer3", 4, 1),
-			unit("Archer1", 2, 1),
+			unit("Archer3", 2, 1),
 		}),
-		-- Round 8 onwards: level 6
+		-- Round 8: level 6
 		table.freeze({
 			unit("Tank3", 4, 4),
 			unit("Tank2", 3, 4),
 			unit("Tank2", 5, 4),
 			unit("Striker2", 6, 3),
 			unit("Archer3", 4, 1),
-			unit("Archer1", 2, 1),
+			unit("Archer3", 2, 1),
+		}),
+		-- Round 9: first 2-star
+		table.freeze({
+			unit("Tank3", 4, 4),
+			unit("Tank2", 3, 4, 2),
+			unit("Tank2", 5, 4),
+			unit("Striker2", 6, 3),
+			unit("Archer3", 4, 1),
+			unit("Archer3", 2, 1),
+		}),
+		-- Round 10
+		table.freeze({
+			unit("Tank3", 4, 4),
+			unit("Tank2", 3, 4, 2),
+			unit("Tank2", 5, 4),
+			unit("Striker2", 6, 3, 2),
+			unit("Archer3", 4, 1),
+			unit("Archer3", 2, 1),
+		}),
+		-- Round 11
+		table.freeze({
+			unit("Tank3", 4, 4),
+			unit("Tank2", 3, 4, 2),
+			unit("Tank4", 5, 4),
+			unit("Striker2", 6, 3, 2),
+			unit("Archer3", 4, 1),
+			unit("Archer3", 2, 1),
+		}),
+		-- Round 12 onwards
+		table.freeze({
+			unit("Tank3", 4, 4, 2),
+			unit("Tank2", 3, 4, 2),
+			unit("Tank4", 5, 4),
+			unit("Striker2", 6, 3, 2),
+			unit("Archer3", 4, 1),
+			unit("Archer3", 2, 1),
 		}),
 	}),
 })
