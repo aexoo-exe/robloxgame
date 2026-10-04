@@ -101,6 +101,55 @@ table.insert(tests, {
 		}))
 		assert(result.winner == nil, "expected a draw")
 		assert(result.endTick == 200, "expected the fight to run to the time limit, ended at " .. result.endTick)
+		assert(result.timedOut, "timedOut not set")
+	end,
+})
+
+table.insert(tests, {
+	name = "timeout is decided by remaining health percentage, with a 1-point draw margin",
+	run = function()
+		-- Two durable units trade blows; side 1 hits slightly harder. Neither dies before the cap.
+		local unitTypes = {
+			Strong = { health = 10000, attackDamage = 50, attacksPerSecond = 1, range = 1, moveSpeed = 1 },
+			Weak = { health = 10000, attackDamage = 40, attacksPerSecond = 1, range = 1, moveSpeed = 1 },
+		}
+		local function fight(margin, maxTicks)
+			return CombatSim.run(params({ placed("a", "Strong", 4, 4) }, { placed("b", "Weak", 4, 4) }, 1, {
+				unitTypes = unitTypes,
+				maxTicks = maxTicks,
+				timeoutDrawMargin = margin,
+			}))
+		end
+
+		-- Long enough for the 10-damage-per-second edge to exceed 1 percentage point (100 health).
+		local decided = fight(0.01, 20 * 40)
+		assert(decided.timedOut, "expected a timeout")
+		assert(decided.survivors[1] == 1 and decided.survivors[2] == 1, "both units should survive")
+		assert(decided.healthPercent[1] > decided.healthPercent[2] + 0.01, "side 1 should be more than 1 point ahead")
+		assert(decided.winner == 1, "higher health percentage should win")
+
+		-- A short fight leaves the gap under 1 point: a draw with the margin, a win without it.
+		local close = fight(0.01, 20 * 8)
+		assert(close.healthPercent[1] - close.healthPercent[2] < 0.01, "gap should be under 1 point")
+		assert(close.winner == nil, "within 1 point should be a draw")
+		assert(fight(0, 20 * 8).winner == 1, "with no margin the small lead should win")
+
+		-- More bodies do not win on their own: one untouched unit beats three damaged ones. The
+		-- long-range Tank hits one Husk three times (ticks 1, 21, 41); the Husks deal no damage and
+		-- are too slow to move.
+		local bodies = {
+			Tank = { health = 1000, attackDamage = 300, attacksPerSecond = 1, range = 8, moveSpeed = 1 },
+			Husk = { health = 1000, attackDamage = 0, attacksPerSecond = 1, range = 1, moveSpeed = 0.001 },
+		}
+		local husks = { placed("x", "Husk", 1, 1), placed("y", "Husk", 4, 1), placed("z", "Husk", 7, 1) }
+		local result = CombatSim.run(params({ placed("t", "Tank", 4, 1) }, husks, 1, {
+			unitTypes = bodies,
+			maxTicks = 50,
+			timeoutDrawMargin = 0.01,
+		}))
+		assert(result.survivors[1] == 1 and result.survivors[2] == 3, "all units should survive")
+		assert(result.healthPercent[2] < 0.75, "the husks should have lost health")
+		assert(result.winner == 1, "the healthier side should win despite fewer units")
 	end,
 })
 

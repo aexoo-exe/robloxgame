@@ -11,6 +11,10 @@ return table.freeze({
 	-- Seconds the Combat phase continues after the fight ends, so the last animations can finish.
 	endPadding = 1.5,
 
+	-- A fight that reaches the time limit is a draw when both sides' remaining health percentages are
+	-- within this fraction (1 percentage point) of each other. docs/design/match-structure.md section 6.
+	timeoutDrawMargin = 0.01,
+
 	-- Opponents for a player who is alone, by round. Round n uses entry n; rounds past the end of
 	-- the list reuse the last entry. Positions are in the enemy's own board coordinates
 	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.

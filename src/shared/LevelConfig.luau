@@ -1,4 +1,5 @@
--- Player levels and XP. Values from docs/design/unit-stats-economy.md section 12.
+-- Player levels and XP. XP table from docs/design/match-structure.md section 1 (replacing the
+-- curve in unit-stats-economy.md section 12); the other values are from section 12.
 -- A player's level is also their cap on units placed on the board.
 return table.freeze({
 	startingLevel = 2,
@@ -13,10 +14,10 @@ return table.freeze({
 		[2] = 2,
 		[3] = 6,
 		[4] = 10,
-		[5] = 20,
-		[6] = 36,
-		[7] = 56,
-		[8] = 68,
-		[9] = 68,
+		[5] = 16,
+		[6] = 28,
+		[7] = 40,
+		[8] = 52,
+		[9] = 64,
 	}),
 })

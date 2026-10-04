@@ -74,7 +74,8 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "level curve follows the spec XP table and caps at 10",
 	run = function()
-		local needed = { [2] = 2, [3] = 6, [4] = 10, [5] = 20, [6] = 36, [7] = 56, [8] = 68, [9] = 68 }
+		-- docs/design/match-structure.md section 1
+		local needed = { [2] = 2, [3] = 6, [4] = 10, [5] = 16, [6] = 28, [7] = 40, [8] = 52, [9] = 64 }
 		for level = 2, 9 do
 			expectEqual(Economy.xpToNextLevel(level), needed[level], "XP for level " .. level)
 		end

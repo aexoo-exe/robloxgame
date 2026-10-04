@@ -6,6 +6,10 @@
 -- Field coordinates: side 1 keeps its own board coordinates (rows 1..rows). Side 2's board is
 -- rotated half a turn into rows rows+1..rows*2, so both sides face each other.
 --
+-- The fight ends when one side has no units left. If both sides still have units at maxTicks, the
+-- side with the higher remaining health percentage (sum of current health / sum of max health over
+-- every unit that entered combat) wins; within `timeoutDrawMargin` of each other it is a draw.
+--
 -- Per tick, each living unit (in a seeded random order):
 --   1. Keeps its target if it is alive and in range, otherwise targets the nearest enemy.
 --   2. Attacks if the target is in range and its attack cooldown is ready.
@@ -42,6 +46,7 @@ export type Params = {
 	unitTypes: { [string]: UnitStats },
 	ticksPerSecond: number,
 	maxTicks: number,
+	timeoutDrawMargin: number?, -- see the header; 0 if omitted
 	seed: number,
 }
 
@@ -73,6 +78,9 @@ export type Event = {
 
 export type Result = {
 	winner: number?, -- 1 or 2, or nil for a draw
+	timedOut: boolean, -- true if the fight reached maxTicks
+	survivors: { number }, -- living units per side at the end
+	healthPercent: { number }, -- remaining health fraction (0-1) per side at the end
 	endTick: number,
 	ticksPerSecond: number,
 	seed: number,
@@ -269,16 +277,41 @@ function CombatSim.run(params: Params): Result
 		end
 	end
 
-	local alive1, alive2 = sideAlive(1), sideAlive(2)
+	local survivors = { 0, 0 }
+	local currentHealth = { 0, 0 }
+	local maxHealth = { 0, 0 }
+	for _, unit in units do
+		currentHealth[unit.side] += unit.health
+		maxHealth[unit.side] += unit.stats.health
+		if unit.health > 0 then
+			survivors[unit.side] += 1
+		end
+	end
+	local healthPercent = {
+		if maxHealth[1] > 0 then currentHealth[1] / maxHealth[1] else 0,
+		if maxHealth[2] > 0 then currentHealth[2] / maxHealth[2] else 0,
+	}
+
 	local winner = nil
-	if alive1 and not alive2 then
+	local timedOut = survivors[1] > 0 and survivors[2] > 0
+	if timedOut then
+		local margin = params.timeoutDrawMargin or 0
+		if healthPercent[1] - healthPercent[2] > margin then
+			winner = 1
+		elseif healthPercent[2] - healthPercent[1] > margin then
+			winner = 2
+		end
+	elseif survivors[1] > 0 then
 		winner = 1
-	elseif alive2 and not alive1 then
+	elseif survivors[2] > 0 then
 		winner = 2
 	end
 
 	return {
 		winner = winner,
+		timedOut = timedOut,
+		survivors = survivors,
+		healthPercent = healthPercent,
 		endTick = tick,
 		ticksPerSecond = params.ticksPerSecond,
 		seed = params.seed,

@@ -66,6 +66,7 @@ function CombatService.run(
 		unitTypes = UnitConfig,
 		ticksPerSecond = CombatConfig.ticksPerSecond,
 		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
+		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
 		seed = seed,
 	})
 
