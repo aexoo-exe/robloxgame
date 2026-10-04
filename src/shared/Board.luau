@@ -2,14 +2,20 @@
 -- Board cells use the player's own coordinates (row 1 = back row, `rows` = front row).
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 --
--- A unit is either on the bench (`slot` set) or on the board (`column` and `row` set).
+-- A unit is either on the bench (`slot` set) or on the board (`column` and `row` set). The only
+-- exception is a copy bought with a full bench, which exists unplaced until mergeUnits consumes it.
+
+local StarConfig = if script then require(script.Parent.StarConfig) else require("./StarConfig")
 
 local Board = {}
+
+-- Second return value of moveUnit when the unit cap blocks a move.
+Board.CapReached = "CapReached"
 
 export type BoardUnit = {
 	id: string,
 	unitType: string,
-	starLevel: number, -- always 1 until star upgrades exist
+	starLevel: number, -- 1 to StarConfig.maxStarLevel
 	slot: number?,
 	column: number?,
 	row: number?,
@@ -129,8 +135,9 @@ function Board.hasBenchSpace(board: Board): boolean
 end
 
 -- Adds a 1-star unit to the first free bench slot. Returns false if the bench is full or the id is
--- taken.
-function Board.addUnit(board: Board, id: string, unitType: string): boolean
+-- taken. With `allowUnplaced`, a full bench adds the unit without a place instead; only use that
+-- when completesMerge is true and call mergeUnits straight after, which consumes it.
+function Board.addUnit(board: Board, id: string, unitType: string, allowUnplaced: boolean?): boolean
 	if board.units[id] then
 		return false
 	end
@@ -141,7 +148,83 @@ function Board.addUnit(board: Board, id: string, unitType: string): boolean
 			return true
 		end
 	end
+	if allowUnplaced then
+		board.units[id] = { id = id, unitType = unitType, starLevel = 1 }
+		return true
+	end
 	return false
+end
+
+-- True if adding one more 1-star `unitType` would complete a merge.
+function Board.completesMerge(board: Board, unitType: string): boolean
+	local copies = 0
+	for _, unit in board.units do
+		if unit.unitType == unitType and unit.starLevel == 1 then
+			copies += 1
+		end
+	end
+	return copies >= StarConfig.copiesToMerge - 1
+end
+
+-- Order in which copies are chosen for a merge: board copies first (by id), then bench copies by
+-- slot, then an unplaced copy. The first chosen copy is kept and upgraded.
+local function mergePriority(a: BoardUnit, b: BoardUnit): boolean
+	local function rank(unit: BoardUnit): number
+		return if unit.column then 1 elseif unit.slot then 2 else 3
+	end
+	if rank(a) ~= rank(b) then
+		return rank(a) < rank(b)
+	end
+	if a.slot and b.slot and a.slot ~= b.slot then
+		return a.slot < b.slot
+	end
+	return a.id < b.id
+end
+
+-- Performs one merge if any set of identical copies exists. Returns a copy of the upgraded unit.
+local function mergeOnce(board: Board): BoardUnit?
+	local groups: { [string]: { BoardUnit } } = {}
+	local keys = {}
+	for _, unit in board.units do
+		if unit.starLevel < StarConfig.maxStarLevel then
+			local key = unit.unitType .. "#" .. unit.starLevel
+			if not groups[key] then
+				groups[key] = {}
+				table.insert(keys, key)
+			end
+			table.insert(groups[key], unit)
+		end
+	end
+	table.sort(keys)
+
+	for _, key in keys do
+		local copies = groups[key]
+		if #copies >= StarConfig.copiesToMerge then
+			table.sort(copies, mergePriority)
+			local kept = copies[1]
+			for i = 2, StarConfig.copiesToMerge do
+				Board.removeUnit(board, copies[i].id)
+			end
+			kept.starLevel += 1
+			return table.clone(kept)
+		end
+	end
+	return nil
+end
+
+-- Merges every set of StarConfig.copiesToMerge copies of one unit at one star level (board and bench
+-- together) into one unit of the next star level, repeating so merges can chain. The upgraded unit
+-- keeps the place of a board copy if there is one, otherwise of the first bench copy. Returns the
+-- upgraded units in the order the merges happened.
+function Board.mergeUnits(board: Board): { BoardUnit }
+	local merges = {}
+	while true do
+		local merged = mergeOnce(board)
+		if not merged then
+			return merges
+		end
+		table.insert(merges, merged)
+	end
 end
 
 -- Removes a unit from the board or bench. `unitId` may come from a client. Returns a copy of the
@@ -164,8 +247,8 @@ end
 -- `unitId` and `target` may come straight from a client, so both are validated: the unit must belong
 -- to this board and the target must be in bounds. When `maxPlaced` is given, a move that would put
 -- more than that many units on the board is refused (swaps never change the count).
--- Returns true if the move happened.
-function Board.moveUnit(board: Board, unitId: any, target: any, maxPlaced: number?): boolean
+-- Returns true if the move happened, or false and Board.CapReached when the cap blocked it.
+function Board.moveUnit(board: Board, unitId: any, target: any, maxPlaced: number?): (boolean, string?)
 	if type(unitId) ~= "string" then
 		return false
 	end
@@ -181,7 +264,7 @@ function Board.moveUnit(board: Board, unitId: any, target: any, maxPlaced: numbe
 	end
 	local addsToBoard = unit.slot ~= nil and place.slot == nil and occupantId == nil
 	if addsToBoard and maxPlaced and Board.countPlaced(board) >= maxPlaced then
-		return false
+		return false, Board.CapReached
 	end
 
 	local from = placeOf(unit)

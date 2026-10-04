@@ -4,6 +4,7 @@ local Economy = require("../src/shared/Economy")
 local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local ShopConfig = require("../src/shared/ShopConfig")
+local UnitConfig = require("../src/shared/UnitConfig")
 
 local function expectEqual(actual, expected, label)
 	assert(actual == expected, string.format("%s: expected %s, got %s", label, tostring(expected), tostring(actual)))
@@ -58,14 +59,26 @@ table.insert(tests, {
 		expectEqual(state.gold, 4, "gold after refused buys")
 		expectEqual(state.shop[5], "Tank5", "refused buy emptied the slot")
 
-		local rich = newPlayer(100)
-		for i = 1, BoardConfig.benchSlots do
-			rich.shop[1] = "Tank1"
-			assert(PlayerState.buyUnit(rich, 1), "buy " .. i .. " refused")
+		-- Fill the bench with different units so nothing merges, then buy one more.
+		local names = {}
+		for name in UnitConfig do
+			table.insert(names, name)
 		end
-		rich.shop[1] = "Tank1"
-		assert(not PlayerState.buyUnit(rich, 1), "bought with a full bench")
-		expectEqual(rich.gold, 100 - BoardConfig.benchSlots, "gold after full-bench refusal")
+		table.sort(names)
+		local rich = newPlayer(100)
+		local spent = 0
+		for i = 1, BoardConfig.benchSlots do
+			rich.shop[1] = names[i]
+			assert(PlayerState.buyUnit(rich, 1), "buy " .. i .. " refused")
+			spent += UnitConfig[names[i]].cost
+		end
+		rich.shop[1] = names[BoardConfig.benchSlots + 1]
+		local bought, reason = PlayerState.buyUnit(rich, 1)
+		assert(not bought and reason == PlayerState.Refusal.BenchFull, "bought with a full bench")
+		expectEqual(rich.gold, 100 - spent, "gold after full-bench refusal")
+
+		local _, goldReason = PlayerState.buyUnit(newPlayer(0), 1)
+		expectEqual(goldReason, PlayerState.Refusal.NotEnoughGold, "refusal reason without gold")
 	end,
 })
 
@@ -128,13 +141,14 @@ table.insert(tests, {
 	name = "unit cap equals level and rises with it",
 	run = function()
 		local state = newPlayer(100)
-		for _ = 1, 3 do
-			state.shop[1] = "Tank1"
+		for _, unitType in { "Tank1", "Archer1", "Tank2" } do
+			state.shop[1] = unitType
 			assert(PlayerState.buyUnit(state, 1))
 		end
 		assert(PlayerState.moveUnit(state, "1", { column = 1, row = 1 }))
 		assert(PlayerState.moveUnit(state, "2", { column = 2, row = 1 }))
-		assert(not PlayerState.moveUnit(state, "3", { column = 3, row = 1 }), "third unit placed at level 2")
+		local moved, reason = PlayerState.moveUnit(state, "3", { column = 3, row = 1 })
+		assert(not moved and reason == PlayerState.Refusal.BoardFull, "third unit placed at level 2")
 		assert(PlayerState.moveUnit(state, "3", { column = 1, row = 1 }), "swap refused at the cap")
 		assert(PlayerState.buyXp(state)) -- level 3
 		assert(PlayerState.moveUnit(state, "1", { column = 3, row = 1 }), "third unit refused at level 3")

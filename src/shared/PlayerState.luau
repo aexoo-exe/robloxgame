@@ -1,7 +1,8 @@
 -- One player's match state: gold, XP, level, streak, shop and board, plus the rules for every
 -- action they can request (buy, sell, reroll, buy XP, move). Action arguments may come straight
 -- from a client, so every action validates them and returns false without changing anything when
--- the request is invalid. The phase check lives in the server.
+-- the request is invalid. A refusal the player should be told about also returns a reason from
+-- PlayerState.Refusal; malformed requests return no reason. The phase check lives in the server.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Board = if script then require(script.Parent.Board) else require("./Board")
@@ -10,11 +11,20 @@ local Economy = if script then require(script.Parent.Economy) else require("./Ec
 local EconomyConfig = if script then require(script.Parent.EconomyConfig) else require("./EconomyConfig")
 local LevelConfig = if script then require(script.Parent.LevelConfig) else require("./LevelConfig")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
+local StarLevel = if script then require(script.Parent.StarLevel) else require("./StarLevel")
 local Shop = if script then require(script.Parent.Shop) else require("./Shop")
 local ShopConfig = if script then require(script.Parent.ShopConfig) else require("./ShopConfig")
 local UnitConfig = if script then require(script.Parent.UnitConfig) else require("./UnitConfig")
 
 local PlayerState = {}
+
+-- Reasons shown to the player when a request is refused.
+PlayerState.Refusal = table.freeze({
+	NotEnoughGold = "Not enough gold",
+	BenchFull = "Bench is full",
+	BoardFull = "Board is full",
+	MaxLevel = "Already at max level",
+})
 
 export type PlayerState = {
 	gold: number,
@@ -77,46 +87,59 @@ function PlayerState.recordCombat(state: PlayerState, outcome: string)
 	state.foughtSincePreparation = true
 end
 
--- Buys the unit in a shop slot onto the bench. Refused if the slot is empty or invalid, the player
--- cannot afford it, or the bench is full.
-function PlayerState.buyUnit(state: PlayerState, slotIndex: any): boolean
+-- Buys the unit in a shop slot onto the bench, then merges any completed set of copies. Refused if
+-- the slot is empty or invalid, the player cannot afford it, or the bench is full (unless this copy
+-- completes a merge, which needs no bench slot).
+function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, string?)
 	local unitType = if type(slotIndex) == "number" then state.shop[slotIndex] else nil
 	if type(unitType) ~= "string" then
 		return false
 	end
-	local cost = UnitConfig[unitType].cost
-	if state.gold < cost or not Board.hasBenchSpace(state.board) then
-		return false
+	if state.gold < UnitConfig[unitType].cost then
+		return false, PlayerState.Refusal.NotEnoughGold
 	end
-	Board.addUnit(state.board, tostring(state.nextUnitId), unitType)
+	local benchFull = not Board.hasBenchSpace(state.board)
+	if benchFull and not Board.completesMerge(state.board, unitType) then
+		return false, PlayerState.Refusal.BenchFull
+	end
+	Board.addUnit(state.board, tostring(state.nextUnitId), unitType, benchFull)
+	Board.mergeUnits(state.board)
 	state.nextUnitId += 1
-	state.gold -= cost
+	state.gold -= UnitConfig[unitType].cost
 	state.shop[slotIndex] = false
 	return true
 end
 
--- Sells one of the player's units from the board or bench for its full cost.
+-- Sells one of the player's units from the board or bench for the total gold spent on it:
+-- its cost times the copies it contains (1, 3 or 9).
 function PlayerState.sellUnit(state: PlayerState, unitId: any): boolean
 	local unit = Board.removeUnit(state.board, unitId)
 	if not unit then
 		return false
 	end
-	state.gold += UnitConfig[unit.unitType].cost
+	state.gold += PlayerState.sellValue(unit.unitType, unit.starLevel)
 	return true
 end
 
-function PlayerState.reroll(state: PlayerState): boolean
+function PlayerState.sellValue(unitType: string, starLevel: number): number
+	return UnitConfig[unitType].cost * StarLevel.copiesIn(starLevel)
+end
+
+function PlayerState.reroll(state: PlayerState): (boolean, string?)
 	if state.gold < ShopConfig.rerollCost then
-		return false
+		return false, PlayerState.Refusal.NotEnoughGold
 	end
 	state.gold -= ShopConfig.rerollCost
 	state.shop = Shop.roll(state.rng, state.level)
 	return true
 end
 
-function PlayerState.buyXp(state: PlayerState): boolean
-	if state.level >= LevelConfig.maxLevel or state.gold < LevelConfig.buyXpCost then
-		return false
+function PlayerState.buyXp(state: PlayerState): (boolean, string?)
+	if state.level >= LevelConfig.maxLevel then
+		return false, PlayerState.Refusal.MaxLevel
+	end
+	if state.gold < LevelConfig.buyXpCost then
+		return false, PlayerState.Refusal.NotEnoughGold
 	end
 	state.gold -= LevelConfig.buyXpCost
 	state.level, state.xp = Economy.addXp(state.level, state.xp, LevelConfig.buyXpAmount)
@@ -124,8 +147,12 @@ function PlayerState.buyXp(state: PlayerState): boolean
 end
 
 -- Moves or swaps a unit. The number of units on the board is capped at the player's level.
-function PlayerState.moveUnit(state: PlayerState, unitId: any, target: any): boolean
-	return Board.moveUnit(state.board, unitId, target, state.level)
+function PlayerState.moveUnit(state: PlayerState, unitId: any, target: any): (boolean, string?)
+	local moved, reason = Board.moveUnit(state.board, unitId, target, state.level)
+	if reason == Board.CapReached then
+		return false, PlayerState.Refusal.BoardFull
+	end
+	return moved
 end
 
 function PlayerState.getView(state: PlayerState): View
