@@ -20,6 +20,13 @@ return table.freeze({
 	ownUnitColor = Color3.fromRGB(60, 140, 255),
 	enemyUnitColor = Color3.fromRGB(235, 80, 80),
 	healthBarColor = Color3.fromRGB(80, 220, 100),
+	shieldColor = Color3.fromRGB(235, 235, 235),
+	manaBarColor = Color3.fromRGB(70, 150, 255),
+	critFlashColor = Color3.fromRGB(255, 150, 40),
+	stunMarkerColor = Color3.fromRGB(255, 230, 60),
+	castTextColor = Color3.fromRGB(170, 210, 255),
+	healTextColor = Color3.fromRGB(110, 255, 140),
+	popTextDuration = 1, -- seconds floating text (casts, crits, heals) stays visible
 	hitFlashColor = Color3.fromRGB(255, 255, 255),
 	hitFlashDuration = 0.08, -- seconds
 	refusalNoticeDuration = 2, -- seconds a "request refused" message stays on screen

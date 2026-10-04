@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
@@ -17,6 +18,8 @@ local Arena = require(script.Parent.Arena)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
+
+local DASH_SECONDS = 0.15 -- dashes are instant in the sim; a short slide keeps them readable
 
 local views: { [number]: UnitView.UnitView } = {}
 local connection: RBXScriptConnection? = nil
@@ -49,22 +52,55 @@ local function play(playback)
 	for _, unit in result.units do
 		unitsByIndex[unit.index] = unit
 		local color = if unit.side == localSide then RenderConfig.ownUnitColor else RenderConfig.enemyUnitColor
-		views[unit.index] =
-			UnitView.new(unit.unitType, unit.starLevel, color, toWorld(unit.column, unit.row), Arena.folder)
+		views[unit.index] = UnitView.new(
+			unit.unitType,
+			unit.starLevel,
+			color,
+			toWorld(unit.column, unit.row),
+			Arena.folder,
+			{ maxHealth = unit.maxHealth, mana = unit.mana, maxMana = unit.maxMana }
+		)
 	end
 
+	-- Applies one CombatSim event (see the Event list in CombatSim) to the views.
 	local function apply(event)
 		local view = views[event.unit]
-		if event.kind == "Move" and view then
-			local moveSeconds = 1 / UnitConfig[unitsByIndex[event.unit].unitType].moveSpeed
-			UnitView.moveTo(view, toWorld(event.column, event.row), moveSeconds)
-		elseif event.kind == "Attack" then
-			local targetView = views[event.target]
-			if targetView then
-				UnitView.setHealth(targetView, event.health / unitsByIndex[event.target].maxHealth)
-				UnitView.flash(targetView)
+		local targetView = if event.target then views[event.target] else nil
+		local kind = event.kind
+		if kind == "Move" and view then
+			local hexesPerSecond = CombatConfig.baseMoveSpeed * UnitConfig[unitsByIndex[event.unit].unitType].moveSpeed
+			UnitView.moveTo(view, toWorld(event.column, event.row), 1 / hexesPerSecond)
+		elseif kind == "Dash" and view then
+			UnitView.moveTo(view, toWorld(event.column, event.row), DASH_SECONDS)
+		elseif kind == "Attack" or kind == "Damage" then
+			if view and event.mana then
+				UnitView.setMana(view, event.mana)
 			end
-		elseif event.kind == "Death" and view then
+			if targetView then
+				UnitView.setHealth(targetView, event.health)
+				UnitView.setShield(targetView, event.shield)
+				UnitView.setMana(targetView, event.targetMana)
+				UnitView.flash(targetView, event.crit)
+				if event.crit then
+					UnitView.popText(targetView, "CRIT " .. event.damage, RenderConfig.critFlashColor)
+				end
+			end
+		elseif kind == "Cast" and view then
+			UnitView.setMana(view, 0)
+			UnitView.popText(view, event.ability, RenderConfig.castTextColor)
+		elseif kind == "Heal" and targetView then
+			UnitView.setHealth(targetView, event.health)
+			UnitView.popText(targetView, "+" .. event.amount, RenderConfig.healTextColor)
+		elseif kind == "Shield" and targetView then
+			UnitView.setShield(targetView, event.shield)
+		elseif kind == "ShieldEnd" and view then
+			UnitView.setShield(view, 0)
+		elseif kind == "Stun" and targetView then
+			UnitView.stun(targetView, event.duration)
+		elseif kind == "Buff" and targetView then
+			local amount = if event.percent ~= 0 then event.percent .. "%" else tostring(event.flat)
+			UnitView.popText(targetView, "+" .. amount .. " " .. event.stat, RenderConfig.castTextColor)
+		elseif kind == "Death" and view then
 			UnitView.destroy(view)
 			views[event.unit] = nil
 		end

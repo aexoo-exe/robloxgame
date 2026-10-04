@@ -12,6 +12,7 @@ local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
 local UnitView = require(script.Parent.UnitView)
@@ -54,7 +55,12 @@ local function render()
 
 	for _, unit in units do
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
-		local view = UnitView.new(unit.unitType, unit.starLevel, RenderConfig.ownUnitColor, position, Arena.folder)
+		local stats = UnitConfig[unit.unitType]
+		local view = UnitView.new(unit.unitType, unit.starLevel, RenderConfig.ownUnitColor, position, Arena.folder, {
+			maxHealth = stats.health,
+			mana = stats.startingMana,
+			maxMana = stats.maxMana,
+		})
 		view.part:SetAttribute("UnitId", unit.id)
 		views[unit.id] = view
 	end
