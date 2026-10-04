@@ -130,4 +130,57 @@ table.insert(tests, {
 	end,
 })
 
+table.insert(tests, {
+	name = "Dax dives the farthest enemy, damages it, and keeps attacking it",
+	run = function()
+		local CombatSim = require("../src/shared/CombatSim")
+		for seed = 1, 10 do
+			local battle = Battle.new({
+				boards = {
+					{ { id = "dax", unitType = "Dax", column = 4, row = 4 } },
+					{
+						{ id = "near", unitType = "Kaien", column = 4, row = 4 }, -- adjacent to Dax
+						{ id = "far", unitType = "Mira", column = 4, row = 1 }, -- back row
+					},
+				},
+				columns = 7,
+				rows = 4,
+				unitTypes = UnitConfig,
+				ticksPerSecond = 20,
+				maxTicks = 1000,
+				seed = seed,
+			})
+			local dax, near, far = battle.units[1], battle.units[2], battle.units[3]
+			assert(Battle.distance(dax, near) == 1, "test setup: Kaien starts adjacent")
+			assert(Battle.distance(dax, far) > 3, "test setup: Mira starts out of dash range for adjacency")
+			dax.mana = dax.maxMana
+			dax.target = near
+			for _ = 1, 60 do
+				CombatSim.step(battle)
+			end
+
+			local dashed, abilityHit, attacksOnFar, attacksOnNear = false, false, 0, 0
+			for _, event in battle.events do
+				if event.unit == dax.index then
+					if event.kind == "Dash" then
+						dashed = true
+					elseif event.kind == "Damage" and event.target == far.index then
+						abilityHit = true
+					elseif event.kind == "Attack" and event.target == far.index then
+						attacksOnFar += 1
+					elseif event.kind == "Attack" and event.target == near.index then
+						attacksOnNear += 1
+					end
+				end
+			end
+			assert(dashed, "Dax did not dash (seed " .. seed .. ")")
+			assert(abilityHit, "Flashbreak did not hit the farthest enemy (seed " .. seed .. ")")
+			assert(
+				attacksOnFar > 0 and attacksOnNear == 0,
+				"Dax should attack Mira after the dive (seed " .. seed .. ")"
+			)
+		end
+	end,
+})
+
 return tests

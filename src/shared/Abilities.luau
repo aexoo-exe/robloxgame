@@ -12,7 +12,9 @@
 --   SHIELD       target, amount, duration
 --   STUN         target, duration
 --   BUFF         target, stat (AD, AP, AttackSpeed, Armor, MR, MoveSpeed), flat or percent, duration
---   DASH         target, distance, mode (OFFENSIVE or DEFENSIVE; OFFENSIVE if omitted)
+--   DASH         target, distance, mode (OFFENSIVE or DEFENSIVE; OFFENSIVE if omitted),
+--                setsCurrentTarget (optional; true makes the dash's target the caster's current
+--                target after the dash, whether or not the caster moved)
 --
 -- Casting: when a unit's mana is full and it is free to act, it casts. Every selector the ability
 -- uses is resolved once, before any effect, so effects naming the same selector share one target.
@@ -250,6 +252,9 @@ local APPLY = {
 			Battle.relocate(battle, caster, column, row)
 			Battle.emit(battle, { kind = "Dash", unit = caster.index, column = column, row = row })
 		end
+		if effect.setsCurrentTarget and alive(target) then
+			caster.target = target
+		end
 	end,
 }
 
@@ -296,9 +301,16 @@ function Abilities.validate(ability): (boolean, string?)
 				return false, where .. ": a buff needs flat or percent"
 			end
 			table.insert(fields, if effect.flat ~= nil then "flat" else "percent")
-		elseif effect.type == Effect.Dash and effect.mode ~= nil then
-			if effect.mode ~= Abilities.DashMode.Offensive and effect.mode ~= Abilities.DashMode.Defensive then
+		elseif effect.type == Effect.Dash then
+			if
+				effect.mode ~= nil
+				and effect.mode ~= Abilities.DashMode.Offensive
+				and effect.mode ~= Abilities.DashMode.Defensive
+			then
 				return false, where .. ": unknown dash mode " .. tostring(effect.mode)
+			end
+			if effect.setsCurrentTarget ~= nil and type(effect.setsCurrentTarget) ~= "boolean" then
+				return false, where .. ": setsCurrentTarget must be true or false"
 			end
 		end
 		for _, field in fields do

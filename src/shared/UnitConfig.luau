@@ -61,8 +61,9 @@ return freezeAll({
 		ability = {
 			name = "Starbolt",
 			effects = {
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 140, 220, 360 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 25, 35, 50 }, duration = 4 },
+				-- docs/design/balance-pass-v0.2.md: 140/220/360 -> 120/190/310, +25/35/50% -> +20/30/45%.
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 120, 190, 310 } },
+				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 20, 30, 45 }, duration = 4 },
 			},
 		},
 	},
@@ -164,8 +165,16 @@ return freezeAll({
 		ability = {
 			name = "Flashbreak",
 			effects = {
-				{ type = "DASH", target = "CURRENT_TARGET", distance = 2, mode = "OFFENSIVE" },
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 240, 380, 600 } },
+				-- docs/design/balance-pass-v0.2.md: dives the farthest enemy (was CURRENT_TARGET, 2 hexes)
+				-- and keeps attacking it; damage 240/380/600 -> 300/475/750.
+				{
+					type = "DASH",
+					target = "FARTHEST_ENEMY",
+					distance = 3,
+					mode = "OFFENSIVE",
+					setsCurrentTarget = true,
+				},
+				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 300, 475, 750 } },
 				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 30, 45, 65 }, duration = 4 },
 			},
 		},
@@ -211,7 +220,8 @@ return freezeAll({
 		ability = {
 			name = "Voidline Shot",
 			effects = {
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 350, 550, 900 } },
+				-- docs/design/balance-pass-v0.2.md: 350/550/900 -> 320/500/800.
+				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 320, 500, 800 } },
 				{ type = "STUN", target = "FARTHEST_ENEMY", duration = { 1.0, 1.5, 2.25 } },
 			},
 		},
