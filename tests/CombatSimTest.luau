@@ -15,11 +15,11 @@ end
 -- Five low-cost units spread across the front two rows, as a player might place them.
 local function playerBoard()
 	return {
-		placed("1", "Tank2", 4, 4),
-		placed("2", "Tank1", 3, 4),
-		placed("3", "Tank1", 5, 4),
-		placed("4", "Archer1", 4, 2),
-		placed("5", "Striker2", 6, 3),
+		placed("1", "Rook", 4, 4),
+		placed("2", "Kaien", 3, 4),
+		placed("3", "Kaien", 5, 4),
+		placed("4", "Mira", 4, 2),
+		placed("5", "Sena", 6, 3),
 	}
 end
 
@@ -81,7 +81,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a clearly stronger team wins on either side",
 	run = function()
-		local weak = { placed("w", "Archer1", 4, 1) }
+		local weak = { placed("w", "Mira", 4, 1) }
 		for seed = 1, 10 do
 			local asSide1 = CombatSim.run(params(playerBoard(), weak, seed))
 			assert(asSide1.winner == 1, "stronger side 1 did not win with seed " .. seed)
@@ -168,7 +168,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "side 2 is rotated into the far half of the field",
 	run = function()
-		local result = CombatSim.run(params({ placed("a", "Archer1", 1, 1) }, { placed("b", "Archer1", 1, 1) }, 1))
+		local result = CombatSim.run(params({ placed("a", "Mira", 1, 1) }, { placed("b", "Mira", 1, 1) }, 1))
 		local a, b = result.units[1], result.units[2]
 		assert(a.side == 1 and a.column == 1 and a.row == 1, "side 1 unit moved during setup")
 		assert(b.side == 2 and b.column == COLUMNS and b.row == ROWS * 2, "side 2 unit was not rotated")
@@ -176,7 +176,7 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "units never share a cell, move one cell at a time, and attack only in range",
+	name = "units never share a cell, move one cell at a time (dashes up to 3), and attack only in range",
 	run = function()
 		for seed = 1, 10 do
 			local result = CombatSim.run(params(playerBoard(), enemyBoard(5), seed))
@@ -189,12 +189,11 @@ table.insert(tests, {
 				ranges[unit.index] = UnitConfig[unit.unitType].range
 			end
 			for _, event in result.events do
-				if event.kind == "Move" then
+				if event.kind == "Move" or event.kind == "Dash" then
 					local from = positions[event.unit]
-					assert(
-						HexGrid.distance(from[1], from[2], event.column, event.row) == 1,
-						"unit moved more than one cell"
-					)
+					local limit = if event.kind == "Move" then 1 else 3 -- the longest dash in the roster
+					local moved = HexGrid.distance(from[1], from[2], event.column, event.row)
+					assert(moved >= 1 and moved <= limit, event.kind .. " covered " .. moved .. " cells")
 					for index, position in positions do
 						assert(
 							not (alive[index] and position[1] == event.column and position[2] == event.row),
@@ -209,6 +208,8 @@ table.insert(tests, {
 						HexGrid.distance(from[1], from[2], to[1], to[2]) <= ranges[event.unit],
 						"attacked out of range"
 					)
+				elseif event.kind == "Damage" then
+					assert(alive[event.unit] and alive[event.target], "a dead unit cast or was hit by an ability")
 				elseif event.kind == "Death" then
 					alive[event.unit] = nil
 				end

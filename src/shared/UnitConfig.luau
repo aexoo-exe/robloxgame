@@ -1,108 +1,276 @@
--- Placeholder roster: two units per cost tier, one frontline and one damage dealer.
--- Health, attack damage and attack speed are authored by hand inside the cost bands of
--- docs/design/unit-stats-economy.md (section 2); role decides where the budget goes (section 3).
--- Range and move speed follow the baseline archetypes: frontline (range 1, speed 1),
--- ranged damage (range 4, speed 1) and fast melee damage (range 1, speed 2).
+-- The first real roster: ten characters, two per cost, with stats and abilities exactly as in
+-- docs/design/combat-and-roster.md section 3. Abilities are pure data for the generic interpreter
+-- in Abilities.luau; per-star values are { 1-star, 2-star, 3-star }.
 --   cost              gold price and shop tier (1-5)
---   role              "Frontline" or "Damage"
---   health            hit points
---   attackDamage      damage dealt per attack
+--   role              design role (display only)
+--   health, attackDamage, abilityPower, armor, magicResist
 --   attacksPerSecond  attack rate
---   range             attack range in hex cells (1 = melee)
---   moveSpeed         cells moved per second
-return table.freeze({
-	Tank1 = table.freeze({
+--   range             attack range in hexes (1 = melee)
+--   moveSpeed         movement scalar (x CombatConfig.baseMoveSpeed hexes per second)
+--   startingMana, maxMana
+-- Crit chance and crit damage are global (CombatConfig). Star level scales only health and attack
+-- damage; ability values come from the per-star lists.
+
+local function freezeAll(value)
+	if type(value) == "table" then
+		for _, child in value do
+			freezeAll(child)
+		end
+		table.freeze(value)
+	end
+	return value
+end
+
+return freezeAll({
+	Kaien = {
+		displayName = "Kaien Vale",
 		cost = 1,
 		role = "Frontline",
-		health = 700,
-		attackDamage = 45,
-		attacksPerSecond = 0.6,
-		range = 1,
-		moveSpeed = 1,
-	}),
-	Archer1 = table.freeze({
-		cost = 1,
-		role = "Damage",
-		health = 520,
-		attackDamage = 55,
-		attacksPerSecond = 0.75,
-		range = 4,
-		moveSpeed = 1,
-	}),
-
-	Tank2 = table.freeze({
-		cost = 2,
-		role = "Frontline",
-		health = 850,
-		attackDamage = 50,
-		attacksPerSecond = 0.6,
-		range = 1,
-		moveSpeed = 1,
-	}),
-	Striker2 = table.freeze({
-		cost = 2,
-		role = "Damage",
-		health = 650,
-		attackDamage = 60,
-		attacksPerSecond = 0.8,
-		range = 1,
-		moveSpeed = 2,
-	}),
-
-	Tank3 = table.freeze({
-		cost = 3,
-		role = "Frontline",
-		health = 1000,
-		attackDamage = 55,
-		attacksPerSecond = 0.65,
-		range = 1,
-		moveSpeed = 1,
-	}),
-	Archer3 = table.freeze({
-		cost = 3,
-		role = "Damage",
 		health = 720,
-		attackDamage = 72,
-		attacksPerSecond = 0.8,
+		attackDamage = 48,
+		abilityPower = 100,
+		armor = 40,
+		magicResist = 40,
+		attacksPerSecond = 0.6,
+		range = 1,
+		moveSpeed = 1.0,
+		startingMana = 40,
+		maxMana = 90,
+		ability = {
+			name = "Iron Pulse",
+			effects = {
+				{ type = "SHIELD", target = "SELF", amount = { 180, 300, 500 }, duration = 5 },
+				{ type = "STUN", target = "CURRENT_TARGET", duration = { 1.0, 1.5, 2.25 } },
+			},
+		},
+	},
+	Mira = {
+		displayName = "Mira Quill",
+		cost = 1,
+		role = "Ranged Carry",
+		health = 540,
+		attackDamage = 62,
+		abilityPower = 100,
+		armor = 18,
+		magicResist = 18,
+		attacksPerSecond = 0.78,
 		range = 4,
-		moveSpeed = 1,
-	}),
+		moveSpeed = 1.0,
+		startingMana = 20,
+		maxMana = 80,
+		ability = {
+			name = "Starbolt",
+			effects = {
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 140, 220, 360 } },
+				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 25, 35, 50 }, duration = 4 },
+			},
+		},
+	},
 
-	Tank4 = table.freeze({
-		cost = 4,
-		role = "Frontline",
-		health = 1150,
-		attackDamage = 60,
-		attacksPerSecond = 0.65,
+	Rook = {
+		displayName = "Rook Ember",
+		cost = 2,
+		role = "Bruiser",
+		health = 850,
+		attackDamage = 66,
+		abilityPower = 100,
+		armor = 38,
+		magicResist = 32,
+		attacksPerSecond = 0.68,
 		range = 1,
-		moveSpeed = 1,
-	}),
-	Striker4 = table.freeze({
-		cost = 4,
-		role = "Damage",
-		health = 820,
-		attackDamage = 85,
-		attacksPerSecond = 0.9,
-		range = 1,
-		moveSpeed = 2,
-	}),
-
-	Tank5 = table.freeze({
-		cost = 5,
-		role = "Frontline",
-		health = 1350,
-		attackDamage = 70,
+		moveSpeed = 1.0,
+		startingMana = 30,
+		maxMana = 90,
+		ability = {
+			name = "Meteor Knuckle",
+			effects = {
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 180, 290, 470 } },
+				-- The spec gives no center; the target of the punch is used.
+				{
+					type = "AREA_DAMAGE",
+					center = "CURRENT_TARGET",
+					radius = 1,
+					damageType = "MAGIC",
+					amount = { 80, 130, 220 },
+				},
+			},
+		},
+	},
+	Sena = {
+		displayName = "Sena Lume",
+		cost = 2,
+		role = "Support",
+		health = 650,
+		attackDamage = 48,
+		abilityPower = 100,
+		armor = 25,
+		magicResist = 35,
 		attacksPerSecond = 0.7,
-		range = 1,
-		moveSpeed = 1,
-	}),
-	Archer5 = table.freeze({
-		cost = 5,
-		role = "Damage",
-		health = 920,
-		attackDamage = 95,
-		attacksPerSecond = 0.95,
+		range = 3,
+		moveSpeed = 1.0,
+		startingMana = 40,
+		maxMana = 100,
+		ability = {
+			name = "Moonveil",
+			effects = {
+				{ type = "SHIELD", target = "LOWEST_HP_ALLY", amount = { 180, 300, 480 }, duration = 5 },
+				{ type = "HEAL", target = "LOWEST_HP_ALLY", amount = { 100, 160, 260 } },
+			},
+		},
+	},
+
+	Veyra = {
+		displayName = "Veyra Storm",
+		cost = 3,
+		role = "Caster",
+		health = 720,
+		attackDamage = 55,
+		abilityPower = 100,
+		armor = 25,
+		magicResist = 30,
+		attacksPerSecond = 0.72,
 		range = 4,
-		moveSpeed = 1,
-	}),
+		moveSpeed = 1.0,
+		startingMana = 20,
+		maxMana = 80,
+		ability = {
+			name = "Tempest Core",
+			effects = {
+				{
+					type = "AREA_DAMAGE",
+					center = "CURRENT_TARGET",
+					radius = 1,
+					damageType = "MAGIC",
+					amount = { 260, 420, 680 },
+				},
+				{ type = "STUN", target = "CURRENT_TARGET", duration = { 1.0, 1.5, 2.0 } },
+			},
+		},
+	},
+	Dax = {
+		displayName = "Dax Ironwind",
+		cost = 3,
+		role = "Duelist",
+		health = 850,
+		attackDamage = 76,
+		abilityPower = 100,
+		armor = 35,
+		magicResist = 30,
+		attacksPerSecond = 0.85,
+		range = 1,
+		moveSpeed = 1.1,
+		startingMana = 30,
+		maxMana = 90,
+		ability = {
+			name = "Flashbreak",
+			effects = {
+				{ type = "DASH", target = "CURRENT_TARGET", distance = 2, mode = "OFFENSIVE" },
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 240, 380, 600 } },
+				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 30, 45, 65 }, duration = 4 },
+			},
+		},
+	},
+
+	Orin = {
+		displayName = "Orin Bastion",
+		cost = 4,
+		role = "Main Tank",
+		health = 1180,
+		attackDamage = 58,
+		abilityPower = 100,
+		armor = 60,
+		magicResist = 60,
+		attacksPerSecond = 0.6,
+		range = 1,
+		moveSpeed = 0.9,
+		startingMana = 50,
+		maxMana = 110,
+		ability = {
+			name = "Unbroken Citadel",
+			effects = {
+				{ type = "SHIELD", target = "SELF", amount = { 450, 700, 1100 }, duration = 6 },
+				{ type = "BUFF", target = "SELF", stat = "Armor", flat = { 30, 45, 70 }, duration = 6 },
+				{ type = "BUFF", target = "SELF", stat = "MR", flat = { 30, 45, 70 }, duration = 6 },
+			},
+		},
+	},
+	Nyra = {
+		displayName = "Nyra Voss",
+		cost = 4,
+		role = "Ranged Carry",
+		health = 820,
+		attackDamage = 88,
+		abilityPower = 100,
+		armor = 28,
+		magicResist = 28,
+		attacksPerSecond = 0.9,
+		range = 4,
+		moveSpeed = 1.0,
+		startingMana = 20,
+		maxMana = 80,
+		ability = {
+			name = "Voidline Shot",
+			effects = {
+				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 350, 550, 900 } },
+				{ type = "STUN", target = "FARTHEST_ENEMY", duration = { 1.0, 1.5, 2.25 } },
+			},
+		},
+	},
+
+	Astra = {
+		displayName = "Astra Ren",
+		cost = 5,
+		role = "Mystic Carry",
+		health = 980,
+		attackDamage = 75,
+		abilityPower = 100,
+		armor = 38,
+		magicResist = 45,
+		attacksPerSecond = 0.85,
+		range = 4,
+		moveSpeed = 1.0,
+		startingMana = 30,
+		maxMana = 100,
+		ability = {
+			name = "Falling Constellation",
+			effects = {
+				{
+					type = "AREA_DAMAGE",
+					center = "HIGHEST_AD_ENEMY",
+					radius = 2,
+					damageType = "MAGIC",
+					amount = { 400, 650, 1050 },
+				},
+			},
+		},
+	},
+	Kairo = {
+		displayName = "Kairo Zenith",
+		cost = 5,
+		role = "Vanguard Carry",
+		health = 1250,
+		attackDamage = 96,
+		abilityPower = 100,
+		armor = 60,
+		magicResist = 50,
+		attacksPerSecond = 0.8,
+		range = 1,
+		moveSpeed = 1.1,
+		startingMana = 40,
+		maxMana = 110,
+		ability = {
+			name = "Heavenbreaker",
+			effects = {
+				{ type = "DASH", target = "HIGHEST_AD_ENEMY", distance = 3, mode = "OFFENSIVE" },
+				{
+					type = "AREA_DAMAGE",
+					center = "SELF",
+					radius = 1,
+					damageType = "MAGIC",
+					amount = { 400, 650, 1050 },
+				},
+				{ type = "SHIELD", target = "SELF", amount = { 300, 500, 800 }, duration = 5 },
+			},
+		},
+	},
 })

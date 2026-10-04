@@ -14,7 +14,7 @@ end
 local function newPlayer(gold)
 	local state = PlayerState.new(1)
 	state.gold = gold or 10
-	state.shop = { "Tank1", "Archer1", "Tank1", "Archer3", "Tank5" }
+	state.shop = { "Kaien", "Mira", "Kaien", "Veyra", "Kairo" }
 	return state
 end
 
@@ -40,7 +40,7 @@ table.insert(tests, {
 		expectEqual(state.gold, 7, "gold after buying a 3-cost")
 		expectEqual(state.shop[4], false, "bought slot")
 		local units = Board.getUnits(state.board)
-		assert(#units == 1 and units[1].unitType == "Archer3" and units[1].slot == 1, "unit not on the bench")
+		assert(#units == 1 and units[1].unitType == "Veyra" and units[1].slot == 1, "unit not on the bench")
 		expectEqual(units[1].starLevel, 1, "star level")
 		assert(not PlayerState.buyUnit(state, 4), "bought an empty slot")
 		expectEqual(state.gold, 7, "gold after refused buy")
@@ -57,7 +57,7 @@ table.insert(tests, {
 		end
 		assert(not PlayerState.buyUnit(state, 5), "bought a 5-cost with 4 gold")
 		expectEqual(state.gold, 4, "gold after refused buys")
-		expectEqual(state.shop[5], "Tank5", "refused buy emptied the slot")
+		expectEqual(state.shop[5], "Kairo", "refused buy emptied the slot")
 
 		-- Fill the bench with different units so nothing merges, then buy one more.
 		local names = {}
@@ -141,7 +141,7 @@ table.insert(tests, {
 	name = "unit cap equals level and rises with it",
 	run = function()
 		local state = newPlayer(100)
-		for _, unitType in { "Tank1", "Archer1", "Tank2" } do
+		for _, unitType in { "Kaien", "Mira", "Rook" } do
 			state.shop[1] = unitType
 			assert(PlayerState.buyUnit(state, 1))
 		end

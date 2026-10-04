@@ -40,12 +40,12 @@ table.insert(tests, {
 	name = "three 1-star bench copies merge into one 2-star in the lowest-numbered slot",
 	run = function()
 		local state = newPlayer(10)
-		buy(state, "Archer1") -- slot 1
-		buy(state, "Tank1", 2) -- slots 2, 3
-		assert(PlayerState.moveUnit(state, "2", { slot = 5 })) -- Tank1 copies now in slots 3 and 5
-		buy(state, "Tank1") -- lands in free slot 2 and completes the set
-		local tanks = unitsOf(state, "Tank1")
-		expectEqual(#tanks, 1, "Tank1 units after merge")
+		buy(state, "Mira") -- slot 1
+		buy(state, "Kaien", 2) -- slots 2, 3
+		assert(PlayerState.moveUnit(state, "2", { slot = 5 })) -- Kaien copies now in slots 3 and 5
+		buy(state, "Kaien") -- lands in free slot 2 and completes the set
+		local tanks = unitsOf(state, "Kaien")
+		expectEqual(#tanks, 1, "Kaien units after merge")
 		expectEqual(tanks[1].starLevel, 2, "merged star level")
 		expectEqual(tanks[1].slot, 2, "merged unit takes the lowest-numbered bench slot")
 		expectEqual(#Board.getUnits(state.board), 2, "units after merge")
@@ -57,11 +57,11 @@ table.insert(tests, {
 	name = "a board copy keeps its cell when merging with bench copies",
 	run = function()
 		local state = newPlayer(10)
-		buy(state, "Tank1", 2)
+		buy(state, "Kaien", 2)
 		assert(PlayerState.moveUnit(state, "2", { column = 3, row = 4 }))
-		buy(state, "Tank1")
-		local tanks = unitsOf(state, "Tank1")
-		expectEqual(#tanks, 1, "Tank1 units after merge")
+		buy(state, "Kaien")
+		local tanks = unitsOf(state, "Kaien")
+		expectEqual(#tanks, 1, "Kaien units after merge")
 		assert(tanks[1].starLevel == 2 and tanks[1].column == 3 and tanks[1].row == 4, "merged unit not on the board")
 		expectEqual(Board.countPlaced(state.board), 1, "units on the board")
 		for slot = 1, BoardConfig.benchSlots do
@@ -74,12 +74,12 @@ table.insert(tests, {
 	name = "merges chain: the ninth copy turns three 2-stars into a 3-star",
 	run = function()
 		local state = newPlayer(100)
-		buy(state, "Tank2", 8)
-		local tanks = unitsOf(state, "Tank2")
+		buy(state, "Rook", 8)
+		local tanks = unitsOf(state, "Rook")
 		expectEqual(#tanks, 4, "after 8 copies: two 2-stars and two 1-stars")
-		buy(state, "Tank2")
-		tanks = unitsOf(state, "Tank2")
-		expectEqual(#tanks, 1, "Tank2 units after the ninth copy")
+		buy(state, "Rook")
+		tanks = unitsOf(state, "Rook")
+		expectEqual(#tanks, 1, "Rook units after the ninth copy")
 		expectEqual(tanks[1].starLevel, 3, "chained star level")
 		expectEqual(state.gold, 100 - 9 * 2, "gold after nine 2-cost buys")
 	end,
@@ -89,15 +89,15 @@ table.insert(tests, {
 	name = "different star levels and 3-stars do not merge",
 	run = function()
 		local board = Board.new(7, 4, 9)
-		Board.addUnit(board, "a", "Tank1")
-		Board.addUnit(board, "b", "Tank1")
-		Board.addUnit(board, "c", "Tank1")
+		Board.addUnit(board, "a", "Kaien")
+		Board.addUnit(board, "b", "Kaien")
+		Board.addUnit(board, "c", "Kaien")
 		board.units.c.starLevel = 2
 		expectEqual(#Board.mergeUnits(board), 0, "1-star + 1-star + 2-star merged")
 
 		local maxed = Board.new(7, 4, 9)
 		for _, id in { "x", "y", "z" } do
-			Board.addUnit(maxed, id, "Tank1")
+			Board.addUnit(maxed, id, "Kaien")
 			maxed.units[id].starLevel = 3
 		end
 		expectEqual(#Board.mergeUnits(maxed), 0, "three 3-stars merged")
@@ -108,19 +108,19 @@ table.insert(tests, {
 	name = "a full bench allows a purchase that completes a merge, and only that",
 	run = function()
 		local state = newPlayer(100)
-		buy(state, "Tank1", 2)
-		for _, unitType in { "Archer1", "Tank2", "Striker2", "Tank3", "Archer3", "Tank4", "Striker4" } do
+		buy(state, "Kaien", 2)
+		for _, unitType in { "Mira", "Rook", "Sena", "Dax", "Veyra", "Orin", "Nyra" } do
 			buy(state, unitType)
 		end
 		assert(not Board.hasBenchSpace(state.board), "bench should be full")
 
-		state.shop[1] = "Tank5"
+		state.shop[1] = "Kairo"
 		local bought, reason = PlayerState.buyUnit(state, 1)
 		assert(not bought and reason == PlayerState.Refusal.BenchFull, "non-merging buy allowed on a full bench")
 
 		local gold = state.gold
-		buy(state, "Tank1")
-		local tanks = unitsOf(state, "Tank1")
+		buy(state, "Kaien")
+		local tanks = unitsOf(state, "Kaien")
 		assert(#tanks == 1 and tanks[1].starLevel == 2 and tanks[1].slot == 1, "full-bench merge")
 		expectEqual(state.gold, gold - 1, "gold after the merging buy")
 		assert(Board.hasBenchSpace(state.board), "merge did not free bench slots")
@@ -133,14 +133,14 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "sell value is the total gold spent: cost x1, x3, x9",
 	run = function()
-		expectEqual(PlayerState.sellValue("Tank3", 1), 3, "1-star 3-cost")
-		expectEqual(PlayerState.sellValue("Tank3", 2), 9, "2-star 3-cost")
-		expectEqual(PlayerState.sellValue("Tank3", 3), 27, "3-star 3-cost")
+		expectEqual(PlayerState.sellValue("Dax", 1), 3, "1-star 3-cost")
+		expectEqual(PlayerState.sellValue("Dax", 2), 9, "2-star 3-cost")
+		expectEqual(PlayerState.sellValue("Dax", 3), 27, "3-star 3-cost")
 
 		local state = newPlayer(20)
-		buy(state, "Archer3", 3)
+		buy(state, "Veyra", 3)
 		expectEqual(state.gold, 11, "gold after buying three 3-costs")
-		local archer = unitsOf(state, "Archer3")[1]
+		local archer = unitsOf(state, "Veyra")[1]
 		assert(PlayerState.sellUnit(state, archer.id), "sell refused")
 		expectEqual(state.gold, 20, "selling a 2-star refunds all three copies")
 	end,
@@ -149,18 +149,21 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "stat scaling: health x1.8 / x3.24 and attack damage x1.5 / x2.25; nothing else",
 	run = function()
-		local base = UnitConfig.Tank1 -- 700 health, 45 attack damage
+		local base = UnitConfig.Kaien -- 720 health, 48 attack damage
 		local two = StarLevel.scaleStats(base, 2)
 		local three = StarLevel.scaleStats(base, 3)
-		expectEqual(StarLevel.scaleStats(base, 1).health, 700, "1-star health")
-		expectEqual(two.health, 1260, "2-star health")
-		expectEqual(three.health, 2268, "3-star health")
-		expectEqual(two.attackDamage, 68, "2-star attack damage (67.5 rounded)")
-		expectEqual(three.attackDamage, 101, "3-star attack damage (101.25 rounded)")
-		for _, stat in { "attacksPerSecond", "range", "moveSpeed", "cost", "role" } do
+		expectEqual(StarLevel.scaleStats(base, 1).health, 720, "1-star health")
+		expectEqual(two.health, 1296, "2-star health")
+		expectEqual(three.health, 2333, "3-star health (2332.8 rounded)")
+		expectEqual(two.attackDamage, 72, "2-star attack damage")
+		expectEqual(three.attackDamage, 108, "3-star attack damage")
+		for _, stat in
+			{ "attacksPerSecond", "range", "moveSpeed", "cost", "armor", "magicResist", "abilityPower", "maxMana" }
+		do
 			expectEqual(three[stat], base[stat], "3-star " .. stat)
 		end
-		expectEqual(base.health, 700, "base stats were changed")
+		assert(three.ability == base.ability, "the ability table should not change with star level")
+		expectEqual(base.health, 720, "base stats were changed")
 	end,
 })
 
@@ -178,8 +181,8 @@ table.insert(tests, {
 	run = function()
 		local result = CombatSim.run({
 			boards = {
-				{ { id = "a", unitType = "Tank1", starLevel = 2, column = 4, row = 4 } },
-				{ { id = "b", unitType = "Tank1", column = 4, row = 4 } },
+				{ { id = "a", unitType = "Kaien", starLevel = 2, column = 4, row = 4 } },
+				{ { id = "b", unitType = "Kaien", column = 4, row = 4 } },
 			},
 			columns = 7,
 			rows = 4,
@@ -189,12 +192,13 @@ table.insert(tests, {
 			seed = 1,
 			critChance = 0, -- exact damage
 		})
-		expectEqual(result.units[1].maxHealth, 1260, "2-star max health")
+		expectEqual(result.units[1].maxHealth, 1296, "2-star max health")
 		expectEqual(result.units[1].starLevel, 2, "2-star summary")
-		expectEqual(result.units[2].maxHealth, 700, "1-star max health (star level omitted)")
+		expectEqual(result.units[2].maxHealth, 720, "1-star max health (star level omitted)")
+		-- Kaien has 40 armor: 72 x 100/140 = 51.4 -> 51, and 48 x 100/140 = 34.3 -> 34.
 		for _, event in result.events do
 			if event.kind == "Attack" then
-				local expected = if event.unit == 1 then 68 else 45
+				local expected = if event.unit == 1 then 51 else 34
 				expectEqual(event.damage, expected, "damage by unit " .. event.unit)
 			end
 		end

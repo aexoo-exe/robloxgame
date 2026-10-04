@@ -2,8 +2,8 @@
 -- rules (buying, selling, rerolling, buying XP) and then chooses which units to field.
 --
 -- Placement is simplified: the bot returns a list of placed units for CombatSim directly instead of
--- moving them on its Board one by one. It always fields its best `level` units: frontline in the
--- front row, ranged units in the back row, fast melee in between.
+-- moving them on its Board one by one. It always fields its best `level` units: melee units in
+-- the front rows, units with range 4+ in the back rows, and shorter ranges in between.
 
 local Board = require("../src/shared/Board")
 local PlayerState = require("../src/shared/PlayerState")
@@ -30,7 +30,17 @@ Bot.policies = {
 	{ name = "greedy", keepGold = 50, seeksCopies = false },
 }
 
-local ROW_ORDER = { 4, 3, 5, 2, 6, 1, 7 }
+local COLUMN_ORDER = { 4, 3, 5, 2, 6, 1, 7 }
+
+-- Rows to fill, in order, by attack range.
+local function rowsFor(range: number): { number }
+	if range <= 1 then
+		return { 4, 3, 2, 1 }
+	elseif range >= 4 then
+		return { 1, 2, 3, 4 }
+	end
+	return { 2, 1, 3, 4 }
+end
 
 local function strength(unit): number
 	return UnitConfig[unit.unitType].cost * 3 ^ (unit.starLevel - 1)
@@ -113,23 +123,26 @@ function Bot.prepare(state, policy: Policy): { any }
 		return strength(a) > strength(b)
 	end)
 	local placed = {}
-	local used = { [4] = 0, [3] = 0, [1] = 0 }
+	local taken = {}
 	for index = 1, math.min(state.level, #owned) do
 		local unit = owned[index]
-		local stats = UnitConfig[unit.unitType]
-		local row = if stats.role == "Frontline" then 4 elseif stats.range > 1 then 1 else 3
-		used[row] += 1
-		if used[row] > #ROW_ORDER then
-			row = 2 -- overflow row
-			used[row] = (used[row] or 0) + 1
+		local found = false
+		for _, row in rowsFor(UnitConfig[unit.unitType].range) do
+			for _, column in COLUMN_ORDER do
+				local key = row * 10 + column
+				if not found and not taken[key] then
+					taken[key] = true
+					found = true
+					table.insert(placed, {
+						id = unit.id,
+						unitType = unit.unitType,
+						starLevel = unit.starLevel,
+						column = column,
+						row = row,
+					})
+				end
+			end
 		end
-		table.insert(placed, {
-			id = unit.id,
-			unitType = unit.unitType,
-			starLevel = unit.starLevel,
-			column = ROW_ORDER[used[row]],
-			row = row,
-		})
 	end
 	return placed
 end
