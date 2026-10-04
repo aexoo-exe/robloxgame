@@ -16,6 +16,7 @@ local suites = {
 	{ name = "MatchRules", tests = require("./MatchRulesTest") },
 	{ name = "Pairing", tests = require("./PairingTest") },
 	{ name = "Match", tests = require("./MatchTest") },
+	{ name = "CombatMath", tests = require("./CombatMathTest") },
 }
 
 local passed = 0

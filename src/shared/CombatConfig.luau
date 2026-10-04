@@ -15,6 +15,16 @@ return table.freeze({
 	-- within this fraction (1 percentage point) of each other. docs/design/match-structure.md section 6.
 	timeoutDrawMargin = 0.01,
 
+	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.
+	critChance = 0.25, -- per basic attack; abilities cannot crit
+	critDamage = 1.4, -- multiplier on the raw basic-attack damage
+	baseAbilityPower = 100, -- magic ability damage, heals and shields scale by AP / this
+	manaPerAttack = 10, -- gained by the attacker for each completed basic attack
+	manaPerPercentHealthLost = 5, -- gained per 1% of max health lost to post-mitigation damage
+	maxManaPerDamage = 10, -- cap on mana gained from one damage event
+	castTime = 0.75, -- seconds a caster cannot act after casting
+	baseMoveSpeed = 1, -- hexes per second at a unit's move speed scalar of 1.0
+
 	-- Opponents for a player who is alone, by round. Round n uses entry n; rounds past the end of
 	-- the list reuse the last entry. Positions are in the enemy's own board coordinates
 	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.
