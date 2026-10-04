@@ -4,3 +4,6 @@ local SyncCheck = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 
 print("robloxgame client is alive!")
 print("[client]", SyncCheck.message)
+
+local PhaseDisplay = require(script.PhaseDisplay)
+PhaseDisplay.start()
