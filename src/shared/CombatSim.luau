@@ -14,6 +14,7 @@
 
 local HexGrid = if script then require(script.Parent.HexGrid) else require("./HexGrid")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
+local StarLevel = if script then require(script.Parent.StarLevel) else require("./StarLevel")
 
 local CombatSim = {}
 
@@ -29,6 +30,7 @@ export type UnitStats = {
 export type PlacedUnit = {
 	id: string,
 	unitType: string,
+	starLevel: number?, -- 1 if omitted
 	column: number,
 	row: number,
 }
@@ -49,6 +51,7 @@ export type UnitSummary = {
 	side: number,
 	id: string,
 	unitType: string,
+	starLevel: number,
 	column: number,
 	row: number,
 	maxHealth: number,
@@ -96,7 +99,9 @@ function CombatSim.run(params: Params): Result
 			if side == 2 then
 				column, row = HexGrid.rotateHalfTurn(column, row, columns, fieldRows)
 			end
-			local stats = params.unitTypes[placed.unitType]
+			-- Star scaling is applied here, once, as the unit enters combat.
+			local starLevel = placed.starLevel or 1
+			local stats = StarLevel.scaleStats(params.unitTypes[placed.unitType], starLevel)
 			local unit = {
 				index = #units + 1,
 				side = side,
@@ -117,6 +122,7 @@ function CombatSim.run(params: Params): Result
 				side = side,
 				id = placed.id,
 				unitType = placed.unitType,
+				starLevel = starLevel,
 				column = column,
 				row = row,
 				maxHealth = stats.health,

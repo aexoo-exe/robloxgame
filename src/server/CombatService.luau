@@ -28,6 +28,7 @@ local function enemySide(round: number): Side
 		table.insert(units, {
 			id = "E" .. i,
 			unitType = placement.unitType,
+			starLevel = placement.starLevel,
 			column = placement.column,
 			row = placement.row,
 		})

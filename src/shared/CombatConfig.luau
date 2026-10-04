@@ -1,7 +1,7 @@
 -- Combat simulation settings. The combat time limit is MatchConfig.combatMaxDuration.
 
-local function unit(unitType: string, column: number, row: number)
-	return table.freeze({ unitType = unitType, column = column, row = row })
+local function unit(unitType: string, column: number, row: number, starLevel: number?)
+	return table.freeze({ unitType = unitType, column = column, row = row, starLevel = starLevel or 1 })
 end
 
 return table.freeze({
