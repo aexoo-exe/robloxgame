@@ -7,6 +7,7 @@ local process = require("@lune/process")
 local suites = {
 	{ name = "HexGrid", tests = require("./HexGridTest") },
 	{ name = "Board", tests = require("./BoardTest") },
+	{ name = "CombatSim", tests = require("./CombatSimTest") },
 }
 
 local passed = 0
