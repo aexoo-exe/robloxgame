@@ -64,15 +64,71 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "rejects occupied cells and slots",
+	name = "moving onto an occupied place swaps the two units",
 	run = function()
 		local board = newBoard()
+
+		-- Bench <-> bench
+		assert(Board.moveUnit(board, "a", { slot = 2 }), "bench swap refused")
+		assert(findUnit(board, "a").slot == 2 and findUnit(board, "b").slot == 1, "bench swap")
+
+		-- Bench <-> board
 		assert(Board.moveUnit(board, "a", { column = 2, row = 2 }))
-		assert(not Board.moveUnit(board, "b", { column = 2, row = 2 }), "moved onto an occupied cell")
-		assert(not Board.moveUnit(board, "a", { column = 2, row = 2 }), "moved onto its own cell")
-		assert(Board.moveUnit(board, "a", { slot = 5 }))
-		assert(not Board.moveUnit(board, "b", { slot = 5 }), "moved onto an occupied slot")
-		assert(findUnit(board, "b").slot == 2, "rejected move changed state")
+		assert(Board.moveUnit(board, "b", { column = 2, row = 2 }), "bench -> occupied cell refused")
+		local a, b = findUnit(board, "a"), findUnit(board, "b")
+		assert(b.column == 2 and b.row == 2 and a.slot == 1 and a.column == nil, "bench/board swap")
+
+		-- Board <-> board
+		assert(Board.moveUnit(board, "a", { column = 5, row = 3 }))
+		assert(Board.moveUnit(board, "a", { column = 2, row = 2 }), "cell swap refused")
+		a, b = findUnit(board, "a"), findUnit(board, "b")
+		assert(a.column == 2 and a.row == 2 and b.column == 5 and b.row == 3, "cell swap")
+
+		-- Board -> occupied bench slot
+		assert(Board.addUnit(board, "c", "Tank1"))
+		local cSlot = findUnit(board, "c").slot
+		assert(Board.moveUnit(board, "a", { slot = cSlot }), "board -> occupied slot refused")
+		local c = findUnit(board, "c")
+		assert(findUnit(board, "a").slot == cSlot and c.column == 2 and c.row == 2, "board/bench swap")
+
+		assert(not Board.moveUnit(board, "a", { slot = cSlot }), "moved onto its own place")
+		assert(Board.countPlaced(board) == 2, "swaps changed the number of placed units")
+	end,
+})
+
+table.insert(tests, {
+	name = "unit cap refuses extra units on the board but allows swaps",
+	run = function()
+		local board = newBoard()
+		assert(Board.addUnit(board, "c", "Tank1"))
+		assert(Board.moveUnit(board, "a", { column = 1, row = 1 }, 2))
+		assert(Board.moveUnit(board, "b", { column = 2, row = 1 }, 2))
+		assert(not Board.moveUnit(board, "c", { column = 3, row = 1 }, 2), "placed a third unit at cap 2")
+		assert(findUnit(board, "c").slot ~= nil, "refused move changed state")
+		assert(Board.moveUnit(board, "c", { column = 1, row = 1 }, 2), "bench/board swap refused at cap")
+		assert(Board.moveUnit(board, "c", { column = 4, row = 4 }, 2), "board -> board move refused at cap")
+		assert(Board.countPlaced(board) == 2, "expected 2 placed units")
+		assert(Board.moveUnit(board, "a", { column = 3, row = 1 }, 3), "move refused under a higher cap")
+	end,
+})
+
+table.insert(tests, {
+	name = "units start at 1 star, and removing frees their place",
+	run = function()
+		local board = newBoard()
+		assert(findUnit(board, "a").starLevel == 1, "new unit is not 1-star")
+		assert(Board.moveUnit(board, "a", { column = 3, row = 3 }))
+		local removed = Board.removeUnit(board, "a")
+		assert(removed and removed.unitType == "Tank1", "removeUnit did not return the unit")
+		assert(findUnit(board, "a") == nil and Board.countPlaced(board) == 0, "unit still on the board")
+		assert(Board.moveUnit(board, "b", { column = 3, row = 3 }), "cell was not freed")
+		assert(Board.removeUnit(board, "a") == nil, "removed a unit twice")
+		assert(Board.removeUnit(board, 5) == nil, "accepted a non-string id")
+
+		local full = Board.new(7, 4, 1)
+		assert(Board.hasBenchSpace(full), "empty bench has no space")
+		assert(Board.addUnit(full, "x", "Tank1"))
+		assert(not Board.hasBenchSpace(full), "full bench has space")
 	end,
 })
 

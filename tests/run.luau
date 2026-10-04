@@ -11,6 +11,7 @@ local suites = {
 	{ name = "Roster", tests = require("./RosterTest") },
 	{ name = "Economy", tests = require("./EconomyTest") },
 	{ name = "Shop", tests = require("./ShopTest") },
+	{ name = "PlayerState", tests = require("./PlayerStateTest") },
 }
 
 local passed = 0
