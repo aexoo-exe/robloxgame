@@ -4,3 +4,13 @@ local SyncCheck = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 
 print("robloxgame client is alive!")
 print("[client]", SyncCheck.message)
+
+local Arena = require(script.Arena)
+local BoardController = require(script.BoardController)
+local CombatPlayback = require(script.CombatPlayback)
+local PhaseDisplay = require(script.PhaseDisplay)
+
+Arena.start()
+BoardController.start()
+CombatPlayback.start()
+PhaseDisplay.start()
