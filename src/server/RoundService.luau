@@ -5,13 +5,16 @@
 --   Phase        string  current phase (see Shared.Phase)
 --   PhaseEndsAt  number  workspace:GetServerTimeNow() when the phase ends (0 if untimed)
 --   Round        number  current round, starting at 1
---   LastResult   string  result of the most recent combat
+--   LastResult   string  result of the most recent combat, e.g. "Player1 wins" or "Draw"
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local Phase = require(ReplicatedStorage.Shared.Phase)
+
+local BoardService = require(script.Parent.BoardService)
+local CombatService = require(script.Parent.CombatService)
 
 local RoundService = {}
 
@@ -29,13 +32,6 @@ local function hasEnoughPlayers(): boolean
 	return #Players:GetPlayers() >= MatchConfig.minPlayersToStart
 end
 
--- Placeholder until units exist: combat always runs to the time limit and ends in a draw.
--- Real combat replaces this function and may return early once a winner is decided.
-local function runCombat(): string
-	task.wait(MatchConfig.combatMaxDuration)
-	return "Draw"
-end
-
 local function runLoop()
 	while true do
 		if not hasEnoughPlayers() then
@@ -48,11 +44,14 @@ local function runLoop()
 		matchState:SetAttribute("Round", matchState:GetAttribute("Round") + 1)
 
 		setPhase(Phase.Preparation, MatchConfig.preparationDuration)
+		BoardService.beginPreparation()
 		task.wait(MatchConfig.preparationDuration)
 
-		setPhase(Phase.Combat, MatchConfig.combatMaxDuration)
-		local result = runCombat()
-		matchState:SetAttribute("LastResult", result)
+		-- The fight is simulated instantly; the Combat phase lasts as long as its playback.
+		local combatDuration, resultText = CombatService.run(BoardService.lockBoards())
+		setPhase(Phase.Combat, combatDuration)
+		task.wait(combatDuration)
+		matchState:SetAttribute("LastResult", resultText)
 
 		setPhase(Phase.Results, MatchConfig.resultsDuration)
 		task.wait(MatchConfig.resultsDuration)
