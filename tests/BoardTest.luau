@@ -169,13 +169,8 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "config: starting units and every enemy board are valid",
+	name = "config: every enemy board is valid",
 	run = function()
-		assert(#BoardConfig.startingUnits <= BoardConfig.benchSlots, "starting units do not fit on the bench")
-		for _, unitType in BoardConfig.startingUnits do
-			assert(UnitConfig[unitType], "unknown starting unit " .. unitType)
-		end
-
 		assert(#CombatConfig.enemyBoardsByRound > 0, "no enemy boards")
 		for round, placements in CombatConfig.enemyBoardsByRound do
 			local enemy = Board.new(BoardConfig.columns, BoardConfig.rows, 0)

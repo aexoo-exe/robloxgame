@@ -13,8 +13,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local Phase = require(ReplicatedStorage.Shared.Phase)
 
-local BoardService = require(script.Parent.BoardService)
 local CombatService = require(script.Parent.CombatService)
+local PlayerService = require(script.Parent.PlayerService)
 
 local RoundService = {}
 
@@ -44,14 +44,15 @@ local function runLoop()
 		matchState:SetAttribute("Round", matchState:GetAttribute("Round") + 1)
 
 		setPhase(Phase.Preparation, MatchConfig.preparationDuration)
-		BoardService.beginPreparation()
+		PlayerService.beginPreparation()
 		task.wait(MatchConfig.preparationDuration)
 
 		-- The fight is simulated instantly; the Combat phase lasts as long as its playback.
-		local combatDuration, resultText =
-			CombatService.run(BoardService.lockBoards(), matchState:GetAttribute("Round"))
+		local combatDuration, resultText, outcomes =
+			CombatService.run(PlayerService.lockBoards(), matchState:GetAttribute("Round"))
 		setPhase(Phase.Combat, combatDuration)
 		task.wait(combatDuration)
+		PlayerService.recordCombat(outcomes)
 		matchState:SetAttribute("LastResult", resultText)
 
 		setPhase(Phase.Results, MatchConfig.resultsDuration)

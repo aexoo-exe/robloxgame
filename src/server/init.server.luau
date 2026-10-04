@@ -5,10 +5,10 @@ local SyncCheck = require(ReplicatedStorage.Shared.SyncCheck)
 print("robloxgame server is alive! ^w^")
 print("[server]", SyncCheck.message)
 
-local BoardService = require(script.BoardService)
 local CombatService = require(script.CombatService)
+local PlayerService = require(script.PlayerService)
 local RoundService = require(script.RoundService)
 
-BoardService.start()
+PlayerService.start()
 CombatService.start()
 RoundService.start()

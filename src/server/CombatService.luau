@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BoardConfig = require(ReplicatedStorage.Shared.BoardConfig)
 local CombatConfig = require(ReplicatedStorage.Shared.CombatConfig)
 local CombatSim = require(ReplicatedStorage.Shared.CombatSim)
+local Economy = require(ReplicatedStorage.Shared.Economy)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 local UnitConfig = require(ReplicatedStorage.Shared.UnitConfig)
@@ -18,7 +19,7 @@ local CombatService = {}
 local combatStarted: RemoteEvent
 local seedRandom = Random.new()
 
-type Side = { name: string, userId: number, units: { any } }
+type Side = { name: string, userId: number, units: { any }, player: Player? }
 
 local function enemySide(round: number): Side
 	local boards = CombatConfig.enemyBoardsByRound
@@ -34,14 +35,23 @@ local function enemySide(round: number): Side
 	return { name = "Enemy", userId = 0, units = units }
 end
 
--- Runs the fight for the participants from BoardService.lockBoards() and broadcasts it.
--- Returns how long the Combat phase should last (seconds) and a short result text.
-function CombatService.run(participants: { { player: Player, units: { any } } }, round: number): (number, string)
+-- Runs the fight for the participants from PlayerService.lockBoards() and broadcasts it.
+-- Returns how long the Combat phase should last (seconds), a short result text, and each
+-- participating player's outcome (Economy.Outcome).
+function CombatService.run(
+	participants: { { player: Player, units: { any } } },
+	round: number
+): (number, string, { [Player]: string })
 	local sides: { Side } = {}
 	for i = 1, 2 do
 		local participant = participants[i]
 		if participant then
-			sides[i] = { name = participant.player.Name, userId = participant.player.UserId, units = participant.units }
+			sides[i] = {
+				name = participant.player.Name,
+				userId = participant.player.UserId,
+				units = participant.units,
+				player = participant.player,
+			}
 		end
 	end
 	sides[1] = sides[1] or { name = "Nobody", userId = 0, units = {} }
@@ -76,7 +86,17 @@ function CombatService.run(participants: { { player: Player, units: { any } } },
 		)
 	)
 
-	return result.endTick / result.ticksPerSecond + CombatConfig.endPadding, resultText
+	local outcomes = {}
+	for index, side in sides do
+		if side.player then
+			outcomes[side.player] = if result.winner == nil
+				then Economy.Outcome.Draw
+				elseif result.winner == index then Economy.Outcome.Win
+				else Economy.Outcome.Loss
+		end
+	end
+
+	return result.endTick / result.ticksPerSecond + CombatConfig.endPadding, resultText, outcomes
 end
 
 function CombatService.start()

@@ -4,8 +4,4 @@ return table.freeze({
 	columns = 7,
 	rows = 4,
 	benchSlots = 9,
-
-	-- Every player starts each round with these units on the bench (there is no shop yet).
-	-- Names are keys of UnitConfig.
-	startingUnits = table.freeze({ "Tank1", "Tank1", "Archer1", "Archer1", "Striker2" }),
 })
