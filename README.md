@@ -11,14 +11,17 @@ i ain done shi yet
 ```
 robloxgame/
 ├── default.project.json   Rojo project: maps src/ into the Roblox DataModel
-├── rokit.toml             Pinned tool versions (Rojo, StyLua, Selene)
+├── rokit.toml             Pinned tool versions (Rojo, StyLua, Selene, Lune)
 ├── stylua.toml            Formatter settings
 ├── selene.toml            Linter settings
 ├── .luaurc                Luau type-checking mode for editor tooling
 ├── .vscode/               Recommended VS Code extensions and workspace settings
+├── docs/                  Design and implementation plans
 ├── scripts/
 │   ├── setup.ps1          One-time bootstrap of repository tools
-│   └── start.ps1          Starts a dev session (Rojo server)
+│   ├── start.ps1          Starts a dev session (Rojo server)
+│   └── test.ps1           Runs the Lune tests
+├── tests/                 Lune tests for the pure shared modules (not synced to Roblox)
 └── src/
     ├── client/            Client code   -> StarterPlayer.StarterPlayerScripts.Client (LocalScript)
     ├── server/            Server code   -> ServerScriptService.Server (Script)
@@ -79,7 +82,7 @@ The script:
 1. Checks that Git and Rokit are installed (and stops with a clear message if not).
 2. Lists the tools in `rokit.toml` and asks you to confirm trusting them.
 3. Runs `rokit install` to download the pinned versions.
-4. Verifies that `rojo`, `stylua`, and `selene` run and report the pinned versions.
+4. Verifies that `rojo`, `stylua`, `selene`, and `lune` run and report the pinned versions.
 
 It does not install any system software. Re-run it whenever `rokit.toml` changes.
 Pass `-Yes` to skip the confirmation prompt.
@@ -152,15 +155,22 @@ Stop the server with `Ctrl+C`.
 3. Stop play mode, change the `message` in `src/shared/SyncCheck.luau`, save, and
    press Play again. The new message should appear.
 
-## Formatting and linting
+## Formatting, linting and tests
 
 Run these from the repository folder:
 
 ```powershell
-stylua src          # format all Luau files
-stylua --check src  # check formatting without changing files
-selene src          # lint
+stylua src tests          # format all Luau files
+stylua --check src tests  # check formatting without changing files
+selene src tests          # lint
+powershell -ExecutionPolicy Bypass -File scripts	est.ps1  # run the tests
 ```
+
+The tests run with [Lune](https://github.com/lune-org/lune) outside Roblox Studio. They cover
+the modules in `src/shared` that use no Roblox APIs: the hex grid, board placement rules and
+the combat simulation. These modules require each other with
+`if script then require(script.Parent.X) else require("./X")` so the same code loads in both
+Roblox and Lune.
 
 ## Git workflow
 
@@ -174,7 +184,7 @@ selene src          # lint
   ```
 
 - Make focused commits with descriptive messages.
-- Before committing, run `stylua --check src` and `selene src`.
+- Before committing, run `stylua --check src tests`, `selene src tests` and `scripts	est.ps1`.
 - Push your branch and open a pull request into `main`.
 - Do not force-push shared branches or rewrite history.
 - Do not commit built place files (`*.rbxl`, `*.rbxlx`), secrets, or

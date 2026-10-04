@@ -120,7 +120,7 @@ after every accepted change and at each reset. A snapshot holds at most a handfu
    who joins mid-combat sees nothing until the next Preparation.
 9. **Result text:** `MatchState.LastResult` holds a short human-readable string such as
    `"Player1 wins"`, `"Enemy wins"` or `"Draw"`.
-10. **Mid-round joins:** a player who joins during Combat gets a board at the next Preparation.
+10. **Mid-round joins:** a player who joins while a board slot is free gets the starting board right away, but a player who joins during Combat does not take part in the fight already in progress.
 
 ## Build order (one commit per milestone)
 
@@ -130,3 +130,12 @@ after every accepted change and at each reset. A snapshot holds at most a handfu
 4. Server: `Remotes`, `BoardService`, `CombatService`, RoundService integration
 5. Client: `Arena`, `UnitView`, `BoardController`, `CombatPlayback`
 6. README update, PR into `main`
+
+## Notes from the build
+
+- The preset enemy (4 units) loses to the five starting units in every one of 200 sampled seeds, both
+  with a sensible front-line placement and with everything in the back row. A fight lasts about
+  16–20 s and produces at most ~150 events. The enemy is deliberately easy; retune `CombatConfig`
+  in the design pass.
+- Lune checks syntax only for the client and server modules; they need Studio to run. Visuals and
+  input have not been verified in Studio yet.
