@@ -7,4 +7,8 @@ return table.freeze({
 
 	-- 1 so a solo Studio Play test runs the loop. Raise for real matches.
 	minPlayersToStart = 1,
+
+	-- Players who get a board. With one player they fight CombatConfig.presetEnemyBoard;
+	-- with two they fight each other. Extra players only watch.
+	maxPlayers = 2,
 })
