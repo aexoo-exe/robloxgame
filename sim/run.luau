@@ -32,6 +32,38 @@ local function runFight(fight, boards, seed)
 	})
 end
 
+-- Per-fight length and per-character (1-star) damage and casts, across every simulated fight.
+local fightLength = { count = 0, sum = 0, shortest = math.huge, longest = 0 }
+local unitStats = {}
+
+local function recordFight(result)
+	local seconds = result.endTick / result.ticksPerSecond
+	fightLength.count += 1
+	fightLength.sum += seconds
+	fightLength.shortest = math.min(fightLength.shortest, seconds)
+	fightLength.longest = math.max(fightLength.longest, seconds)
+
+	local oneStar = {}
+	for _, unit in result.units do
+		if unit.starLevel == 1 then
+			oneStar[unit.index] = unit.unitType
+			local stats = unitStats[unit.unitType] or { fights = 0, damage = 0, casts = 0 }
+			stats.fights += 1
+			unitStats[unit.unitType] = stats
+		end
+	end
+	for _, event in result.events do
+		local unitType = oneStar[event.unit]
+		if unitType then
+			if event.kind == "Attack" or event.kind == "Damage" then
+				unitStats[unitType].damage += event.damage
+			elseif event.kind == "Cast" then
+				unitStats[unitType].casts += 1
+			end
+		end
+	end
+end
+
 local function playMatch(matchIndex: number)
 	local ids = {}
 	local states = {}
@@ -56,6 +88,7 @@ local function playMatch(matchIndex: number)
 		local longestTicks = 0
 		for index, fight in fights do
 			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index)
+			recordFight(result)
 			longestTicks = math.max(longestTicks, result.endTick)
 			stats.fights += 1
 			if result.timedOut then
@@ -146,3 +179,33 @@ for name, wins in policyWins do
 end
 table.sort(policyLine)
 print("Wins by bot strategy: " .. table.concat(policyLine, ", "))
+print(
+	string.format(
+		"Fight length: average %.1fs, shortest %.1fs, longest %.1fs over %d fights",
+		fightLength.sum / fightLength.count,
+		fightLength.shortest,
+		fightLength.longest,
+		fightLength.count
+	)
+)
+print("1-star characters (per fight they appeared in): average damage dealt, casts")
+local names = {}
+for name in unitStats do
+	table.insert(names, name)
+end
+table.sort(names, function(a, b)
+	return UnitConfig[a].cost < UnitConfig[b].cost or (UnitConfig[a].cost == UnitConfig[b].cost and a < b)
+end)
+for _, name in names do
+	local stats = unitStats[name]
+	print(
+		string.format(
+			"  %-6s (%d) %6.0f damage, %4.2f casts  [%d fights]",
+			name,
+			UnitConfig[name].cost,
+			stats.damage / stats.fights,
+			stats.casts / stats.fights,
+			stats.fights
+		)
+	)
+end
