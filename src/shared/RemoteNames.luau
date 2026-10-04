@@ -22,7 +22,8 @@ return table.freeze({
 	-- Server -> owning client: (reason: string) why a request was refused, from PlayerState.Refusal.
 	RequestRefused = "RequestRefused",
 
-	-- Server -> all clients: { startsAt, sideUserIds, result } where result is a CombatSim result.
-	-- Clients play the events back starting at server time `startsAt`.
+	-- Server -> each player in a fight, their fight only: { startsAt, sideUserIds, opponentName,
+	-- result } where result is a CombatSim result. Clients play the events back starting at server
+	-- time `startsAt`. sideUserIds[2] is 0 for a ghost or practice opponent.
 	CombatStarted = "CombatStarted",
 })
