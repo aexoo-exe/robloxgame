@@ -1,6 +1,6 @@
 -- Runs a round's fight with CombatSim and sends it to every client for playback.
--- Side 1 is the first participant. Side 2 is the second participant, or the preset enemy board
--- from CombatConfig when only one player is present.
+-- Side 1 is the first participant. Side 2 is the second participant, or, when only one player is
+-- present, the enemy board for this round from CombatConfig.enemyBoardsByRound.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -20,9 +20,10 @@ local seedRandom = Random.new()
 
 type Side = { name: string, userId: number, units: { any } }
 
-local function presetEnemySide(): Side
+local function enemySide(round: number): Side
+	local boards = CombatConfig.enemyBoardsByRound
 	local units = {}
-	for i, placement in CombatConfig.presetEnemyBoard do
+	for i, placement in boards[math.clamp(round, 1, #boards)] do
 		table.insert(units, {
 			id = "E" .. i,
 			unitType = placement.unitType,
@@ -35,7 +36,7 @@ end
 
 -- Runs the fight for the participants from BoardService.lockBoards() and broadcasts it.
 -- Returns how long the Combat phase should last (seconds) and a short result text.
-function CombatService.run(participants: { { player: Player, units: { any } } }): (number, string)
+function CombatService.run(participants: { { player: Player, units: { any } } }, round: number): (number, string)
 	local sides: { Side } = {}
 	for i = 1, 2 do
 		local participant = participants[i]
@@ -44,7 +45,7 @@ function CombatService.run(participants: { { player: Player, units: { any } } })
 		end
 	end
 	sides[1] = sides[1] or { name = "Nobody", userId = 0, units = {} }
-	sides[2] = sides[2] or presetEnemySide()
+	sides[2] = sides[2] or enemySide(round)
 
 	local seed = seedRandom:NextInteger(1, 2 ^ 31 - 2)
 	local result = CombatSim.run({

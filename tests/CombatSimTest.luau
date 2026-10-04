@@ -12,20 +12,20 @@ local function placed(id, unitType, column, row)
 	return { id = id, unitType = unitType, column = column, row = row }
 end
 
--- The real starting units spread across the front two rows, as a player might place them.
+-- Five low-cost units spread across the front two rows, as a player might place them.
 local function playerBoard()
 	return {
-		placed("1", "Guardian", 4, 4),
-		placed("2", "Brawler", 3, 4),
-		placed("3", "Brawler", 5, 4),
-		placed("4", "Archer", 4, 2),
-		placed("5", "Striker", 6, 3),
+		placed("1", "Tank2", 4, 4),
+		placed("2", "Tank1", 3, 4),
+		placed("3", "Tank1", 5, 4),
+		placed("4", "Archer1", 4, 2),
+		placed("5", "Striker2", 6, 3),
 	}
 end
 
-local function presetEnemyBoard()
+local function enemyBoard(round)
 	local board = {}
-	for i, placement in CombatConfig.presetEnemyBoard do
+	for i, placement in CombatConfig.enemyBoardsByRound[round] do
 		table.insert(board, placed("E" .. i, placement.unitType, placement.column, placement.row))
 	end
 	return board
@@ -70,8 +70,8 @@ table.insert(tests, {
 	name = "same seed gives the same result",
 	run = function()
 		for seed = 1, 5 do
-			local first = CombatSim.run(params(playerBoard(), presetEnemyBoard(), seed))
-			local second = CombatSim.run(params(playerBoard(), presetEnemyBoard(), seed))
+			local first = CombatSim.run(params(playerBoard(), enemyBoard(5), seed))
+			local second = CombatSim.run(params(playerBoard(), enemyBoard(5), seed))
 			assert(deepEqual(first, second), "results differ for seed " .. seed)
 			assert(#first.events > 0, "no events were produced")
 		end
@@ -81,7 +81,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a clearly stronger team wins on either side",
 	run = function()
-		local weak = { placed("w", "Archer", 4, 1) }
+		local weak = { placed("w", "Archer1", 4, 1) }
 		for seed = 1, 10 do
 			local asSide1 = CombatSim.run(params(playerBoard(), weak, seed))
 			assert(asSide1.winner == 1, "stronger side 1 did not win with seed " .. seed)
@@ -117,7 +117,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "side 2 is rotated into the far half of the field",
 	run = function()
-		local result = CombatSim.run(params({ placed("a", "Archer", 1, 1) }, { placed("b", "Archer", 1, 1) }, 1))
+		local result = CombatSim.run(params({ placed("a", "Archer1", 1, 1) }, { placed("b", "Archer1", 1, 1) }, 1))
 		local a, b = result.units[1], result.units[2]
 		assert(a.side == 1 and a.column == 1 and a.row == 1, "side 1 unit moved during setup")
 		assert(b.side == 2 and b.column == COLUMNS and b.row == ROWS * 2, "side 2 unit was not rotated")
@@ -128,7 +128,7 @@ table.insert(tests, {
 	name = "units never share a cell, move one cell at a time, and attack only in range",
 	run = function()
 		for seed = 1, 10 do
-			local result = CombatSim.run(params(playerBoard(), presetEnemyBoard(), seed))
+			local result = CombatSim.run(params(playerBoard(), enemyBoard(5), seed))
 			local positions = {}
 			local alive = {}
 			local ranges = {}

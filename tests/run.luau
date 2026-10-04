@@ -8,6 +8,7 @@ local suites = {
 	{ name = "HexGrid", tests = require("./HexGridTest") },
 	{ name = "Board", tests = require("./BoardTest") },
 	{ name = "CombatSim", tests = require("./CombatSimTest") },
+	{ name = "Roster", tests = require("./RosterTest") },
 }
 
 local passed = 0

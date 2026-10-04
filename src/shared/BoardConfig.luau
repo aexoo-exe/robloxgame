@@ -7,5 +7,5 @@ return table.freeze({
 
 	-- Every player starts each round with these units on the bench (there is no shop yet).
 	-- Names are keys of UnitConfig.
-	startingUnits = table.freeze({ "Guardian", "Brawler", "Brawler", "Archer", "Striker" }),
+	startingUnits = table.freeze({ "Tank1", "Tank1", "Archer1", "Archer1", "Striker2" }),
 })

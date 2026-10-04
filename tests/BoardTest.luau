@@ -6,8 +6,8 @@ local UnitConfig = require("../src/shared/UnitConfig")
 -- A 7x4 board with a 9-slot bench holding units "a" (slot 1) and "b" (slot 2).
 local function newBoard()
 	local board = Board.new(7, 4, 9)
-	assert(Board.addUnit(board, "a", "Guardian"))
-	assert(Board.addUnit(board, "b", "Archer"))
+	assert(Board.addUnit(board, "a", "Tank1"))
+	assert(Board.addUnit(board, "b", "Archer1"))
 	return board
 end
 
@@ -28,7 +28,7 @@ table.insert(tests, {
 		local board = newBoard()
 		assert(findUnit(board, "a").slot == 1, "unit a is not in slot 1")
 		assert(findUnit(board, "b").slot == 2, "unit b is not in slot 2")
-		assert(not Board.addUnit(board, "a", "Guardian"), "duplicate id accepted")
+		assert(not Board.addUnit(board, "a", "Tank1"), "duplicate id accepted")
 	end,
 })
 
@@ -36,9 +36,9 @@ table.insert(tests, {
 	name = "bench rejects units when full",
 	run = function()
 		local board = Board.new(7, 4, 2)
-		assert(Board.addUnit(board, "a", "Guardian"))
-		assert(Board.addUnit(board, "b", "Guardian"))
-		assert(not Board.addUnit(board, "c", "Guardian"), "added a unit to a full bench")
+		assert(Board.addUnit(board, "a", "Tank1"))
+		assert(Board.addUnit(board, "b", "Tank1"))
+		assert(not Board.addUnit(board, "c", "Tank1"), "added a unit to a full bench")
 	end,
 })
 
@@ -113,22 +113,25 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "config: starting units and preset enemy board are valid",
+	name = "config: starting units and every enemy board are valid",
 	run = function()
 		assert(#BoardConfig.startingUnits <= BoardConfig.benchSlots, "starting units do not fit on the bench")
 		for _, unitType in BoardConfig.startingUnits do
 			assert(UnitConfig[unitType], "unknown starting unit " .. unitType)
 		end
 
-		local enemy = Board.new(BoardConfig.columns, BoardConfig.rows, 0)
-		for i, placement in CombatConfig.presetEnemyBoard do
-			assert(UnitConfig[placement.unitType], "unknown enemy unit " .. placement.unitType)
-			local id = "E" .. i
-			enemy.units[id] = { id = id, unitType = placement.unitType }
-			assert(
-				Board.moveUnit(enemy, id, { column = placement.column, row = placement.row }),
-				"preset enemy unit " .. i .. " is out of bounds or overlaps another"
-			)
+		assert(#CombatConfig.enemyBoardsByRound > 0, "no enemy boards")
+		for round, placements in CombatConfig.enemyBoardsByRound do
+			local enemy = Board.new(BoardConfig.columns, BoardConfig.rows, 0)
+			for i, placement in placements do
+				assert(UnitConfig[placement.unitType], "unknown enemy unit " .. placement.unitType)
+				local id = "E" .. i
+				enemy.units[id] = { id = id, unitType = placement.unitType }
+				assert(
+					Board.moveUnit(enemy, id, { column = placement.column, row = placement.row }),
+					string.format("round %d enemy unit %d is out of bounds or overlaps another", round, i)
+				)
+			end
 		end
 	end,
 })

@@ -48,7 +48,8 @@ local function runLoop()
 		task.wait(MatchConfig.preparationDuration)
 
 		-- The fight is simulated instantly; the Combat phase lasts as long as its playback.
-		local combatDuration, resultText = CombatService.run(BoardService.lockBoards())
+		local combatDuration, resultText =
+			CombatService.run(BoardService.lockBoards(), matchState:GetAttribute("Round"))
 		setPhase(Phase.Combat, combatDuration)
 		task.wait(combatDuration)
 		matchState:SetAttribute("LastResult", resultText)
