@@ -8,22 +8,22 @@ end
 local tests = {}
 
 table.insert(tests, {
-	name = "stages and base damage follow the spec table",
+	name = "stages and base damage follow the revised pacing table",
 	run = function()
 		-- { round, stage, base damage } at each boundary.
 		local cases = {
 			{ 1, 1, 2 },
 			{ 4, 1, 2 },
-			{ 5, 2, 4 },
-			{ 8, 2, 4 },
-			{ 9, 3, 6 },
-			{ 12, 3, 6 },
-			{ 13, 4, 8 },
-			{ 16, 4, 8 },
-			{ 17, 5, 11 },
-			{ 20, 5, 11 },
-			{ 21, 6, 15 },
-			{ 40, 6, 15 },
+			{ 5, 2, 5 },
+			{ 8, 2, 5 },
+			{ 9, 3, 8 },
+			{ 12, 3, 8 },
+			{ 13, 4, 12 },
+			{ 16, 4, 12 },
+			{ 17, 5, 17 },
+			{ 20, 5, 17 },
+			{ 21, 6, 24 },
+			{ 40, 6, 24 },
 		}
 		for _, case in cases do
 			expectEqual(MatchRules.stage(case[1]), case[2], "stage of round " .. case[1])
@@ -35,9 +35,9 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "player damage is base damage plus 1 per surviving enemy unit",
 	run = function()
-		expectEqual(MatchRules.playerDamage(14, 4), 12, "spec example: stage 4 loss with 4 survivors")
+		expectEqual(MatchRules.playerDamage(14, 4), 16, "stage 4 loss with 4 survivors")
 		expectEqual(MatchRules.playerDamage(1, 0), 2, "stage 1 with no survivors")
-		expectEqual(MatchRules.playerDamage(22, 9), 24, "stage 6 with 9 survivors")
+		expectEqual(MatchRules.playerDamage(22, 9), 33, "stage 6 with 9 survivors")
 	end,
 })
 
