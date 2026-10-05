@@ -7,9 +7,9 @@
 --
 -- Every bot buys copies of the units it fielded last round whenever it can afford them.
 --
--- Standard bots also prefer traits: they buy a unit that shares a trait with one they fielded last
--- round while they hold fewer than level + 3 units, and when choosing what to field each unit
--- scores its strength plus TRAIT_SHARE_WEIGHT per trait it shares with another character they own.
+-- Standard bots also prefer traits: after buying XP, they spend gold above their keepGold on units
+-- that share a trait with one they fielded last round, while they hold fewer than level + 3 units;
+-- and when choosing what to field, shared traits break ties between equally strong units.
 --
 -- Rerolling bots (policies with `rerollCost`) chase 3-star units of one cost:
 --   * Roll level: the level where that cost's shop odds are highest, among levels of at least
@@ -43,6 +43,7 @@ export type Policy = {
 -- What a bot remembers between rounds, and what the simulation reports about it.
 export type Memory = {
 	fielded: { [string]: boolean }, -- unit types it fielded last round
+	weakestFielded: number?, -- strength of the weakest unit it fielded last round
 	completed: { [string]: boolean }, -- rerolling: targets that reached 3 stars
 	targets: { string }, -- rerolling: current targets
 	rerollGold: number, -- gold spent on rerolls this match
@@ -68,7 +69,10 @@ Bot.rerollPolicies = {
 }
 
 local LEVEL_UP_KEEP_GOLD = 30 -- rerolling bots below their roll level, and after finishing
-local TRAIT_SHARE_WEIGHT = 0.75 -- standard bots: fielding score per trait shared with another owned character
+-- Standard bots: fielding score per trait shared with another owned character. Strengths are whole
+-- numbers and a character has at most three traits, so 0.3 (at most 0.9) only breaks ties between
+-- equally strong units; a higher weight fielded weaker units for traits.
+local TRAIT_SHARE_WEIGHT = 0.3
 
 -- The level a rerolling bot rolls at for `cost`: highest odds for that cost at levels >= cost + 4.
 function Bot.rollLevel(cost: number): number
@@ -228,13 +232,11 @@ local function shopPass(state, policy: Policy, memory: Memory)
 		local fieldedCopy = memory.fielded[unitType] and ownsUpgradable(state, unitType)
 		-- While a rerolling bot still needs targets, any unit of its cost may become one.
 		local seedsTarget = rerolling and cost == policy.rerollCost and #memory.targets < (policy.targetCount or 1)
-		local traitPick = prefersTraits(policy) and #owned < state.level + 3 and sharesFieldedTrait(memory, unitType)
 		local wanted = isTarget(memory, unitType)
 			or seedsTarget
 			or fieldedCopy
 			or (policy.seeksCopies and ownsUpgradable(state, unitType))
 			or #owned < state.level
-			or traitPick
 		if wanted then
 			if PlayerState.buyUnit(state, slot) then
 				updateTargets(state, policy, memory)
@@ -291,6 +293,29 @@ local function buyXpDownTo(state, keepGold: number)
 	end
 end
 
+-- Standard bots, after leveling: buy units that share a trait with last round's board, but only
+-- with gold above the bot's keepGold, while it holds fewer than level + 3 units, and only units at
+-- least as strong as the weakest unit it fielded (so they can make the board). Buying trait units
+-- before leveling locked gold on the bench (trimBench keeps up to level + 3 units), so the bots
+-- bought less XP and earned less interest; cheap trait units on the bench also drew copy purchases
+-- in later rounds.
+local function traitPass(state, policy: Policy, memory: Memory)
+	if not prefersTraits(policy) or memory.weakestFielded == nil then
+		return
+	end
+	for slot, unitType in state.shop do
+		if
+			unitType
+			and UnitConfig[unitType].cost >= memory.weakestFielded
+			and state.gold - UnitConfig[unitType].cost >= policy.keepGold
+			and #Board.getUnits(state.board) < state.level + 3
+			and sharesFieldedTrait(memory, unitType)
+		then
+			PlayerState.buyUnit(state, slot)
+		end
+	end
+end
+
 -- Plays one Preparation. Returns the units to field, in the player's own board coordinates.
 function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 	updateTargets(state, policy, memory)
@@ -314,6 +339,7 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 			end
 		end
 		buyXpDownTo(state, policy.keepGold)
+		traitPass(state, policy, memory)
 	end
 	trimBench(state, policy, memory)
 
@@ -332,6 +358,7 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 	local placed = {}
 	local taken = {}
 	table.clear(memory.fielded)
+	memory.weakestFielded = nil
 	for index = 1, math.min(state.level, #owned) do
 		local unit = owned[index]
 		local found = false
@@ -342,6 +369,7 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 					taken[key] = true
 					found = true
 					memory.fielded[unit.unitType] = true
+					memory.weakestFielded = math.min(memory.weakestFielded or math.huge, strength(unit))
 					table.insert(placed, {
 						id = unit.id,
 						unitType = unit.unitType,
