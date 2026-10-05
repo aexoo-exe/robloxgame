@@ -1,4 +1,4 @@
--- A placeholder unit: a colored block with a dark visor marking its front, its name and star level,
+-- A placeholder unit: a block colored by origin with a dark visor marking its front, its name and star level,
 -- a health bar (with any shield shown as a white segment after the health), and a mana bar under
 -- it. Higher-star units are drawn slightly larger (RenderConfig.starSizeScale). Presentation only.
 --
@@ -72,6 +72,7 @@ export type Options = {
 	mana: number?,
 	maxMana: number?, -- no mana bar fill if nil
 	yaw: number?, -- initial facing in radians around the vertical axis (0 faces -Z)
+	healthColor: Color3?, -- RenderConfig.healthBarColor if nil
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -202,7 +203,7 @@ function UnitView.new(
 	label.Parent = infoBoard
 
 	local healthBar = bar(infoBoard, 34, 8)
-	local healthFill = fill(healthBar, RenderConfig.healthBarColor)
+	local healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)
 	local shieldFill = fill(healthBar, RenderConfig.shieldColor)
 	shieldFill.Size = UDim2.fromScale(0, 1)
 
