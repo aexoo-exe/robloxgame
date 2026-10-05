@@ -1,6 +1,7 @@
--- Roster v0.1: 25 characters (7/6/5/4/3 by cost), with stats and abilities exactly as in
--- docs/design/roster-v0.1.md. The first ten keep their stats and abilities from
--- docs/design/combat-and-roster.md and balance pass v0.2. Abilities are pure data for the generic
+-- Roster v0.1: 25 characters (7/6/5/4/3 by cost), with stats and abilities as in
+-- docs/design/roster-v0.1.md, plus balance pass v0.3 (docs/design/balance-pass-v0.3.md: Ione,
+-- Solenne, Kes, Marek, Orin, Calyx, Astra; marked where changed). Health here is the base value;
+-- combat applies CombatConfig.globalHealthMultiplier. Abilities are pure data for the generic
 -- interpreter in Abilities.luau; per-star values are { 1-star, 2-star, 3-star }.
 --   displayName       full name
 --   origin, classes   trait membership (docs/design/world-and-traits.md); data only, no effects yet
@@ -195,14 +196,15 @@ return freezeAll({
 		ability = {
 			name = "Shadecut",
 			effects = {
+				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> HIGHEST_AD_ENEMY, dash 2 -> 3.
 				{
 					type = "DASH",
-					target = "FARTHEST_ENEMY",
-					distance = 2,
+					target = "HIGHEST_AD_ENEMY",
+					distance = 3,
 					mode = "OFFENSIVE",
 					setsCurrentTarget = true,
 				},
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 145, 230, 370 } },
+				{ type = "DAMAGE", target = "HIGHEST_AD_ENEMY", damageType = "PHYSICAL", amount = { 145, 230, 370 } },
 			},
 		},
 	},
@@ -305,7 +307,8 @@ return freezeAll({
 		ability = {
 			name = "Skyneedle",
 			effects = {
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 220, 350, 560 } },
+				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> CURRENT_TARGET.
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 220, 350, 560 } },
 				{ type = "BUFF", target = "SELF", stat = "AD", percent = { 10, 15, 25 }, duration = 5 },
 			},
 		},
@@ -359,10 +362,15 @@ return freezeAll({
 		ability = {
 			name = "Burnrush",
 			effects = {
-				-- Built exactly as written in the roster doc: the dash targets his current target, so it
-				-- only moves him when that target is more than one hex away.
-				{ type = "DASH", target = "CURRENT_TARGET", distance = 2, mode = "OFFENSIVE" },
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 210, 335, 535 } },
+				-- docs/design/balance-pass-v0.3.md: CURRENT_TARGET -> HIGHEST_AD_ENEMY, dash 2 -> 3.
+				{
+					type = "DASH",
+					target = "HIGHEST_AD_ENEMY",
+					distance = 3,
+					mode = "OFFENSIVE",
+					setsCurrentTarget = true,
+				},
+				{ type = "DAMAGE", target = "HIGHEST_AD_ENEMY", damageType = "PHYSICAL", amount = { 210, 335, 535 } },
 				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 25, 40, 60 }, duration = 4 },
 			},
 		},
@@ -438,11 +446,11 @@ return freezeAll({
 		cost = 3,
 		role = "Support",
 		health = 900,
-		attackDamage = 54,
+		attackDamage = 60, -- docs/design/balance-pass-v0.3.md: 54 -> 60
 		abilityPower = 100,
 		armor = 42,
 		magicResist = 48,
-		attacksPerSecond = 0.65,
+		attacksPerSecond = 0.70, -- v0.3: 0.65 -> 0.70
 		range = 2,
 		moveSpeed = 0.9,
 		startingMana = 40,
@@ -474,9 +482,10 @@ return freezeAll({
 		ability = {
 			name = "Nova Lance",
 			effects = {
+				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> CURRENT_TARGET.
 				{
 					type = "AREA_DAMAGE",
-					center = "FARTHEST_ENEMY",
+					center = "CURRENT_TARGET",
 					radius = 1,
 					damageType = "MAGIC",
 					amount = { 300, 480, 780 },
@@ -524,11 +533,11 @@ return freezeAll({
 		cost = 4,
 		role = "Main Tank",
 		health = 1180,
-		attackDamage = 58,
+		attackDamage = 64, -- docs/design/balance-pass-v0.3.md: 58 -> 64
 		abilityPower = 100,
 		armor = 60,
 		magicResist = 60,
-		attacksPerSecond = 0.6,
+		attacksPerSecond = 0.65, -- v0.3: 0.60 -> 0.65
 		range = 1,
 		moveSpeed = 0.9,
 		startingMana = 50,
@@ -653,7 +662,8 @@ return freezeAll({
 					center = "HIGHEST_AD_ENEMY",
 					radius = 2,
 					damageType = "MAGIC",
-					amount = { 400, 650, 1050 },
+					-- docs/design/balance-pass-v0.3.md: 400/650/1050 -> 450/725/1175.
+					amount = { 450, 725, 1175 },
 				},
 			},
 		},

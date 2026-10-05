@@ -66,6 +66,10 @@ local function newBattle(unitTypes, layout, options)
 		assert(units[i], "test setup: unit " .. i .. " missing")
 		units[i].column, units[i].row = entry[3], entry[4]
 		battle.occupied[Battle.cellKey(battle, entry[3], entry[4])] = units[i]
+		-- These engine tests work with exact health numbers, so they undo the global health multiplier
+		-- (CombatConfig.globalHealthMultiplier, tested in StarTest).
+		units[i].maxHealth = unitTypes[entry[1]].health
+		units[i].health = units[i].maxHealth
 	end
 	return battle, units
 end
