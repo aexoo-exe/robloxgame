@@ -29,79 +29,81 @@ return table.freeze({
 	-- the list reuse the last entry. Positions are in the enemy's own board coordinates
 	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.
 	-- Unit counts roughly track the player's unit cap (= level), and from round 9 the boards add
-	-- 2-star units. These were tuned for the old placeholder roster (docs/star-upgrades-plan.md) and
-	-- have only been mapped to the new characters of the same cost; they are not retuned.
+	-- 2-star units. Costs, star levels, counts and positions were tuned for the old placeholder
+	-- roster (docs/star-upgrades-plan.md); for roster v0.1 some units were swapped for a character
+	-- of the same cost and a similar role so the full roster appears. They are not retuned.
+	-- Practice enemies never draw from the shared pool.
 	enemyBoardsByRound = table.freeze({
 		-- Round 1: player is level 2 (2 units)
-		table.freeze({ unit("Kaien", 4, 4), unit("Mira", 4, 1) }),
+		table.freeze({ unit("Bren", 4, 4), unit("Sola", 4, 1) }),
 		-- Round 2: level 3
-		table.freeze({ unit("Kaien", 4, 4), unit("Mira", 3, 1), unit("Mira", 5, 1) }),
+		table.freeze({ unit("Kaien", 4, 4), unit("Mira", 3, 1), unit("Sola", 5, 1) }),
 		-- Round 3
-		table.freeze({ unit("Kaien", 3, 4), unit("Rook", 4, 4), unit("Mira", 4, 1) }),
+		table.freeze({ unit("Bren", 3, 4), unit("Rook", 4, 4), unit("Mira", 4, 1) }),
 		-- Round 4
-		table.freeze({ unit("Rook", 4, 4), unit("Sena", 3, 4), unit("Mira", 4, 1) }),
+		table.freeze({ unit("Tarek", 4, 4), unit("Sena", 3, 4), unit("Ione", 4, 1) }),
 		-- Round 5: level 4
-		table.freeze({ unit("Rook", 3, 4), unit("Rook", 5, 4), unit("Sena", 4, 3), unit("Mira", 4, 1) }),
+		table.freeze({ unit("Rook", 3, 4), unit("Marek", 5, 4), unit("Sena", 4, 3), unit("Mira", 4, 1) }),
 		-- Round 6: level 5
 		table.freeze({
 			unit("Rook", 3, 4),
-			unit("Rook", 5, 4),
-			unit("Sena", 4, 3),
+			unit("Tarek", 5, 4),
+			unit("Vela", 4, 3),
 			unit("Mira", 3, 1),
-			unit("Mira", 5, 1),
+			unit("Sola", 5, 1),
 		}),
 		-- Round 7
 		table.freeze({
-			unit("Dax", 4, 4),
+			unit("Vael", 4, 4),
 			unit("Rook", 3, 4),
 			unit("Sena", 5, 3),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 		-- Round 8: level 6
 		table.freeze({
 			unit("Dax", 4, 4),
 			unit("Rook", 3, 4),
-			unit("Rook", 5, 4),
-			unit("Sena", 6, 3),
+			unit("Tarek", 5, 4),
+			unit("Vela", 6, 3),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 		-- Round 9: first 2-star
 		table.freeze({
 			unit("Dax", 4, 4),
 			unit("Rook", 3, 4, 2),
-			unit("Rook", 5, 4),
+			unit("Marek", 5, 4),
 			unit("Sena", 6, 3),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 		-- Round 10
 		table.freeze({
-			unit("Dax", 4, 4),
+			unit("Vael", 4, 4),
 			unit("Rook", 3, 4, 2),
-			unit("Rook", 5, 4),
+			unit("Tarek", 5, 4),
 			unit("Sena", 6, 3, 2),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 		-- Round 11
 		table.freeze({
 			unit("Dax", 4, 4),
 			unit("Rook", 3, 4, 2),
-			unit("Orin", 5, 4),
+			unit("Torra", 5, 4),
 			unit("Sena", 6, 3, 2),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 		-- Round 12 onwards
 		table.freeze({
 			unit("Dax", 4, 4, 2),
 			unit("Rook", 3, 4, 2),
 			unit("Orin", 5, 4),
-			unit("Sena", 6, 3, 2),
+			unit("Vela", 6, 3, 2),
 			unit("Veyra", 4, 1),
-			unit("Veyra", 2, 1),
+			unit("Solenne", 2, 1),
 		}),
 	}),
 })

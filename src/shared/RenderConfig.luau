@@ -17,9 +17,18 @@ return table.freeze({
 	ownCellColor = Color3.fromRGB(70, 95, 130),
 	enemyCellColor = Color3.fromRGB(120, 75, 75),
 	benchSlotColor = Color3.fromRGB(95, 95, 95),
-	ownUnitColor = Color3.fromRGB(60, 140, 255),
-	enemyUnitColor = Color3.fromRGB(235, 80, 80),
-	healthBarColor = Color3.fromRGB(80, 220, 100),
+	-- Unit body color by origin (placeholder), so boards are readable at a glance. Which side a
+	-- unit is on shows in its health bar color.
+	originColors = table.freeze({
+		Ironveil = Color3.fromRGB(150, 165, 185),
+		Emberwake = Color3.fromRGB(235, 110, 45),
+		Tideglass = Color3.fromRGB(50, 190, 185),
+		Stormcrest = Color3.fromRGB(110, 135, 255),
+		Starfall = Color3.fromRGB(240, 205, 70),
+		Eclipse = Color3.fromRGB(140, 70, 185),
+	}),
+	healthBarColor = Color3.fromRGB(80, 220, 100), -- the local player's units
+	enemyHealthBarColor = Color3.fromRGB(235, 70, 70),
 	shieldColor = Color3.fromRGB(235, 235, 235),
 	manaBarColor = Color3.fromRGB(70, 150, 255),
 	critFlashColor = Color3.fromRGB(255, 150, 40),

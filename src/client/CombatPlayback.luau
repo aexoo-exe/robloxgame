@@ -74,7 +74,7 @@ local function play(playback)
 		views[unit.index] = UnitView.new(
 			unit.unitType,
 			unit.starLevel,
-			if own then RenderConfig.ownUnitColor else RenderConfig.enemyUnitColor,
+			RenderConfig.originColors[UnitConfig[unit.unitType].origin],
 			toWorld(unit.column, unit.row),
 			Arena.folder,
 			{
@@ -83,6 +83,7 @@ local function play(playback)
 				maxMana = unit.maxMana,
 				-- Both sides start facing each other; the local side is nearest the camera (+Z).
 				yaw = if own then 0 else math.pi,
+				healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
 			}
 		)
 	end

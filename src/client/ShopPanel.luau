@@ -1,5 +1,6 @@
 -- Placeholder shop and economy panel on the right edge of the screen: gold, level, XP progress,
--- units on the board against the cap, five shop buttons, reroll, buy XP and sell. Buttons only send
+-- units on the board against the cap, five shop buttons (name, cost, origin and classes, with an
+-- origin color stripe), reroll, buy XP and sell. Buttons only send
 -- requests and are disabled outside Preparation; everything shown comes from the server's
 -- PlayerStateUpdated and BoardUpdated.
 
@@ -10,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local LevelConfig = require(Shared:WaitForChild("LevelConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
@@ -90,8 +92,17 @@ function ShopPanel.start()
 	local placedCount = 0
 
 	local shopButtons = {}
+	local originStripes = {}
 	for slot = 1, ShopConfig.slots do
-		local button = createButton(panel, slot, 40)
+		local button = createButton(panel, slot, 44)
+		button.RichText = true
+		-- A stripe in the character's origin color, matching its unit color on the board.
+		local stripe = Instance.new("Frame")
+		stripe.Size = UDim2.new(0, 6, 1, 0)
+		stripe.BorderSizePixel = 0
+		stripe.Visible = false
+		stripe.Parent = button
+		originStripes[slot] = stripe
 		button.Activated:Connect(function()
 			if isPreparation() and view and view.shop[slot] then
 				requestBuyUnit:FireServer(slot)
@@ -145,11 +156,22 @@ function ShopPanel.start()
 		)
 		for slot, button in shopButtons do
 			local unitType = view.shop[slot]
+			local stripe = originStripes[slot]
 			if unitType then
 				local unit = UnitConfig[unitType]
-				button.Text = string.format("%s  (%d gold)\n%s", unitType, unit.cost, unit.role)
+				button.Text = string.format(
+					'%s  (%d gold)\n<font size="12">%s · %s</font>',
+					unit.displayName,
+					unit.cost,
+					unit.origin,
+					table.concat(unit.classes, " / ")
+				)
+				stripe.BackgroundColor3 = RenderConfig.originColors[unit.origin]
+				stripe.Visible = true
 			else
-				button.Text = "(bought)"
+				-- Bought, or nothing left in the shared pool to show.
+				button.Text = "(empty)"
+				stripe.Visible = false
 			end
 			setUsable(button, preparation and unitType ~= false)
 		end

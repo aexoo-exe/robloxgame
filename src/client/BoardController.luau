@@ -56,7 +56,8 @@ local function render()
 	for _, unit in units do
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
 		local stats = UnitConfig[unit.unitType]
-		local view = UnitView.new(unit.unitType, unit.starLevel, RenderConfig.ownUnitColor, position, Arena.folder, {
+		local color = RenderConfig.originColors[stats.origin]
+		local view = UnitView.new(unit.unitType, unit.starLevel, color, position, Arena.folder, {
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
