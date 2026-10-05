@@ -1,5 +1,6 @@
 local Abilities = require("../src/shared/Abilities")
 local Battle = require("../src/shared/Battle")
+local CombatSim = require("../src/shared/CombatSim")
 local HexGrid = require("../src/shared/HexGrid")
 local UnitConfig = require("../src/shared/UnitConfig")
 
@@ -23,11 +24,11 @@ local SPEC = {
 
 	Veyra = { 3, 720, 55, 100, 25, 30, 0.72, 4, 1.0, 20, 80 },
 	Dax = { 3, 850, 76, 100, 35, 30, 0.85, 1, 1.1, 30, 90 },
-	Calyx = { 3, 900, 54, 100, 42, 48, 0.65, 2, 0.9, 40, 110 },
+	Calyx = { 3, 900, 60, 100, 42, 48, 0.70, 2, 0.9, 40, 110 },
 	Solenne = { 3, 760, 78, 100, 24, 28, 0.88, 4, 1.0, 20, 90 },
 	Vael = { 3, 820, 80, 100, 30, 25, 0.89, 1, 1.1, 20, 90 },
 
-	Orin = { 4, 1180, 58, 100, 60, 60, 0.60, 1, 0.9, 50, 110 },
+	Orin = { 4, 1180, 64, 100, 60, 60, 0.65, 1, 0.9, 50, 110 },
 	Nyra = { 4, 820, 88, 100, 28, 28, 0.90, 4, 1.0, 20, 80 },
 	Torra = { 4, 1100, 78, 100, 55, 45, 0.82, 1, 1.1, 30, 100 },
 	Maelin = { 4, 900, 60, 100, 32, 55, 0.72, 3, 1.0, 40, 110 },
@@ -87,7 +88,8 @@ local CLASS_MEMBERS = {
 
 -- docs/design/roster-v0.1.md abilities, written the way abilityText (below) describes the data.
 -- Dashes toward FARTHEST_ENEMY or HIGHEST_AD_ENEMY make that enemy the current target ("retarget")
--- for the new characters and Dax; Kairo and Marek are as written.
+-- for the new characters and Dax; Kairo is as written. Balance pass v0.3 (docs/design/balance-pass-v0.3.md)
+-- changes Kes, Ione, Marek, Solenne, Orin, Calyx and Astra.
 local ABILITIES = {
 	Kaien = "Iron Pulse: SHIELD SELF 180/300/500 5s; STUN CURRENT_TARGET 1/1.5/2.25s",
 	Mira = "Starbolt: DAMAGE CURRENT_TARGET PHYSICAL 120/190/310; BUFF SELF AttackSpeed +20/30/45% 4s",
@@ -95,23 +97,23 @@ local ABILITIES = {
 	Lio = "Gale Edge: DAMAGE CURRENT_TARGET PHYSICAL 115/180/290; BUFF SELF AttackSpeed +15/25/40% 4s",
 	Cera = "Quiet Current: HEAL LOWEST_HP_ALLY 110/175/280; BUFF LOWEST_HP_ALLY MR +15/25/40 5s",
 	Sola = "Falling Spark: AREA_DAMAGE CURRENT_TARGET r1 MAGIC 150/240/390",
-	Kes = "Shadecut: DASH FARTHEST_ENEMY 2 retarget; DAMAGE FARTHEST_ENEMY PHYSICAL 145/230/370",
+	Kes = "Shadecut: DASH HIGHEST_AD_ENEMY 3 retarget; DAMAGE HIGHEST_AD_ENEMY PHYSICAL 145/230/370",
 	Rook = "Meteor Knuckle: DAMAGE CURRENT_TARGET PHYSICAL 180/290/470; AREA_DAMAGE CURRENT_TARGET r1 MAGIC 80/130/220",
 	Sena = "Moonveil: SHIELD LOWEST_HP_ALLY 180/300/480 5s; HEAL LOWEST_HP_ALLY 100/160/260",
 	Tarek = "Lockplate: SHIELD SELF 230/370/600 5s; STUN CURRENT_TARGET 0.75/1.25/1.75s",
-	Ione = "Skyneedle: DAMAGE FARTHEST_ENEMY PHYSICAL 220/350/560; BUFF SELF AD +10/15/25% 5s",
+	Ione = "Skyneedle: DAMAGE CURRENT_TARGET PHYSICAL 220/350/560; BUFF SELF AD +10/15/25% 5s",
 	Vela = "Black Arc: AREA_DAMAGE CURRENT_TARGET r1 MAGIC 210/340/550; BUFF SELF AP +15/25/40 5s",
-	Marek = "Burnrush: DASH CURRENT_TARGET 2; DAMAGE CURRENT_TARGET PHYSICAL 210/335/535; BUFF SELF AttackSpeed +25/40/60% 4s",
+	Marek = "Burnrush: DASH HIGHEST_AD_ENEMY 3 retarget; DAMAGE HIGHEST_AD_ENEMY PHYSICAL 210/335/535; BUFF SELF AttackSpeed +25/40/60% 4s",
 	Veyra = "Tempest Core: AREA_DAMAGE CURRENT_TARGET r1 MAGIC 260/420/680; STUN CURRENT_TARGET 1/1.5/2s",
 	Dax = "Flashbreak: DASH FARTHEST_ENEMY 3 retarget; DAMAGE FARTHEST_ENEMY PHYSICAL 300/475/750; BUFF SELF AttackSpeed +30/45/65% 4s",
 	Calyx = "Glass Sanctuary: SHIELD LOWEST_HP_ALLY 270/430/690 5s; HEAL LOWEST_HP_ALLY 170/270/430",
-	Solenne = "Nova Lance: AREA_DAMAGE FARTHEST_ENEMY r1 MAGIC 300/480/780; BUFF SELF AP +20/35/55 5s",
+	Solenne = "Nova Lance: AREA_DAMAGE CURRENT_TARGET r1 MAGIC 300/480/780; BUFF SELF AP +20/35/55 5s",
 	Vael = "Nightfall Step: DASH FARTHEST_ENEMY 3 retarget; DAMAGE FARTHEST_ENEMY PHYSICAL 340/540/860; BUFF SELF AttackSpeed +25/40/60% 4s",
 	Orin = "Unbroken Citadel: SHIELD SELF 450/700/1100 6s; BUFF SELF Armor +30/45/70 6s; BUFF SELF MR +30/45/70 6s",
 	Nyra = "Voidline Shot: DAMAGE FARTHEST_ENEMY PHYSICAL 320/500/800; STUN FARTHEST_ENEMY 1/1.5/2.25s",
 	Torra = "Thunder Descent: DASH HIGHEST_AD_ENEMY 3 retarget; AREA_DAMAGE HIGHEST_AD_ENEMY r1 MAGIC 330/525/850; STUN HIGHEST_AD_ENEMY 1/1.5/2.25s",
 	Maelin = "High Tide: HEAL LOWEST_HP_ALLY 330/530/860; SHIELD LOWEST_HP_ALLY 360/580/930 6s",
-	Astra = "Falling Constellation: AREA_DAMAGE HIGHEST_AD_ENEMY r2 MAGIC 400/650/1050",
+	Astra = "Falling Constellation: AREA_DAMAGE HIGHEST_AD_ENEMY r2 MAGIC 450/725/1175",
 	Kairo = "Heavenbreaker: DASH HIGHEST_AD_ENEMY 3; AREA_DAMAGE SELF r1 MAGIC 400/650/1050; SHIELD SELF 300/500/800 5s",
 	Sevrin = "Event Horizon: DASH FARTHEST_ENEMY 3 retarget; AREA_DAMAGE FARTHEST_ENEMY r1 MAGIC 520/850/1350; BUFF SELF AttackSpeed +30/45/70% 5s",
 }
@@ -361,7 +363,6 @@ table.insert(tests, {
 -- the highest AD), with full mana and Kaien as its target, for `ticks` ticks. Returns the battle
 -- and the diver, near and far units.
 local function diveBattle(name: string, seed: number, ticks: number)
-	local CombatSim = require("../src/shared/CombatSim")
 	local battle = Battle.new({
 		boards = {
 			{ { id = "diver", unitType = name, column = 4, row = 4 } },
@@ -401,12 +402,12 @@ table.insert(tests, {
 		end
 		table.sort(divers)
 		assert(
-			table.concat(divers, ",") == "Dax,Kes,Sevrin,Torra,Vael",
+			table.concat(divers, ",") == "Dax,Kes,Marek,Sevrin,Torra,Vael",
 			"unexpected divers: " .. table.concat(divers, ",")
 		)
 
-		-- Kes's 2-hex dash lands short of Mira (4 hexes away); see the next test.
-		for _, name in { "Dax", "Sevrin", "Torra", "Vael" } do
+		-- Mira is both the farthest enemy and the one with the highest AD, 4 hexes away.
+		for _, name in divers do
 			for seed = 1, 10 do
 				local battle, diver, near, far = diveBattle(name, seed, 100)
 				local dashed, abilityHit, attacksOnFar, attacksOnNear = false, false, 0, 0
@@ -444,51 +445,87 @@ table.insert(tests, {
 	end,
 })
 
+-- A caster at (4, 4) facing three enemies: Kaien adjacent (its current target), Nyra (highest AD)
+-- three hexes away, and Cera (low AD) in the far back row. Enemy positions are in their own board
+-- coordinates (rotated onto the field's far half).
+local function threeEnemyBattle(name: string, seed: number)
+	local battle = Battle.new({
+		boards = {
+			{ { id = "caster", unitType = name, column = 4, row = 4 } },
+			{
+				{ id = "near", unitType = "Kaien", column = 4, row = 4 },
+				{ id = "strong", unitType = "Nyra", column = 3, row = 2 },
+				{ id = "far", unitType = "Cera", column = 1, row = 1 },
+			},
+		},
+		columns = 7,
+		rows = 4,
+		unitTypes = UnitConfig,
+		ticksPerSecond = 20,
+		maxTicks = 1000,
+		seed = seed,
+	})
+	local caster, near, strong, far = battle.units[1], battle.units[2], battle.units[3], battle.units[4]
+	assert(Battle.distance(caster, near) == 1, "test setup: Kaien adjacent")
+	assert(Battle.distance(caster, strong) == 3, "test setup: Nyra three hexes away")
+	assert(Battle.distance(caster, far) > Battle.distance(caster, strong), "test setup: Cera farthest")
+	caster.target = near
+	return battle, caster, near, strong, far
+end
+
 table.insert(tests, {
-	name = "a retargeting dash that lands out of range falls back to the nearest enemy (Kes)",
+	name = "Kes and Marek dash 3 hexes to the highest-AD enemy, hit it and keep it as their target",
 	run = function()
-		-- The engine keeps a target only while it is in range (CombatSim step 2), so Kes's 2-hex dash
-		-- toward a target 4 hexes away hits it with Shadecut but then goes back to the nearest enemy.
-		local battle, kes, near, far = diveBattle("Kes", 1, 40)
-		local landed, hitFar, attackedNear = nil, false, false
-		for _, event in battle.events do
-			if event.unit == kes.index then
-				if event.kind == "Dash" then
-					landed = event
-				elseif event.kind == "Damage" and event.target == far.index then
-					hitFar = true
-				elseif event.kind == "Attack" and event.target == near.index then
-					attackedNear = true
+		for _, name in { "Kes", "Marek" } do
+			for seed = 1, 5 do
+				local battle, caster, near, strong, far = threeEnemyBattle(name, seed)
+				caster.mana = caster.maxMana
+				for _ = 1, 40 do
+					CombatSim.step(battle)
 				end
+				local dash, hitStrong, attacksOnStrong = nil, false, 0
+				for _, event in battle.events do
+					if event.unit == caster.index then
+						if event.kind == "Dash" then
+							dash = dash or event
+						elseif event.kind == "Damage" then
+							assert(event.target == strong.index, name .. ": the ability hit someone other than Nyra")
+							hitStrong = true
+						elseif event.kind == "Attack" then
+							assert(event.target ~= near.index, name .. " went back to its old target")
+							assert(event.target ~= far.index, name .. " attacked the farthest enemy")
+							attacksOnStrong += 1
+						end
+					end
+				end
+				local label = string.format("%s (seed %d)", name, seed)
+				assert(dash, label .. " did not dash")
+				assert(
+					HexGrid.distance(dash.column, dash.row, strong.column, strong.row) == 1,
+					label .. ": not adjacent"
+				)
+				assert(hitStrong, label .. ": the ability did not hit Nyra")
+				assert(attacksOnStrong > 0, label .. " did not attack Nyra after the dash")
 			end
 		end
-		assert(landed, "Kes did not dash")
-		assert(HexGrid.distance(landed.column, landed.row, far.column, far.row) > 1, "test setup: dash lands short")
-		assert(hitFar, "Shadecut should still hit the farthest enemy")
-		assert(attackedNear, "Kes should fall back to the nearest enemy")
 	end,
 })
 
 table.insert(tests, {
-	name = "Marek's dash moves him only when his current target is more than one hex away",
+	name = "Ione and Solenne hit their current target, not the farthest enemy",
 	run = function()
-		-- Adjacent target: Burnrush hits it without moving.
-		local battle, marek = diveBattle("Marek", 1, 1)
-		for _, event in battle.events do
-			assert(not (event.unit == marek.index and event.kind == "Dash"), "Marek dashed to an adjacent target")
+		for _, name in { "Ione", "Solenne" } do
+			local battle, caster, near, _, far = threeEnemyBattle(name, 1)
+			Abilities.cast(battle, caster)
+			local hitNear = false
+			for _, event in battle.events do
+				if event.unit == caster.index and event.kind == "Damage" then
+					assert(event.target ~= far.index, name .. " hit the farthest enemy")
+					hitNear = hitNear or event.target == near.index
+				end
+			end
+			assert(hitNear, name .. " did not hit its current target")
 		end
-
-		-- Target three hexes away: he dashes toward it.
-		battle, marek = diveBattle("Marek", 1, 0)
-		local far = battle.units[3]
-		Battle.relocate(battle, far, 4, 7)
-		marek.target = far
-		Abilities.cast(battle, marek)
-		local dashed = false
-		for _, event in battle.events do
-			dashed = dashed or (event.unit == marek.index and event.kind == "Dash")
-		end
-		assert(dashed, "Marek did not dash toward a distant target")
 	end,
 })
 

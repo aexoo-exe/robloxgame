@@ -1,6 +1,10 @@
+local Battle = require("../src/shared/Battle")
 local Board = require("../src/shared/Board")
 local BoardConfig = require("../src/shared/BoardConfig")
+local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
+local Match = require("../src/shared/Match")
+local MatchConfig = require("../src/shared/MatchConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local StarLevel = require("../src/shared/StarLevel")
 local UnitConfig = require("../src/shared/UnitConfig")
@@ -147,14 +151,14 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "stat scaling: health x1.8 / x3.24 and attack damage x1.5 / x2.25; nothing else",
+	name = "stat scaling: health x1.15 x (1 / 1.8 / 3.24) and attack damage x1.5 / x2.25; nothing else",
 	run = function()
 		local base = UnitConfig.Kaien -- 720 health, 48 attack damage
 		local two = StarLevel.scaleStats(base, 2)
 		local three = StarLevel.scaleStats(base, 3)
-		expectEqual(StarLevel.scaleStats(base, 1).health, 720, "1-star health")
-		expectEqual(two.health, 1296, "2-star health")
-		expectEqual(three.health, 2333, "3-star health (2332.8 rounded)")
+		expectEqual(StarLevel.scaleStats(base, 1).health, 828, "1-star health (720 x 1.15)")
+		expectEqual(two.health, 1490, "2-star health (1490.4 rounded)")
+		expectEqual(three.health, 2683, "3-star health (2682.72 rounded)")
 		expectEqual(two.attackDamage, 72, "2-star attack damage")
 		expectEqual(three.attackDamage, 108, "3-star attack damage")
 		for _, stat in
@@ -164,6 +168,44 @@ table.insert(tests, {
 		end
 		assert(three.ability == base.ability, "the ability table should not change with star level")
 		expectEqual(base.health, 720, "base stats were changed")
+	end,
+})
+
+table.insert(tests, {
+	name = "every unit enters combat with 1.15x its base health; base data and player health are unchanged",
+	run = function()
+		expectEqual(CombatConfig.globalHealthMultiplier, 1.15, "global health multiplier")
+		local board = {}
+		local names = {}
+		for name in UnitConfig do
+			table.insert(names, name)
+		end
+		table.sort(names)
+		for i, name in names do
+			table.insert(board, { id = name, unitType = name, column = (i - 1) % 7 + 1, row = (i - 1) // 7 + 1 })
+		end
+		local battle = Battle.new({
+			boards = { board, {} },
+			columns = 7,
+			rows = 4,
+			unitTypes = UnitConfig,
+			ticksPerSecond = 20,
+			maxTicks = 1,
+			seed = 1,
+		})
+		for _, unit in battle.units do
+			local expected = math.round(UnitConfig[unit.unitType].health * 1.15)
+			expectEqual(unit.maxHealth, expected, unit.unitType .. " combat health")
+			expectEqual(unit.health, expected, unit.unitType .. " starting health")
+			expectEqual(
+				unit.stats.attackDamage,
+				UnitConfig[unit.unitType].attackDamage,
+				unit.unitType .. " attack damage"
+			)
+		end
+		expectEqual(UnitConfig.Orin.health, 1180, "UnitConfig keeps the design docs' base health")
+		local match = Match.new({ 1, 2 }, 1)
+		expectEqual(match.players[1].health, MatchConfig.startingHealth, "player health")
 	end,
 })
 
@@ -192,9 +234,9 @@ table.insert(tests, {
 			seed = 1,
 			critChance = 0, -- exact damage
 		})
-		expectEqual(result.units[1].maxHealth, 1296, "2-star max health")
+		expectEqual(result.units[1].maxHealth, 1490, "2-star max health (720 x 1.8 x 1.15)")
 		expectEqual(result.units[1].starLevel, 2, "2-star summary")
-		expectEqual(result.units[2].maxHealth, 720, "1-star max health (star level omitted)")
+		expectEqual(result.units[2].maxHealth, 828, "1-star max health (star level omitted; 720 x 1.15)")
 		-- Kaien has 40 armor: 72 x 100/140 = 51.4 -> 51, and 48 x 100/140 = 34.3 -> 34.
 		for _, event in result.events do
 			if event.kind == "Attack" then
