@@ -14,6 +14,7 @@ local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local UnitConfig = require("../src/shared/UnitConfig")
+local UnitPool = require("../src/shared/UnitPool")
 
 local MATCHES = tonumber(process.args[1]) or 200
 local PLAYERS = tonumber(process.args[2]) or 8
@@ -95,18 +96,24 @@ local function recordWinnerBoard(board)
 	end
 end
 
+-- Shared pool use: shop rolls that hit an empty tier, and matches in which each tier was empty at
+-- the end of some bot's Preparation.
+local poolStats = { dryRolls = 0, matchesTierEmpty = { 0, 0, 0, 0, 0 } }
+
 local function playMatch(matchIndex: number)
 	local ids = {}
 	local states = {}
 	local policies = {}
+	local pool = UnitPool.new()
 	for i = 1, PLAYERS do
 		ids[i] = i
-		states[i] = PlayerState.new(matchIndex * 1000 + i)
+		states[i] = PlayerState.new(matchIndex * 1000 + i, pool)
 		policies[i] = Bot.policies[(i + matchIndex) % #Bot.policies + 1]
 	end
 	local match = Match.new(ids, matchIndex)
 	local stats = { seconds = 0, fights = 0, timeouts = 0, longestFight = 0 }
 	local lastBoards = {}
+	local tierEmptied = {}
 
 	while not match.finished do
 		local boards = {}
@@ -114,6 +121,11 @@ local function playMatch(matchIndex: number)
 			PlayerState.startPreparation(states[id])
 			boards[id] = Bot.prepare(states[id], policies[id])
 			lastBoards[id] = boards[id]
+			for cost = 1, 5 do
+				if UnitPool.tierRemaining(pool, cost) == 0 then
+					tierEmptied[cost] = true
+				end
+			end
 		end
 
 		local fights = Match.startRound(match)
@@ -137,9 +149,18 @@ local function playMatch(matchIndex: number)
 		for id, outcome in summary.outcomes do
 			PlayerState.recordCombat(states[id], outcome)
 		end
+		for _, id in summary.eliminated do
+			PlayerState.releaseAll(states[id])
+		end
 		assert(match.round < 200, "match did not end")
 	end
 	recordWinnerBoard(lastBoards[match.winner])
+	poolStats.dryRolls += pool.dryRolls
+	for cost = 1, 5 do
+		if tierEmptied[cost] then
+			poolStats.matchesTierEmpty[cost] += 1
+		end
+	end
 
 	return {
 		rounds = match.round,
@@ -230,8 +251,31 @@ for cost = 1, 5 do
 end
 print("  2-star: " .. table.concat(starLine2, ", "))
 print("  3-star: " .. table.concat(starLine3, ", "))
-print("1-star characters (per fight they appeared in): average damage dealt, casts, seconds survived")
-print("(share of the fight), and for dashers how often a cast's dash moved them")
+local emptyLine = {}
+for cost = 1, 5 do
+	table.insert(emptyLine, string.format("%dc %.0f%%", cost, poolStats.matchesTierEmpty[cost] / MATCHES * 100))
+end
+print(
+	string.format(
+		"Shared pool: %.1f shop rolls per match hit an empty tier; matches where a tier ran empty: %s",
+		poolStats.dryRolls / MATCHES,
+		table.concat(emptyLine, ", ")
+	)
+)
+
+-- Diagnostic 1-star damage per fight by cost, for tanks/supports and for carries
+-- (docs/design/world-and-traits.md, Base stat bands). Roles not listed here count as carries.
+local SUPPORT_ROLES = { Frontline = true, Support = true, Tank = true, ["Main Tank"] = true }
+local BANDS = {
+	{ support = { 250, 600 }, carry = { 700, 1000 } },
+	{ support = { 350, 750 }, carry = { 750, 1150 } },
+	{ support = { 450, 900 }, carry = { 1100, 1600 } },
+	{ support = { 500, 1100 }, carry = { 1600, 2200 } },
+	{ support = { 700, 1400 }, carry = { 2200, 3200 } },
+}
+
+print("1-star characters (per fight they appeared in): average damage dealt against the diagnostic band,")
+print("casts, seconds survived (share of the fight), and for dashers how often a cast's dash moved them")
 local names = {}
 for name in unitStats do
 	table.insert(names, name)
@@ -239,20 +283,37 @@ end
 table.sort(names, function(a, b)
 	return UnitConfig[a].cost < UnitConfig[b].cost or (UnitConfig[a].cost == UnitConfig[b].cost and a < b)
 end)
+local outliers = {}
 for _, name in names do
 	local stats = unitStats[name]
+	local unit = UnitConfig[name]
+	local bucket = if SUPPORT_ROLES[unit.role] then "support" else "carry"
+	local band = BANDS[unit.cost][bucket]
+	local damage = stats.damage / stats.fights
+	local verdict = "in"
+	if damage < band[1] then
+		verdict = string.format("LOW %d%%", math.round((damage / band[1] - 1) * 100))
+		table.insert(outliers, { name = name, off = 1 - damage / band[1], verdict = verdict })
+	elseif damage > band[2] then
+		verdict = string.format("HIGH +%d%%", math.round((damage / band[2] - 1) * 100))
+		table.insert(outliers, { name = name, off = damage / band[2] - 1, verdict = verdict })
+	end
 	local dashLine = ""
-	for _, effect in UnitConfig[name].ability.effects do
+	for _, effect in unit.ability.effects do
 		if effect.type == "DASH" and stats.casts > 0 then
 			dashLine = string.format(", dash moved %.0f%% of casts", stats.dashes / stats.casts * 100)
 		end
 	end
 	print(
 		string.format(
-			"  %-7s (%d) %6.0f damage, %4.2f casts, %4.1fs alive (%.0f%%)%s  [%d fights]",
+			"  %-7s (%d %-7s) %5.0f damage [%d-%d %s], %4.2f casts, %4.1fs alive (%.0f%%)%s  [%d fights]",
 			name,
-			UnitConfig[name].cost,
-			stats.damage / stats.fights,
+			unit.cost,
+			bucket,
+			damage,
+			band[1],
+			band[2],
+			verdict,
 			stats.casts / stats.fights,
 			stats.aliveSeconds / stats.fights,
 			stats.aliveSeconds / stats.fightSeconds * 100,
@@ -261,3 +322,11 @@ for _, name in names do
 		)
 	)
 end
+table.sort(outliers, function(a, b)
+	return a.off > b.off
+end)
+local worst = {}
+for i = 1, math.min(5, #outliers) do
+	table.insert(worst, outliers[i].name .. " " .. outliers[i].verdict)
+end
+print(string.format("Outside the band: %d of %d. Worst: %s", #outliers, #names, table.concat(worst, ", ")))
