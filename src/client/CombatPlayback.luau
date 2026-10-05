@@ -151,6 +151,10 @@ local function play(playback)
 			end
 		elseif kind == "Shield" and targetView then
 			UnitView.setShield(targetView, event.shield)
+			-- Combat-start shields from a trait name it (e.g. "Warden").
+			if event.source and fresh then
+				UnitView.popText(targetView, event.source, RenderConfig.shieldBubbleColor)
+			end
 		elseif kind == "ShieldEnd" and view then
 			UnitView.setShield(view, 0)
 		elseif kind == "Stun" and targetView then

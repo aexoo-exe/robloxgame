@@ -40,6 +40,12 @@ return table.freeze({
 	hitFlashDuration = 0.08, -- seconds
 	refusalNoticeDuration = 2, -- seconds a "request refused" message stays on screen
 
+	-- Trait panel rows: active traits are highlighted, partial ones are dim.
+	traitActiveColor = Color3.fromRGB(205, 160, 50),
+	traitActiveTextColor = Color3.fromRGB(20, 20, 20),
+	traitInactiveColor = Color3.fromRGB(45, 45, 55),
+	traitInactiveTextColor = Color3.fromRGB(170, 170, 180),
+
 	-- Combat playback. Durations are in seconds; none of them change fight timing, which comes
 	-- from the server's event list.
 	visorColor = Color3.fromRGB(30, 30, 40), -- marks the front of a unit, so turning is visible
