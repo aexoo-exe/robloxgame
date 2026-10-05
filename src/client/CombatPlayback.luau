@@ -1,5 +1,10 @@
 -- Plays back the fight the server simulated. CombatStarted carries the starting units and every
--- event with its tick; events are applied as server time passes `startsAt`. Presentation only.
+-- event with its tick; events are applied as server time passes `startsAt`. Presentation only:
+-- nothing here changes what happens in the fight or when.
+--
+-- The event list is known in full when the fight starts, so attacks are anticipated: melee
+-- attackers start their lunge early so it peaks as the hit lands. Damage types come from
+-- CastReader, since events do not carry them.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,13 +20,17 @@ local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
+local CastReader = require(script.Parent.CastReader)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
 
-local DASH_SECONDS = 0.15 -- dashes are instant in the sim; a short slide keeps them readable
+-- One-shot effects (numbers, flashes, text) are skipped for events older than this, so a client
+-- that joins mid-fight does not get a burst of everything that already happened.
+local STALE_SECONDS = 0.5
 
-local views: { [number]: UnitView.UnitView } = {}
+local views: { [number]: UnitView.UnitView } = {} -- living units, by unit index
+local dying: { [UnitView.UnitView]: boolean } = {} -- fading out; destroyed when the fade ends
 local connection: RBXScriptConnection? = nil
 
 local function clear()
@@ -33,6 +42,10 @@ local function clear()
 		UnitView.destroy(view)
 	end
 	table.clear(views)
+	for view in dying do
+		UnitView.destroy(view)
+	end
+	table.clear(dying)
 end
 
 local function play(playback)
@@ -47,23 +60,37 @@ local function play(playback)
 		end
 		return Arena.cellPosition(column, row)
 	end
+	local function serverTimeOf(tick: number): number
+		return playback.startsAt + tick / result.ticksPerSecond
+	end
 
 	local unitsByIndex = {}
 	for _, unit in result.units do
 		unitsByIndex[unit.index] = unit
-		local color = if unit.side == localSide then RenderConfig.ownUnitColor else RenderConfig.enemyUnitColor
+		local own = unit.side == localSide
 		views[unit.index] = UnitView.new(
 			unit.unitType,
 			unit.starLevel,
-			color,
+			if own then RenderConfig.ownUnitColor else RenderConfig.enemyUnitColor,
 			toWorld(unit.column, unit.row),
 			Arena.folder,
-			{ maxHealth = unit.maxHealth, mana = unit.mana, maxMana = unit.maxMana }
+			{
+				maxHealth = unit.maxHealth,
+				mana = unit.mana,
+				maxMana = unit.maxMana,
+				-- Both sides start facing each other; the local side is nearest the camera (+Z).
+				yaw = if own then 0 else math.pi,
+			}
 		)
 	end
 
-	-- Applies one CombatSim event (see the Event list in CombatSim) to the views.
-	local function apply(event)
+	local reading = CastReader.read(result.units, result.events, function(index)
+		return UnitConfig[unitsByIndex[index].unitType].ability
+	end)
+
+	-- Applies one CombatSim event (see the Event list in CombatSim) to the views. `fresh` is false
+	-- for events that happened a while ago, which skip their one-shot effects.
+	local function apply(index: number, event, fresh: boolean)
 		local view = views[event.unit]
 		local targetView = if event.target then views[event.target] else nil
 		local kind = event.kind
@@ -71,51 +98,114 @@ local function play(playback)
 			local hexesPerSecond = CombatConfig.baseMoveSpeed * UnitConfig[unitsByIndex[event.unit].unitType].moveSpeed
 			UnitView.moveTo(view, toWorld(event.column, event.row), 1 / hexesPerSecond)
 		elseif kind == "Dash" and view then
-			UnitView.moveTo(view, toWorld(event.column, event.row), DASH_SECONDS)
+			UnitView.dashTo(view, toWorld(event.column, event.row))
 		elseif kind == "Attack" or kind == "Damage" then
 			if view and event.mana then
 				UnitView.setMana(view, event.mana)
+			end
+			if view and targetView and kind == "Attack" then
+				UnitView.face(view, targetView)
 			end
 			if targetView then
 				UnitView.setHealth(targetView, event.health)
 				UnitView.setShield(targetView, event.shield)
 				UnitView.setMana(targetView, event.targetMana)
-				UnitView.flash(targetView, event.crit)
-				if event.crit then
-					UnitView.popText(targetView, "CRIT " .. event.damage, RenderConfig.critFlashColor)
+				if fresh then
+					UnitView.flash(targetView, event.crit)
+					UnitView.damageNumber(targetView, event.damage, reading.damageTypes[index], event.crit)
 				end
 			end
 		elseif kind == "Cast" and view then
 			UnitView.setMana(view, 0)
-			UnitView.popText(view, event.ability, RenderConfig.castTextColor)
+			if fresh then
+				UnitView.cast(view, event.ability)
+			end
 		elseif kind == "Heal" and targetView then
 			UnitView.setHealth(targetView, event.health)
-			UnitView.popText(targetView, "+" .. event.amount, RenderConfig.healTextColor)
+			if fresh then
+				UnitView.healNumber(targetView, event.amount)
+			end
 		elseif kind == "Shield" and targetView then
 			UnitView.setShield(targetView, event.shield)
 		elseif kind == "ShieldEnd" and view then
 			UnitView.setShield(view, 0)
 		elseif kind == "Stun" and targetView then
 			UnitView.stun(targetView, event.duration)
-		elseif kind == "Buff" and targetView then
+		elseif kind == "Buff" and targetView and fresh then
 			local amount = if event.percent ~= 0 then event.percent .. "%" else tostring(event.flat)
 			UnitView.popText(targetView, "+" .. amount .. " " .. event.stat, RenderConfig.castTextColor)
 		elseif kind == "Death" and view then
-			UnitView.destroy(view)
+			UnitView.kill(view)
 			views[event.unit] = nil
+			dying[view] = true
 		end
 	end
 
+	-- Starts the wind-up of an attack that lands at `landsAt` (server time).
+	local function anticipate(event, landsAt: number, serverNow: number)
+		local attacker = views[event.unit]
+		local target = views[event.target]
+		if not attacker or not target then
+			return
+		end
+		UnitView.face(attacker, target)
+		local landsIn = landsAt - serverNow
+		UnitView.lunge(attacker, target, os.clock() + landsIn - RenderConfig.lungeDuration / 2)
+	end
+
+	local function isRanged(unitIndex: number): boolean
+		return UnitConfig[unitsByIndex[unitIndex].unitType].range > 1
+	end
+	local function leadTime(unitIndex: number): number
+		return if isRanged(unitIndex) then 0 else RenderConfig.lungeDuration / 2
+	end
+
+	local events = result.events
 	local nextEvent = 1
+	local nextAnticipated = 1
+	local maxLead = RenderConfig.lungeDuration / 2
+	local upcoming = {} -- indexes of attacks inside the lead window, not yet wound up
+	local lastFrame = os.clock()
+
 	connection = RunService.RenderStepped:Connect(function()
-		local currentTick = (workspace:GetServerTimeNow() - playback.startsAt) * result.ticksPerSecond
-		while nextEvent <= #result.events and result.events[nextEvent].tick <= currentTick do
-			apply(result.events[nextEvent])
+		local now = os.clock()
+		local dt = now - lastFrame
+		lastFrame = now
+		local serverNow = workspace:GetServerTimeNow()
+
+		while nextAnticipated <= #events and serverTimeOf(events[nextAnticipated].tick) - maxLead <= serverNow do
+			if events[nextAnticipated].kind == "Attack" then
+				table.insert(upcoming, nextAnticipated)
+			end
+			nextAnticipated += 1
+		end
+		for i = #upcoming, 1, -1 do
+			local event = events[upcoming[i]]
+			local landsAt = serverTimeOf(event.tick)
+			if serverNow >= landsAt - leadTime(event.unit) then
+				table.remove(upcoming, i)
+				if landsAt > serverNow then
+					anticipate(event, landsAt, serverNow)
+				end
+			end
+		end
+
+		local currentTick = (serverNow - playback.startsAt) * result.ticksPerSecond
+		while nextEvent <= #events and events[nextEvent].tick <= currentTick do
+			local event = events[nextEvent]
+			apply(nextEvent, event, serverNow - serverTimeOf(event.tick) < STALE_SECONDS)
 			nextEvent += 1
 		end
-		if nextEvent > #result.events and connection then
-			connection:Disconnect()
-			connection = nil
+
+		-- Survivors keep animating (turning, fading numbers) until the views are cleared.
+		for _, view in views do
+			UnitView.update(view, now, dt)
+		end
+		for view in dying do
+			if not UnitView.update(view, now, dt) then
+				UnitView.destroy(view)
+				dying[view] = nil
+			end
 		end
 	end)
 end

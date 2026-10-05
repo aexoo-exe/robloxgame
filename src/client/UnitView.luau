@@ -1,17 +1,39 @@
--- A placeholder unit: a colored block with its name and star level, a health bar (with any shield
--- shown as a white segment after the health), and a mana bar under it. Floating text shows casts,
--- crits and heals; a marker shows stuns. Higher-star units are drawn slightly larger
--- (RenderConfig.starSizeScale). Presentation only.
+-- A placeholder unit: a colored block with a dark visor marking its front, its name and star level,
+-- a health bar (with any shield shown as a white segment after the health), and a mana bar under
+-- it. Higher-star units are drawn slightly larger (RenderConfig.starSizeScale). Presentation only.
+--
+-- In combat, every animation (gliding, turning, lunges, hit flashes, cast glows, floating numbers,
+-- the stun marker, the shield bubble and the death fade) is advanced by UnitView.update, called
+-- once per frame. Nothing is scheduled with task.delay or TweenService, so destroying a view
+-- removes everything it shows. Views that are never updated (the board during Preparation) just
+-- sit where they were placed.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
 
 local UnitView = {}
 
+-- Pixel layout of the floating text board, which is centered on the same point as the info board.
+local FLOAT_BOARD_SIZE = Vector2.new(220, 220)
+local FLOAT_START_Y = 55 -- top of a new number, just above the info board
+local CAST_TEXT_START_Y = 25
+
+type Floater = {
+	label: TextLabel,
+	born: number,
+	duration: number,
+	startY: number,
+	rise: number,
+}
+
 export type UnitView = {
 	part: Part,
+	visor: Part,
+	bubble: Part?,
+	trail: Trail,
+	infoBoard: BillboardGui,
+	floatBoard: BillboardGui,
 	color: Color3,
 	maxHealth: number,
 	maxMana: number?,
@@ -21,17 +43,70 @@ export type UnitView = {
 	shieldFill: Frame,
 	manaFill: Frame,
 	stunMarker: TextLabel,
-	stunVersion: number,
+
+	-- Animation state, in os.clock() seconds.
+	base: Vector3, -- part center without lunge or death offsets
+	moveFrom: Vector3,
+	moveTo: Vector3,
+	moveStart: number,
+	moveDuration: number,
+	moveIsDash: boolean,
+	yaw: number,
+	faceTarget: UnitView?,
+	lungeDirection: Vector3,
+	lungeStart: number?,
+	flashUntil: number,
+	flashColor: Color3,
+	glowUntil: number,
+	stunUntil: number,
+	trailUntil: number,
+	dyingSince: number?,
+	floaters: { Floater },
+	floaterCount: number,
+	shownColor: Color3,
+	shownMaterial: Enum.Material,
 }
 
 export type Options = {
 	maxHealth: number?,
 	mana: number?,
 	maxMana: number?, -- no mana bar fill if nil
+	yaw: number?, -- initial facing in radians around the vertical axis (0 faces -Z)
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
 	return groundPosition + Vector3.new(0, part.Size.Y / 2, 0)
+end
+
+-- Yaw that makes a part's front (-Z) point along `direction`.
+local function yawToward(direction: Vector3): number?
+	if direction.X * direction.X + direction.Z * direction.Z < 1e-6 then
+		return nil
+	end
+	return math.atan2(-direction.X, -direction.Z)
+end
+
+local function wrapAngle(angle: number): number
+	return (angle + math.pi) % (2 * math.pi) - math.pi
+end
+
+local function decoration(parent: Part, size: Vector3, cframe: CFrame, color: Color3): Part
+	local piece = Instance.new("Part")
+	piece.Anchored = false
+	piece.CanCollide = false
+	piece.CanQuery = false -- clicks on the board must hit the unit's body
+	piece.CanTouch = false
+	piece.Massless = true
+	piece.Size = size
+	piece.CFrame = cframe
+	piece.Color = color
+	piece.Material = Enum.Material.SmoothPlastic
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = parent
+	weld.Part1 = piece
+	weld.Parent = piece
+	piece.Parent = parent
+	return piece
 end
 
 local function bar(parent: Instance, y: number, height: number): Frame
@@ -62,20 +137,47 @@ function UnitView.new(
 	options: Options?
 ): UnitView
 	options = options or {}
+	local yaw = options.yaw or 0
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Anchored = true
 	part.CanCollide = false
 	part.Size = RenderConfig.unitSize * RenderConfig.starSizeScale[starLevel]
-	part.Position = partPosition(groundPosition, part)
+	local base = partPosition(groundPosition, part)
+	part.CFrame = CFrame.new(base) * CFrame.Angles(0, yaw, 0)
 	part.Color = color
 	part.Material = Enum.Material.SmoothPlastic
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromOffset(90, 54)
-	billboard.StudsOffset = Vector3.new(0, part.Size.Y / 2 + 1.5, 0)
-	billboard.AlwaysOnTop = true
-	billboard.Parent = part
+	local size = part.Size
+	local visorSize = Vector3.new(size.X * 0.7, size.Y * 0.16, size.Z * 0.35)
+	local visor = decoration(
+		part,
+		visorSize,
+		part.CFrame * CFrame.new(0, size.Y * 0.25, -(size.Z + visorSize.Z) / 2 + 0.05),
+		RenderConfig.visorColor
+	)
+
+	local trailTop = Instance.new("Attachment")
+	trailTop.Position = Vector3.new(0, size.Y * 0.3, 0)
+	trailTop.Parent = part
+	local trailBottom = Instance.new("Attachment")
+	trailBottom.Position = Vector3.new(0, -size.Y * 0.3, 0)
+	trailBottom.Parent = part
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = trailTop
+	trail.Attachment1 = trailBottom
+	trail.Color = ColorSequence.new(RenderConfig.dashTrailColor)
+	trail.Transparency = NumberSequence.new(0.3, 1)
+	trail.Lifetime = RenderConfig.dashTrailLifetime
+	trail.FaceCamera = true
+	trail.Enabled = false
+	trail.Parent = part
+
+	local infoBoard = Instance.new("BillboardGui")
+	infoBoard.Size = UDim2.fromOffset(90, 54)
+	infoBoard.StudsOffset = Vector3.new(0, size.Y / 2 + 1.5, 0)
+	infoBoard.AlwaysOnTop = true
+	infoBoard.Parent = part
 
 	local stunMarker = Instance.new("TextLabel")
 	stunMarker.Size = UDim2.new(1, 0, 0, 14)
@@ -86,7 +188,7 @@ function UnitView.new(
 	stunMarker.Font = Enum.Font.GothamBlack
 	stunMarker.TextSize = 12
 	stunMarker.Visible = false
-	stunMarker.Parent = billboard
+	stunMarker.Parent = infoBoard
 
 	local label = Instance.new("TextLabel")
 	label.Position = UDim2.fromOffset(0, 14)
@@ -97,20 +199,31 @@ function UnitView.new(
 	label.TextStrokeTransparency = 0
 	label.Font = Enum.Font.GothamBold
 	label.TextSize = 14
-	label.Parent = billboard
+	label.Parent = infoBoard
 
-	local healthBar = bar(billboard, 34, 8)
+	local healthBar = bar(infoBoard, 34, 8)
 	local healthFill = fill(healthBar, RenderConfig.healthBarColor)
 	local shieldFill = fill(healthBar, RenderConfig.shieldColor)
 	shieldFill.Size = UDim2.fromScale(0, 1)
 
-	local manaBar = bar(billboard, 44, 4)
+	local manaBar = bar(infoBoard, 44, 4)
 	local manaFill = fill(manaBar, RenderConfig.manaBarColor)
 	manaFill.Size = UDim2.fromScale(0, 1)
+
+	local floatBoard = Instance.new("BillboardGui")
+	floatBoard.Size = UDim2.fromOffset(FLOAT_BOARD_SIZE.X, FLOAT_BOARD_SIZE.Y)
+	floatBoard.StudsOffset = infoBoard.StudsOffset
+	floatBoard.AlwaysOnTop = true
+	floatBoard.Parent = part
 
 	part.Parent = parent
 	local view = {
 		part = part,
+		visor = visor,
+		bubble = nil,
+		trail = trail,
+		infoBoard = infoBoard,
+		floatBoard = floatBoard,
 		color = color,
 		maxHealth = options.maxHealth or 1,
 		maxMana = options.maxMana,
@@ -120,21 +233,87 @@ function UnitView.new(
 		shieldFill = shieldFill,
 		manaFill = manaFill,
 		stunMarker = stunMarker,
-		stunVersion = 0,
+
+		base = base,
+		moveFrom = base,
+		moveTo = base,
+		moveStart = 0,
+		moveDuration = 0,
+		moveIsDash = false,
+		yaw = yaw,
+		faceTarget = nil,
+		lungeDirection = Vector3.zero,
+		lungeStart = nil,
+		flashUntil = 0,
+		flashColor = color,
+		glowUntil = 0,
+		stunUntil = 0,
+		trailUntil = 0,
+		dyingSince = nil,
+		floaters = {},
+		floaterCount = 0,
+		shownColor = color,
+		shownMaterial = part.Material,
 	}
 	UnitView.setMana(view, options.mana or 0)
 	return view
 end
 
--- Moves the unit to a ground position, sliding over `duration` seconds if given.
-function UnitView.moveTo(view: UnitView, groundPosition: Vector3, duration: number?)
-	local goal = partPosition(groundPosition, view.part)
-	if duration and duration > 0 then
-		local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-		TweenService:Create(view.part, tweenInfo, { Position = goal }):Play()
-	else
-		view.part.Position = goal
+-- Where the body is heading right now (ignoring lunges), for a move that may be in progress.
+local function currentBase(view: UnitView, now: number): Vector3
+	if view.moveDuration <= 0 then
+		return view.moveTo
 	end
+	local alpha = math.clamp((now - view.moveStart) / view.moveDuration, 0, 1)
+	if view.moveIsDash then
+		alpha = 1 - (1 - alpha) * (1 - alpha)
+	end
+	return view.moveFrom:Lerp(view.moveTo, alpha)
+end
+
+local function startMove(view: UnitView, groundPosition: Vector3, duration: number, isDash: boolean)
+	local now = os.clock()
+	view.moveFrom = currentBase(view, now)
+	view.moveTo = partPosition(groundPosition, view.part)
+	view.moveStart = now
+	view.moveDuration = duration
+	view.moveIsDash = isDash
+end
+
+-- Moves the unit to a ground position: glides over `duration` seconds (driven by UnitView.update),
+-- or snaps there at once if no duration is given.
+function UnitView.moveTo(view: UnitView, groundPosition: Vector3, duration: number?)
+	if duration and duration > 0 then
+		startMove(view, groundPosition, duration, false)
+	else
+		local goal = partPosition(groundPosition, view.part)
+		view.moveFrom, view.moveTo, view.moveDuration, view.base = goal, goal, 0, goal
+		view.part.CFrame = CFrame.new(goal) * CFrame.Angles(0, view.yaw, 0)
+	end
+end
+
+-- A fast slide with a short trail.
+function UnitView.dashTo(view: UnitView, groundPosition: Vector3)
+	startMove(view, groundPosition, RenderConfig.dashDuration, true)
+	view.trailUntil = os.clock() + RenderConfig.dashDuration
+end
+
+-- Turns toward `target` whenever the unit is not moving.
+function UnitView.face(view: UnitView, target: UnitView?)
+	view.faceTarget = target
+end
+
+-- A small lunge toward `target` and back, starting at `startAt` (os.clock(); now if omitted). It
+-- peaks halfway through RenderConfig.lungeDuration.
+function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
+	local direction = target.part.Position - view.part.Position
+	direction = Vector3.new(direction.X, 0, direction.Z)
+	if direction.Magnitude < 1e-3 then
+		return
+	end
+	view.lungeDirection = direction.Unit
+	view.lungeStart = startAt or os.clock()
+	view.faceTarget = target
 end
 
 local function redrawHealth(view: UnitView)
@@ -150,9 +329,21 @@ function UnitView.setHealth(view: UnitView, health: number)
 	redrawHealth(view)
 end
 
+-- Shows the shield in the health bar, and as a bubble around the unit while it is above zero.
 function UnitView.setShield(view: UnitView, shield: number)
 	view.shield = shield
 	redrawHealth(view)
+	if shield > 0 and not view.bubble and not view.dyingSince then
+		local size = view.part.Size
+		local diameter = math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale
+		local bubble = decoration(view.part, Vector3.one * diameter, view.part.CFrame, RenderConfig.shieldBubbleColor)
+		bubble.Shape = Enum.PartType.Ball
+		bubble.Material = Enum.Material.ForceField
+		view.bubble = bubble
+	end
+	if view.bubble then
+		view.bubble.Transparency = if shield > 0 and not view.dyingSince then 0 else 1
+	end
 end
 
 function UnitView.setMana(view: UnitView, mana: number)
@@ -162,61 +353,234 @@ end
 
 -- Shows the stun marker for `seconds`. A newer stun replaces the timer of an older one.
 function UnitView.stun(view: UnitView, seconds: number)
-	view.stunVersion += 1
-	local version = view.stunVersion
-	view.stunMarker.Visible = true
-	task.delay(seconds, function()
-		if view.stunVersion == version and view.part.Parent then
-			view.stunMarker.Visible = false
-		end
-	end)
+	view.stunUntil = os.clock() + seconds
 end
 
--- Floats `text` up from the unit and fades it out.
-function UnitView.popText(view: UnitView, text: string, color: Color3)
+local function addFloater(
+	view: UnitView,
+	text: string,
+	color: Color3,
+	size: number,
+	x: number,
+	startY: number,
+	duration: number,
+	rise: number
+)
 	if not view.part.Parent then
 		return
 	end
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromOffset(160, 24)
-	billboard.StudsOffset = Vector3.new(0, view.part.Size.Y / 2 + 4, 0)
-	billboard.AlwaysOnTop = true
+	if #view.floaters >= RenderConfig.maxFloatingTexts then
+		table.remove(view.floaters, 1).label:Destroy()
+	end
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
+	label.AnchorPoint = Vector2.new(0.5, 0)
+	label.Position = UDim2.new(0.5, x, 0, startY)
+	label.Size = UDim2.fromOffset(FLOAT_BOARD_SIZE.X, size + 6)
 	label.BackgroundTransparency = 1
 	label.Text = text
 	label.TextColor3 = color
 	label.TextStrokeTransparency = 0
 	label.Font = Enum.Font.GothamBlack
-	label.TextSize = 18
-	label.Parent = billboard
-	billboard.Parent = view.part
+	label.TextSize = size
+	label.Parent = view.floatBoard
+	table.insert(view.floaters, {
+		label = label,
+		born = os.clock(),
+		duration = duration,
+		startY = startY,
+		rise = rise,
+	})
+end
 
-	local duration = RenderConfig.popTextDuration
-	local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(billboard, info, { StudsOffset = billboard.StudsOffset + Vector3.new(0, 2.5, 0) }):Play()
-	TweenService:Create(label, info, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-	task.delay(duration, function()
-		billboard:Destroy()
-	end)
+-- A number that floats up and fades. Successive numbers on one unit take turns in a few lanes.
+local function floatNumber(view: UnitView, text: string, color: Color3, size: number)
+	local lanes = RenderConfig.damageNumberLanes
+	local lane = view.floaterCount % #lanes + 1
+	view.floaterCount += 1
+	-- Alternate lanes also start a little higher, so neighbors do not line up.
+	local startY = FLOAT_START_Y - (lane % 2) * 10
+	addFloater(
+		view,
+		text,
+		color,
+		size,
+		lanes[lane],
+		startY,
+		RenderConfig.damageNumberDuration,
+		RenderConfig.damageNumberRise
+	)
+end
+
+local DAMAGE_COLORS = {
+	PHYSICAL = "physicalDamageColor",
+	MAGIC = "magicDamageColor",
+	TRUE = "trueDamageColor",
+}
+
+-- `damageType` is a CombatMath.DamageType value; crits are drawn larger.
+function UnitView.damageNumber(view: UnitView, amount: number, damageType: string?, crit: boolean?)
+	local color = RenderConfig[DAMAGE_COLORS[damageType or "PHYSICAL"] or "physicalDamageColor"]
+	if crit then
+		floatNumber(view, amount .. "!", color, RenderConfig.critNumberSize)
+	else
+		floatNumber(view, tostring(amount), color, RenderConfig.damageNumberSize)
+	end
+end
+
+function UnitView.healNumber(view: UnitView, amount: number)
+	floatNumber(view, "+" .. amount, RenderConfig.healTextColor, RenderConfig.damageNumberSize)
+end
+
+-- Floats `text` up from above the unit and fades it out (ability names, buffs).
+function UnitView.popText(view: UnitView, text: string, color: Color3)
+	addFloater(
+		view,
+		text,
+		color,
+		RenderConfig.floatTextSize,
+		0,
+		CAST_TEXT_START_Y,
+		RenderConfig.popTextDuration,
+		RenderConfig.damageNumberRise / 2
+	)
+end
+
+-- Shows the ability name above the caster and makes it glow briefly.
+function UnitView.cast(view: UnitView, abilityName: string)
+	view.glowUntil = os.clock() + RenderConfig.castGlowDuration
+	UnitView.popText(view, abilityName, RenderConfig.castTextColor)
 end
 
 -- Briefly flashes the unit to show it was hit; crits flash in a different color.
 function UnitView.flash(view: UnitView, crit: boolean?)
-	view.part.Color = if crit then RenderConfig.critFlashColor else RenderConfig.hitFlashColor
-	task.delay(RenderConfig.hitFlashDuration, function()
-		if view.part.Parent then
-			view.part.Color = view.color
+	view.flashUntil = os.clock() + RenderConfig.hitFlashDuration
+	view.flashColor = if crit then RenderConfig.critFlashColor else RenderConfig.hitFlashColor
+end
+
+-- Starts the death fade. Keep updating the view until UnitView.update returns false, then destroy it.
+function UnitView.kill(view: UnitView)
+	if view.dyingSince then
+		return
+	end
+	view.dyingSince = os.clock()
+	view.infoBoard.Enabled = false
+	view.trail.Enabled = false
+	view.faceTarget = nil
+	if view.bubble then
+		view.bubble.Transparency = 1
+	end
+end
+
+function UnitView.isAlive(view: UnitView): boolean
+	return view.dyingSince == nil and view.part.Parent ~= nil
+end
+
+-- Advances every animation to `now` (os.clock()); `dt` is the frame time. Returns false once a
+-- dying view has finished fading and has no floating text left, when it should be destroyed.
+function UnitView.update(view: UnitView, now: number, dt: number): boolean
+	local part = view.part
+
+	-- Position: the glide or dash, plus any lunge, minus any death sink.
+	local base = currentBase(view, now)
+	local moving = view.moveDuration > 0 and now < view.moveStart + view.moveDuration
+	if view.moveDuration > 0 and not moving then
+		view.moveDuration = 0
+	end
+	view.base = base
+	local offset = Vector3.zero
+	if view.lungeStart and now >= view.lungeStart then
+		local progress = (now - view.lungeStart) / RenderConfig.lungeDuration
+		if progress >= 1 then
+			view.lungeStart = nil
+		else
+			offset = view.lungeDirection * (RenderConfig.lungeDistance * math.sin(math.pi * progress))
 		end
-	end)
+	end
+
+	-- Facing: along the path while moving, otherwise toward the target.
+	local desiredYaw = nil
+	if moving then
+		desiredYaw = yawToward(view.moveTo - view.moveFrom)
+	elseif view.faceTarget and UnitView.isAlive(view.faceTarget) then
+		desiredYaw = yawToward(view.faceTarget.base - base)
+	end
+	if desiredYaw then
+		local difference = wrapAngle(desiredYaw - view.yaw)
+		view.yaw = wrapAngle(view.yaw + difference * math.min(1, RenderConfig.turnRate * dt))
+	end
+
+	local transparency = 0
+	if view.dyingSince then
+		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
+		transparency = progress
+		offset -= Vector3.new(0, RenderConfig.deathSinkDistance * progress, 0)
+	end
+
+	local cframe = CFrame.new(base + offset) * CFrame.Angles(0, view.yaw, 0)
+	if part.CFrame ~= cframe then
+		part.CFrame = cframe
+	end
+	if part.Transparency ~= transparency then
+		part.Transparency = transparency
+		view.visor.Transparency = transparency
+	end
+
+	-- Color: a hit flash wins over a cast glow.
+	local color, material = view.color, Enum.Material.SmoothPlastic
+	if now < view.flashUntil then
+		color = view.flashColor
+	elseif now < view.glowUntil then
+		color, material = RenderConfig.castGlowColor, Enum.Material.Neon
+	end
+	if color ~= view.shownColor then
+		part.Color = color
+		view.shownColor = color
+	end
+	if material ~= view.shownMaterial then
+		part.Material = material
+		view.shownMaterial = material
+	end
+
+	local stunned = now < view.stunUntil and not view.dyingSince
+	if view.stunMarker.Visible ~= stunned then
+		view.stunMarker.Visible = stunned
+	end
+	local trailing = now < view.trailUntil and not view.dyingSince
+	if view.trail.Enabled ~= trailing then
+		view.trail.Enabled = trailing
+	end
+
+	-- Floating text rises with an ease-out and fades over its second half.
+	for i = #view.floaters, 1, -1 do
+		local floater = view.floaters[i]
+		local progress = (now - floater.born) / floater.duration
+		if progress >= 1 then
+			floater.label:Destroy()
+			table.remove(view.floaters, i)
+		else
+			local eased = 1 - (1 - progress) * (1 - progress)
+			local y = floater.startY - floater.rise * eased
+			floater.label.Position = UDim2.new(floater.label.Position.X, UDim.new(0, y))
+			local fade = math.clamp(progress * 2 - 1, 0, 1)
+			floater.label.TextTransparency = fade
+			floater.label.TextStrokeTransparency = fade
+		end
+	end
+
+	if view.dyingSince then
+		return now - view.dyingSince < RenderConfig.deathFadeDuration or #view.floaters > 0
+	end
+	return true
 end
 
 function UnitView.setSelected(view: UnitView, selected: boolean)
 	view.part.Material = if selected then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	view.shownMaterial = view.part.Material
 end
 
 function UnitView.destroy(view: UnitView)
 	view.part:Destroy()
+	table.clear(view.floaters)
 end
 
 return UnitView
