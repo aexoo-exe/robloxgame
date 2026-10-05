@@ -35,8 +35,12 @@ end
 
 -- Per-fight length and per-character (1-star) damage, casts, dashes that moved the caster, and
 -- seconds survived (until death or the end of the fight), across every simulated fight.
-local fightLength = { count = 0, sum = 0, shortest = math.huge, longest = 0 }
+local fightLength = { count = 0, sum = 0, shortest = math.huge, longest = 0, buckets = { 0, 0, 0, 0 } }
 local unitStats = {}
+
+-- Fight length buckets: under 15s, 15-25s, 25-38s, over 38s.
+local BUCKET_LIMITS = { 15, 25, 38 }
+local BUCKET_NAMES = { "<15s", "15-25s", "25-38s", ">38s" }
 
 local function recordFight(result)
 	local seconds = result.endTick / result.ticksPerSecond
@@ -44,6 +48,14 @@ local function recordFight(result)
 	fightLength.sum += seconds
 	fightLength.shortest = math.min(fightLength.shortest, seconds)
 	fightLength.longest = math.max(fightLength.longest, seconds)
+	local bucket = #BUCKET_LIMITS + 1
+	for i, limit in BUCKET_LIMITS do
+		if seconds < limit then
+			bucket = i
+			break
+		end
+	end
+	fightLength.buckets[bucket] += 1
 
 	local oneStar = {}
 	local deathTick = {}
@@ -100,30 +112,86 @@ end
 -- the end of some bot's Preparation.
 local poolStats = { dryRolls = 0, matchesTierEmpty = { 0, 0, 0, 0, 0 } }
 
+-- 3-star access by cost (1-5): matches with at least one, first round and level per 3-star, total
+-- 3-stars, and copies a rerolling bot held of a target it never finished.
+local threeStars = {
+	matches = { 0, 0, 0, 0, 0 },
+	firstRoundSum = { 0, 0, 0, 0, 0 },
+	count = { 0, 0, 0, 0, 0 },
+	levelSum = { 0, 0, 0, 0, 0 },
+	failedCopies = { {}, {}, {}, {}, {} },
+}
+
+-- Results by strategy group ("standard" or a rerolling policy's name).
+local groups = {}
+
+local function groupOf(policy): string
+	return if policy.rerollCost then policy.name else "standard"
+end
+
+-- Seat i's strategy: with 8 players, seats 1-4 are standard (cycled), 5-6 reroll 1-cost, 7 reroll
+-- 2-cost and 8 reroll 3-cost. Other player counts use standard bots only.
+local function policyFor(seat: number, matchIndex: number)
+	if PLAYERS == 8 and seat >= 5 then
+		return Bot.rerollPolicies[if seat <= 6 then 1 elseif seat == 7 then 2 else 3]
+	end
+	return Bot.policies[(seat + matchIndex) % #Bot.policies + 1]
+end
+
+-- Records the copies a rerolling bot holds of each target it has not finished.
+local function recordFailedTargets(state, policy, memory)
+	if not policy.rerollCost then
+		return
+	end
+	for _, unitType in memory.targets do
+		if not memory.completed[unitType] then
+			table.insert(threeStars.failedCopies[policy.rerollCost], (Bot.copiesHeld(state, unitType)))
+		end
+	end
+end
+
 local function playMatch(matchIndex: number)
 	local ids = {}
 	local states = {}
 	local policies = {}
+	local memories = {}
 	local pool = UnitPool.new()
 	for i = 1, PLAYERS do
 		ids[i] = i
 		states[i] = PlayerState.new(matchIndex * 1000 + i, pool)
-		policies[i] = Bot.policies[(i + matchIndex) % #Bot.policies + 1]
+		policies[i] = policyFor(i, matchIndex)
+		memories[i] = Bot.newMemory()
 	end
 	local match = Match.new(ids, matchIndex)
 	local stats = { seconds = 0, fights = 0, timeouts = 0, longestFight = 0 }
 	local lastBoards = {}
 	local tierEmptied = {}
+	local seenThreeStar = {} -- unit ids already counted
+	local matchHasThreeStar = {}
 
 	while not match.finished do
 		local boards = {}
 		for _, id in Match.activeIds(match) do
 			PlayerState.startPreparation(states[id])
-			boards[id] = Bot.prepare(states[id], policies[id])
+			boards[id] = Bot.prepare(states[id], policies[id], memories[id])
 			lastBoards[id] = boards[id]
 			for cost = 1, 5 do
 				if UnitPool.tierRemaining(pool, cost) == 0 then
 					tierEmptied[cost] = true
+				end
+			end
+			for _, unit in states[id].board.units do
+				local key = id .. ":" .. unit.id
+				if unit.starLevel == 3 and not seenThreeStar[key] then
+					seenThreeStar[key] = true
+					local cost = UnitConfig[unit.unitType].cost
+					threeStars.count[cost] += 1
+					threeStars.levelSum[cost] += states[id].level
+					if not matchHasThreeStar[cost] then
+						matchHasThreeStar[cost] = true
+						threeStars.matches[cost] += 1
+						threeStars.firstRoundSum[cost] += match.round + 1
+					end
 				end
 			end
 		end
@@ -150,11 +218,24 @@ local function playMatch(matchIndex: number)
 			PlayerState.recordCombat(states[id], outcome)
 		end
 		for _, id in summary.eliminated do
+			recordFailedTargets(states[id], policies[id], memories[id])
 			PlayerState.releaseAll(states[id])
 		end
 		assert(match.round < 200, "match did not end")
 	end
 	recordWinnerBoard(lastBoards[match.winner])
+	for _, id in Match.activeIds(match) do
+		recordFailedTargets(states[id], policies[id], memories[id])
+	end
+	for id, player in match.players do
+		local name = groupOf(policies[id])
+		local group = groups[name] or { seats = 0, placementSum = 0, wins = 0, rerollGold = 0 }
+		group.seats += 1
+		group.placementSum += player.placement
+		group.wins += if player.placement == 1 then 1 else 0
+		group.rerollGold += memories[id].rerollGold
+		groups[name] = group
+	end
 	poolStats.dryRolls += pool.dryRolls
 	for cost = 1, 5 do
 		if tierEmptied[cost] then
@@ -243,6 +324,11 @@ print(
 		fightLength.count
 	)
 )
+local bucketLine = {}
+for i, name in BUCKET_NAMES do
+	table.insert(bucketLine, string.format("%s %.1f%%", name, fightLength.buckets[i] / fightLength.count * 100))
+end
+print("Fight length distribution: " .. table.concat(bucketLine, ", "))
 print("Winner's final board, share of matches with at least one unit of that tier at:")
 local starLine2, starLine3 = {}, {}
 for cost = 1, 5 do
@@ -251,6 +337,48 @@ for cost = 1, 5 do
 end
 print("  2-star: " .. table.concat(starLine2, ", "))
 print("  3-star: " .. table.concat(starLine3, ", "))
+print("3-star access by cost (any player in the match):")
+for cost = 1, 5 do
+	local made = threeStars.count[cost]
+	local failed = threeStars.failedCopies[cost]
+	local failedSum = 0
+	for _, copies in failed do
+		failedSum += copies
+	end
+	print(
+		string.format(
+			"  %dc: in %.0f%% of matches, first in round %s, %.2f per match, completed at level %s; unfinished reroll targets: %d, holding %s copies on average",
+			cost,
+			threeStars.matches[cost] / MATCHES * 100,
+			if threeStars.matches[cost] > 0
+				then string.format("%.1f", threeStars.firstRoundSum[cost] / threeStars.matches[cost])
+				else "-",
+			made / MATCHES,
+			if made > 0 then string.format("%.1f", threeStars.levelSum[cost] / made) else "-",
+			#failed,
+			if #failed > 0 then string.format("%.1f", failedSum / #failed) else "-"
+		)
+	)
+end
+print("Results by strategy: average placement, win rate, gold spent rerolling per bot per match")
+local groupNames = {}
+for name in groups do
+	table.insert(groupNames, name)
+end
+table.sort(groupNames)
+for _, name in groupNames do
+	local group = groups[name]
+	print(
+		string.format(
+			"  %-10s placement %.2f, wins %.1f%%, reroll gold %.0f  [%d seats]",
+			name,
+			group.placementSum / group.seats,
+			group.wins / group.seats * 100,
+			group.rerollGold / group.seats,
+			group.seats
+		)
+	)
+end
 local emptyLine = {}
 for cost = 1, 5 do
 	table.insert(emptyLine, string.format("%dc %.0f%%", cost, poolStats.matchesTierEmpty[cost] / MATCHES * 100))
