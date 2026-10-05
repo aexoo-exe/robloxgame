@@ -328,6 +328,35 @@ function Battle.buff(
 	})
 end
 
+-- Applies a combat-start bonus (Traits.Bonus) that lasts the whole fight. Stat changes become one
+-- permanent buff per stat, separate from ability buffs and stacking with them (Battle.stat adds
+-- every buff's flat and percent changes). Shields come after, so they scale with the unit's ability
+-- power including its bonus, like any other shield; their Shield events carry `source`.
+function Battle.applyStartBonus(battle: Battle, unit: Unit, bonus)
+	local statNames = {}
+	for stat in bonus.stats do
+		table.insert(statNames, stat)
+	end
+	table.sort(statNames)
+	for _, stat in statNames do
+		local change = bonus.stats[stat]
+		unit.buffs["start:" .. stat] = {
+			stat = stat,
+			flat = change.flat,
+			percent = change.percent,
+			endsTick = math.huge,
+		}
+	end
+	for _, shield in bonus.shields do
+		local before = #battle.events
+		local amount = CombatMath.scaleByAbilityPower(shield.amount, Battle.stat(battle, unit, "AP"))
+		Battle.shield(battle, unit, unit, amount, shield.duration)
+		if #battle.events > before then
+			battle.events[#battle.events].source = shield.source
+		end
+	end
+end
+
 -- Moves a unit to a free cell.
 function Battle.relocate(battle: Battle, unit: Unit, column: number, row: number)
 	battle.occupied[Battle.cellKey(battle, unit.column, unit.row)] = nil
