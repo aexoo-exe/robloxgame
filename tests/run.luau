@@ -20,6 +20,7 @@ local suites = {
 	{ name = "Ability", tests = require("./AbilityTest") },
 	{ name = "CastReader", tests = require("./CastReaderTest") },
 	{ name = "UnitPool", tests = require("./UnitPoolTest") },
+	{ name = "Trait", tests = require("./TraitTest") },
 }
 
 local passed = 0

@@ -1,6 +1,8 @@
 -- Runs every fight of a round with CombatSim and sends each fight only to the players in it.
 -- Side 1 is `fight.a`. Side 2 is `fight.b`, a ghost (a copy of `fight.ghostOf`'s board), or in a
 -- practice match the scripted enemy board for the round (CombatConfig.enemyBoardsByRound).
+-- Traits apply to every side the same way, ghosts and practice enemies included; each fight's
+-- payload carries both sides' trait summaries (Traits.summary) for display.
 -- Spectators and eliminated players receive no fight.
 
 local Players = game:GetService("Players")
@@ -11,6 +13,7 @@ local CombatConfig = require(ReplicatedStorage.Shared.CombatConfig)
 local CombatSim = require(ReplicatedStorage.Shared.CombatSim)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
+local Traits = require(ReplicatedStorage.Shared.Traits)
 local UnitConfig = require(ReplicatedStorage.Shared.UnitConfig)
 
 local Remotes = require(script.Parent.Remotes)
@@ -68,8 +71,9 @@ function CombatService.runRound(
 		end
 
 		local seed = seedRandom:NextInteger(1, 2 ^ 31 - 2)
+		local sides = { boards[fight.a] or {}, sideB or {} }
 		local result = CombatSim.run({
-			boards = { boards[fight.a] or {}, sideB or {} },
+			boards = sides,
 			columns = BoardConfig.columns,
 			rows = BoardConfig.rows,
 			unitTypes = UnitConfig,
@@ -77,19 +81,30 @@ function CombatService.runRound(
 			maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
 			timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
 			seed = seed,
+			startBonuses = { Traits.bonuses(sides[1]), Traits.bonuses(sides[2]) },
 		})
 		longestTicks = math.max(longestTicks, result.endTick)
 		table.insert(results, { fight = fight, winner = result.winner, survivors = result.survivors })
 
 		local sideUserIds = { fight.a, sideBUserId }
+		local traits = { Traits.summary(sides[1]), Traits.summary(sides[2]) }
 		opponents[fight.a] = opponentName
-		send(fight.a, { startsAt = startsAt, sideUserIds = sideUserIds, opponentName = opponentName, result = result })
+		send(fight.a, {
+			startsAt = startsAt,
+			sideUserIds = sideUserIds,
+			opponentName = opponentName,
+			result = result,
+			traits = traits,
+		})
 		if fight.b then
 			opponents[fight.b] = names[fight.a]
-			send(
-				fight.b,
-				{ startsAt = startsAt, sideUserIds = sideUserIds, opponentName = names[fight.a], result = result }
-			)
+			send(fight.b, {
+				startsAt = startsAt,
+				sideUserIds = sideUserIds,
+				opponentName = names[fight.a],
+				result = result,
+				traits = traits,
+			})
 		end
 
 		print(

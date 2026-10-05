@@ -13,15 +13,20 @@ local CombatSim = require("../src/shared/CombatSim")
 local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
 local PlayerState = require("../src/shared/PlayerState")
+local TraitConfig = require("../src/shared/TraitConfig")
+local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
 local UnitPool = require("../src/shared/UnitPool")
 
 local MATCHES = tonumber(process.args[1]) or 200
 local PLAYERS = tonumber(process.args[2]) or 8
+-- "notraits" as the third argument runs the same matches with trait bonuses switched off.
+local TRAITS_ON = process.args[3] ~= "notraits"
 
 local function runFight(fight, boards, seed)
 	local sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
 	return CombatSim.run({
+		startBonuses = if TRAITS_ON then { Traits.bonuses(boards[fight.a]), Traits.bonuses(sideB) } else nil,
 		boards = { boards[fight.a], sideB },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
@@ -125,6 +130,33 @@ local threeStars = {
 -- Results by strategy group ("standard" or a rerolling policy's name).
 local groups = {}
 
+-- Trait use in each match's final five rounds: boards (one per player per round) with each
+-- "Trait level" active, and the final placements of players who had it at least once.
+local traitUse = { boards = 0, active = {}, placementSum = {}, players = {} }
+
+local function recordTraitUse(roundBoards, finalRound: number, placements)
+	local had = {}
+	for round = math.max(1, finalRound - 4), finalRound do
+		for id, board in roundBoards[round] or {} do
+			traitUse.boards += 1
+			for _, state in Traits.summary(board) do
+				if state.active then
+					local key = state.name .. " " .. state.reached
+					traitUse.active[key] = (traitUse.active[key] or 0) + 1
+					had[key] = had[key] or {}
+					had[key][id] = true
+				end
+			end
+		end
+	end
+	for key, ids in had do
+		for id in ids do
+			traitUse.players[key] = (traitUse.players[key] or 0) + 1
+			traitUse.placementSum[key] = (traitUse.placementSum[key] or 0) + placements[id]
+		end
+	end
+end
+
 local function groupOf(policy): string
 	return if policy.rerollCost then policy.name else "standard"
 end
@@ -168,9 +200,11 @@ local function playMatch(matchIndex: number)
 	local tierEmptied = {}
 	local seenThreeStar = {} -- unit ids already counted
 	local matchHasThreeStar = {}
+	local roundBoards = {}
 
 	while not match.finished do
 		local boards = {}
+		roundBoards[match.round + 1] = boards
 		for _, id in Match.activeIds(match) do
 			PlayerState.startPreparation(states[id])
 			boards[id] = Bot.prepare(states[id], policies[id], memories[id])
@@ -227,6 +261,11 @@ local function playMatch(matchIndex: number)
 	for _, id in Match.activeIds(match) do
 		recordFailedTargets(states[id], policies[id], memories[id])
 	end
+	local placements = {}
+	for id, player in match.players do
+		placements[id] = player.placement
+	end
+	recordTraitUse(roundBoards, match.round, placements)
 	for id, player in match.players do
 		local name = groupOf(policies[id])
 		local group = groups[name] or { seats = 0, placementSum = 0, wins = 0, rerollGold = 0 }
@@ -273,7 +312,7 @@ for matchIndex = 1, MATCHES do
 	roundCounts[result.rounds] = (roundCounts[result.rounds] or 0) + 1
 end
 
-print(string.format("%d matches, %d players each", MATCHES, PLAYERS))
+print(string.format("%d matches, %d players each, traits %s", MATCHES, PLAYERS, if TRAITS_ON then "on" else "off"))
 print(
 	string.format("Final round: average %.1f, shortest %d, longest %d", totals.rounds / MATCHES, minRounds, maxRounds)
 )
@@ -359,6 +398,36 @@ for cost = 1, 5 do
 			if #failed > 0 then string.format("%.1f", failedSum / #failed) else "-"
 		)
 	)
+end
+print("Traits in the final five rounds: share of boards with the breakpoint active, average final")
+print("placement of players who had it (players)")
+local traitNames = {}
+for name in TraitConfig do
+	table.insert(traitNames, name)
+end
+table.sort(traitNames, function(a, b)
+	if TraitConfig[a].kind ~= TraitConfig[b].kind then
+		return TraitConfig[a].kind == "origin"
+	end
+	return a < b
+end)
+for _, name in traitNames do
+	local parts = {}
+	for _, breakpoint in TraitConfig[name].breakpoints do
+		local key = name .. " " .. breakpoint.count
+		local players = traitUse.players[key] or 0
+		table.insert(
+			parts,
+			string.format(
+				"%d: %.1f%%, %s (%d)",
+				breakpoint.count,
+				(traitUse.active[key] or 0) / traitUse.boards * 100,
+				if players > 0 then string.format("%.2f", traitUse.placementSum[key] / players) else "-",
+				players
+			)
+		)
+	end
+	print(string.format("  %-10s %s", name, table.concat(parts, " | ")))
 end
 print("Results by strategy: average placement, win rate, gold spent rerolling per bot per match")
 local groupNames = {}

@@ -47,6 +47,9 @@ export type Params = {
 	timeoutDrawMargin: number?, -- see the header; 0 if omitted
 	critChance: number?, -- overrides CombatConfig.critChance (tests use 0)
 	seed: number,
+	-- Combat-start bonuses (traits; see Traits.bonuses), per side, by unit id. Applied before the
+	-- first tick and kept for the whole fight. Omitted or empty: no bonuses.
+	startBonuses: { { [string]: any } }?,
 }
 
 -- Starting state of a unit, in field coordinates. `index` identifies the unit in events.
@@ -71,7 +74,8 @@ export type UnitSummary = {
 --   Damage    same fields as Attack, for ability damage (never crits)
 --   Cast      ability (name); the caster's mana is now 0
 --   Heal      target, amount, health
---   Shield    target, shield (new shield), duration (seconds)
+--   Shield    target, shield (new shield), duration (seconds), source (trait name, for shields
+--             given at combat start by a trait; nil for ability shields)
 --   ShieldEnd the unit's shield expired
 --   Stun      target, duration (seconds)
 --   Buff      target, stat, flat, percent, duration (seconds)
@@ -204,6 +208,14 @@ end
 
 function CombatSim.run(params: Params): Result
 	local battle = Battle.new(params)
+	if params.startBonuses then
+		for _, unit in battle.units do
+			local bonus = params.startBonuses[unit.side] and params.startBonuses[unit.side][unit.id]
+			if bonus then
+				Battle.applyStartBonus(battle, unit, bonus)
+			end
+		end
+	end
 	local summaries = {}
 	for _, unit in battle.units do
 		table.insert(summaries, {

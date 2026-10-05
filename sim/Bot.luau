@@ -7,6 +7,10 @@
 --
 -- Every bot buys copies of the units it fielded last round whenever it can afford them.
 --
+-- Standard bots also prefer traits: they buy a unit that shares a trait with one they fielded last
+-- round while they hold fewer than level + 3 units, and when choosing what to field each unit
+-- scores its strength plus TRAIT_SHARE_WEIGHT per trait it shares with another character they own.
+--
 -- Rerolling bots (policies with `rerollCost`) chase 3-star units of one cost:
 --   * Roll level: the level where that cost's shop odds are highest, among levels of at least
 --     cost + 4 (1-cost: 5, 2-cost: 6, 3-cost: 7). Below it, the bot buys XP down to 30 gold.
@@ -22,6 +26,7 @@ local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local ShopConfig = require("../src/shared/ShopConfig")
 local StarLevel = require("../src/shared/StarLevel")
+local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
 
 local Bot = {}
@@ -63,6 +68,7 @@ Bot.rerollPolicies = {
 }
 
 local LEVEL_UP_KEEP_GOLD = 30 -- rerolling bots below their roll level, and after finishing
+local TRAIT_SHARE_WEIGHT = 0.75 -- standard bots: fielding score per trait shared with another owned character
 
 -- The level a rerolling bot rolls at for `cost`: highest odds for that cost at levels >= cost + 4.
 function Bot.rollLevel(cost: number): number
@@ -168,6 +174,36 @@ local function isTarget(memory: Memory, unitType: string): boolean
 	return table.find(memory.targets, unitType) ~= nil
 end
 
+local function prefersTraits(policy: Policy): boolean
+	return policy.rerollCost == nil
+end
+
+-- True if `unitType` shares a trait with a different character the bot fielded last round.
+local function sharesFieldedTrait(memory: Memory, unitType: string): boolean
+	for _, trait in Traits.traitsOf(unitType) do
+		for fielded in memory.fielded do
+			if fielded ~= unitType and table.find(Traits.traitsOf(fielded), trait) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Traits `unitType` shares with other characters among `owned`.
+local function sharedTraitCount(owned, unitType: string): number
+	local shared = 0
+	for _, trait in Traits.traitsOf(unitType) do
+		for _, other in owned do
+			if other.unitType ~= unitType and table.find(Traits.traitsOf(other.unitType), trait) then
+				shared += 1
+				break
+			end
+		end
+	end
+	return shared
+end
+
 local function shopPass(state, policy: Policy, memory: Memory)
 	local rerolling = isRerolling(policy, memory)
 	-- Targets first, then the most expensive offers.
@@ -192,11 +228,13 @@ local function shopPass(state, policy: Policy, memory: Memory)
 		local fieldedCopy = memory.fielded[unitType] and ownsUpgradable(state, unitType)
 		-- While a rerolling bot still needs targets, any unit of its cost may become one.
 		local seedsTarget = rerolling and cost == policy.rerollCost and #memory.targets < (policy.targetCount or 1)
+		local traitPick = prefersTraits(policy) and #owned < state.level + 3 and sharesFieldedTrait(memory, unitType)
 		local wanted = isTarget(memory, unitType)
 			or seedsTarget
 			or fieldedCopy
 			or (policy.seeksCopies and ownsUpgradable(state, unitType))
 			or #owned < state.level
+			or traitPick
 		if wanted then
 			if PlayerState.buyUnit(state, slot) then
 				updateTargets(state, policy, memory)
@@ -280,8 +318,16 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 	trimBench(state, policy, memory)
 
 	local owned = Board.getUnits(state.board)
+	local score = {}
+	for _, unit in owned do
+		score[unit.id] = strength(unit)
+			+ (if prefersTraits(policy) then TRAIT_SHARE_WEIGHT * sharedTraitCount(owned, unit.unitType) else 0)
+	end
 	table.sort(owned, function(a, b)
-		return strength(a) > strength(b)
+		if score[a.id] ~= score[b.id] then
+			return score[a.id] > score[b.id]
+		end
+		return a.id < b.id
 	end)
 	local placed = {}
 	local taken = {}
