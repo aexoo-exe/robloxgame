@@ -3,6 +3,10 @@
 -- from a client, so every action validates them and returns false without changing anything when
 -- the request is invalid. A refusal the player should be told about also returns a reason from
 -- PlayerState.Refusal; malformed requests return no reason. The phase check lives in the server.
+--
+-- Shops draw from the match's shared UnitPool: shown copies are held out of it, unbought ones go
+-- back on reroll or refresh, selling returns every copy the unit contains, and releaseAll returns
+-- everything when the player is eliminated.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Board = if script then require(script.Parent.Board) else require("./Board")
@@ -12,9 +16,9 @@ local EconomyConfig = if script then require(script.Parent.EconomyConfig) else r
 local LevelConfig = if script then require(script.Parent.LevelConfig) else require("./LevelConfig")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 local StarLevel = if script then require(script.Parent.StarLevel) else require("./StarLevel")
-local Shop = if script then require(script.Parent.Shop) else require("./Shop")
 local ShopConfig = if script then require(script.Parent.ShopConfig) else require("./ShopConfig")
 local UnitConfig = if script then require(script.Parent.UnitConfig) else require("./UnitConfig")
+local UnitPool = if script then require(script.Parent.UnitPool) else require("./UnitPool")
 
 local PlayerState = {}
 
@@ -33,10 +37,11 @@ export type PlayerState = {
 	streak: number, -- positive: consecutive wins; negative: consecutive losses
 	lastOutcome: string?,
 	foughtSincePreparation: boolean, -- income and XP are owed at the next Preparation
-	shop: { string | false }, -- false marks a slot that was bought
+	shop: { string | false }, -- false marks a slot that was bought (or empty)
 	board: Board.Board,
 	rng: SeededRandom.SeededRandom,
 	nextUnitId: number,
+	pool: UnitPool.Pool, -- the match's shared pool
 }
 
 -- What the owning client is shown.
@@ -48,8 +53,15 @@ export type View = {
 	shop: { string | false },
 }
 
--- A new player: starting grant, starting level, no units, and a first shop.
-function PlayerState.new(seed: number): PlayerState
+-- Returns the shop's unbought copies to the pool and rolls a new shop.
+local function refreshShop(state: PlayerState)
+	UnitPool.returnShop(state.pool, state.shop)
+	state.shop = UnitPool.rollShop(state.pool, state.rng, state.level)
+end
+
+-- A new player: starting grant, starting level, no units, and a first shop drawn from `pool` (the
+-- match's shared pool; a private full pool if omitted).
+function PlayerState.new(seed: number, pool: UnitPool.Pool?): PlayerState
 	local state = {
 		gold = EconomyConfig.startingGold,
 		level = LevelConfig.startingLevel,
@@ -61,8 +73,9 @@ function PlayerState.new(seed: number): PlayerState
 		board = Board.new(BoardConfig.columns, BoardConfig.rows, BoardConfig.benchSlots),
 		rng = SeededRandom.new(seed),
 		nextUnitId = 1,
+		pool = pool or UnitPool.new(),
 	}
-	state.shop = Shop.roll(state.rng, state.level)
+	refreshShop(state)
 	return state
 end
 
@@ -76,7 +89,7 @@ function PlayerState.startPreparation(state: PlayerState): Economy.Income?
 		state.level, state.xp = Economy.addXp(state.level, state.xp, LevelConfig.xpPerRound)
 		state.foughtSincePreparation = false
 	end
-	state.shop = Shop.roll(state.rng, state.level)
+	refreshShop(state)
 	return income
 end
 
@@ -111,14 +124,26 @@ function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, stri
 end
 
 -- Sells one of the player's units from the board or bench for the total gold spent on it:
--- its cost times the copies it contains (1, 3 or 9).
+-- its cost times the copies it contains (1, 3 or 9). Those copies go back to the pool.
 function PlayerState.sellUnit(state: PlayerState, unitId: any): boolean
 	local unit = Board.removeUnit(state.board, unitId)
 	if not unit then
 		return false
 	end
 	state.gold += PlayerState.sellValue(unit.unitType, unit.starLevel)
+	UnitPool.give(state.pool, unit.unitType, StarLevel.copiesIn(unit.starLevel))
 	return true
+end
+
+-- Returns every copy the player holds (units on the board and bench, and the shop) to the pool,
+-- leaving them with no units and an empty shop. Called when the player is eliminated.
+function PlayerState.releaseAll(state: PlayerState)
+	for _, unit in Board.getUnits(state.board) do
+		Board.removeUnit(state.board, unit.id)
+		UnitPool.give(state.pool, unit.unitType, StarLevel.copiesIn(unit.starLevel))
+	end
+	UnitPool.returnShop(state.pool, state.shop)
+	state.shop = table.create(ShopConfig.slots, false)
 end
 
 function PlayerState.sellValue(unitType: string, starLevel: number): number
@@ -130,7 +155,7 @@ function PlayerState.reroll(state: PlayerState): (boolean, string?)
 		return false, PlayerState.Refusal.NotEnoughGold
 	end
 	state.gold -= ShopConfig.rerollCost
-	state.shop = Shop.roll(state.rng, state.level)
+	refreshShop(state)
 	return true
 end
 

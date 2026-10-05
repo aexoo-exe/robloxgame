@@ -2,6 +2,7 @@
 -- survives the player leaving, and handles their requests. Each player's state is sent only to
 -- that player. A disconnected participant's board and bench stay frozen while their income and
 -- shop refresh continue; when they rejoin, their state is sent again and they can act.
+-- Every participant's shop draws from one shared UnitPool per match.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Board = require(ReplicatedStorage.Shared.Board)
 local PlayerState = require(ReplicatedStorage.Shared.PlayerState)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
+local UnitPool = require(ReplicatedStorage.Shared.UnitPool)
 
 local Remotes = require(script.Parent.Remotes)
 
@@ -50,12 +52,13 @@ local function connectRequest(remoteName: string, action: (PlayerState.PlayerSta
 	end)
 end
 
--- Gives every participant a fresh starting state.
+-- Gives every participant a fresh starting state, drawing from a new shared pool.
 function PlayerService.startMatch(userIds: { number })
 	table.clear(states)
 	table.clear(eliminated)
+	local pool = UnitPool.new()
 	for _, userId in userIds do
-		states[userId] = PlayerState.new(seedRandom:NextInteger(1, 2 ^ 31 - 2))
+		states[userId] = PlayerState.new(seedRandom:NextInteger(1, 2 ^ 31 - 2), pool)
 		sendState(userId)
 	end
 end
@@ -73,9 +76,15 @@ function PlayerService.endMatch()
 	table.clear(eliminated)
 end
 
--- Stops an eliminated player from acting. Their state stays frozen until the match ends.
+-- Stops an eliminated player from acting and returns all their units and shop copies to the pool.
+-- They are left with an empty board and shop until the match ends.
 function PlayerService.eliminate(userId: number)
 	eliminated[userId] = true
+	local state = states[userId]
+	if state then
+		PlayerState.releaseAll(state)
+		sendState(userId)
+	end
 end
 
 -- Pays round income, rolls fresh shops for active participants (connected or not) and opens

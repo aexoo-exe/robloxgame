@@ -4,6 +4,10 @@ return table.freeze({
 	slots = 5,
 	rerollCost = 2,
 
+	-- Copies of each character in a match's shared pool, by cost (1-5). docs/design/world-and-traits.md
+	-- (Shared pool), from the first spec's section 14.
+	poolCopies = table.freeze({ 22, 20, 17, 10, 9 }),
+
 	-- Percent chance of each cost tier (1, 2, 3, 4, 5) per player level. Each row sums to 100.
 	odds = table.freeze({
 		[2] = table.freeze({ 100, 0, 0, 0, 0 }),
