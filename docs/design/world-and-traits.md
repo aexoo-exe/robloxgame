@@ -1,3 +1,5 @@
+NOTE: Trait breakpoints and bonus values are superseded by docs/design/balance-pass-v0.4.md section 1; trait membership here still stands.
+
 BLOCK 1 — WORLD / TRAITS / SYSTEM CONTRACT
 
 LEGEND

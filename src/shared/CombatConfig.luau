@@ -16,9 +16,9 @@ return table.freeze({
 	timeoutDrawMargin = 0.01,
 
 	-- Every unit's combat health is its UnitConfig health times this (and its star multiplier); see
-	-- StarLevel.scaleStats. UnitConfig keeps the design docs' base values. docs/design/balance-pass-v0.3.md
-	-- section 1. Player health and player damage are separate and unaffected.
-	globalHealthMultiplier = 1.15,
+	-- StarLevel.scaleStats. UnitConfig keeps the design docs' base values. Player health and player
+	-- damage are separate and unaffected. docs/design/balance-pass-v0.4.md section 3: 1.15 -> 1.12.
+	globalHealthMultiplier = 1.12,
 
 	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.
 	critChance = 0.25, -- per basic attack; abilities cannot crit

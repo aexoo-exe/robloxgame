@@ -1,6 +1,7 @@
--- Traits (docs/design/world-and-traits.md): six origins and seven classes. Membership comes from
--- each character's `origin` and `classes` in UnitConfig; this file only holds breakpoints and
--- effects, as data for the Traits module.
+-- Traits: six origins and seven classes. Breakpoints and values are from
+-- docs/design/balance-pass-v0.4.md section 1; membership comes from docs/design/world-and-traits.md
+-- through each character's `origin` and `classes` in UnitConfig. This file only holds breakpoints
+-- and effects, as data for the Traits module.
 --
 --   kind         "origin" or "class"
 --   breakpoints  ascending; each has the member `count` that reaches it and its `effects`. Only the
@@ -37,44 +38,44 @@ return freezeAll({
 	Ironveil = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("Armor", 12), buff("MR", 12) } },
-			{ count = 4, effects = { buff("Armor", 28), buff("MR", 28) } },
+			{ count = 2, effects = { buff("Armor", 14), buff("MR", 14) } },
+			{ count = 3, effects = { buff("Armor", 32), buff("MR", 32) } },
 		},
 	},
 	Emberwake = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("AD", 12, true) } },
-			{ count = 4, effects = { buff("AD", 25, true), buff("AttackSpeed", 15, true) } },
+			{ count = 2, effects = { buff("AD", 14, true) } },
+			{ count = 3, effects = { buff("AD", 28, true), buff("AttackSpeed", 18, true) } },
 		},
 	},
 	Tideglass = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("AP", 15), buff("MR", 8, false, "ALL_ALLIES") } },
-			{ count = 4, effects = { buff("AP", 35), buff("MR", 18, false, "ALL_ALLIES") } },
+			{ count = 2, effects = { buff("AP", 18), buff("MR", 9, false, "ALL_ALLIES") } },
+			{ count = 3, effects = { buff("AP", 40), buff("MR", 20, false, "ALL_ALLIES") } },
 		},
 	},
 	Stormcrest = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("AttackSpeed", 15, true) } },
-			{ count = 4, effects = { buff("AttackSpeed", 35, true), buff("MoveSpeed", 15, true) } },
+			{ count = 2, effects = { buff("AttackSpeed", 18, true) } },
+			{ count = 3, effects = { buff("AttackSpeed", 40, true), buff("MoveSpeed", 18, true) } },
 		},
 	},
 	Starfall = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("AP", 20) } },
-			{ count = 4, effects = { buff("AP", 45) } },
+			{ count = 2, effects = { buff("AP", 24) } },
+			{ count = 3, effects = { buff("AP", 52) } },
 		},
 	},
 	Eclipse = {
 		kind = "origin",
 		breakpoints = {
-			{ count = 2, effects = { buff("AD", 10, true), buff("AP", 10) } },
-			{ count = 3, effects = { buff("AD", 20, true), buff("AP", 20) } },
-			{ count = 5, effects = { buff("AD", 35, true), buff("AP", 40) } },
+			{ count = 2, effects = { buff("AD", 12, true), buff("AP", 12) } },
+			{ count = 3, effects = { buff("AD", 23, true), buff("AP", 23) } },
+			{ count = 4, effects = { buff("AD", 38, true), buff("AP", 45) } },
 		},
 	},
 
@@ -82,54 +83,54 @@ return freezeAll({
 	Vanguard = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("Armor", 10), buff("MR", 10) } },
-			{ count = 4, effects = { buff("Armor", 22), buff("MR", 22) } },
-			{ count = 6, effects = { buff("Armor", 38), buff("MR", 38) } },
+			{ count = 2, effects = { buff("Armor", 12), buff("MR", 12) } },
+			{ count = 4, effects = { buff("Armor", 25), buff("MR", 25) } },
+			{ count = 5, effects = { buff("Armor", 42), buff("MR", 42) } },
 		},
 	},
 	Warden = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { { type = "SHIELD", target = "MEMBERS", amount = 120, duration = 6 } } },
-			{ count = 4, effects = { { type = "SHIELD", target = "MEMBERS", amount = 280, duration = 6 } } },
+			{ count = 2, effects = { { type = "SHIELD", target = "MEMBERS", amount = 140, duration = 6 } } },
+			{ count = 3, effects = { { type = "SHIELD", target = "MEMBERS", amount = 310, duration = 6 } } },
 		},
 	},
 	Duelist = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("AttackSpeed", 12, true) } },
-			{ count = 4, effects = { buff("AttackSpeed", 28, true) } },
-			{ count = 6, effects = { buff("AttackSpeed", 50, true) } },
+			{ count = 2, effects = { buff("AttackSpeed", 14, true) } },
+			{ count = 4, effects = { buff("AttackSpeed", 32, true) } },
+			{ count = 5, effects = { buff("AttackSpeed", 55, true) } },
 		},
 	},
 	Marksman = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("AD", 12, true) } },
-			{ count = 4, effects = { buff("AD", 30, true) } },
+			{ count = 2, effects = { buff("AD", 14, true) } },
+			{ count = 3, effects = { buff("AD", 33, true) } },
 		},
 	},
 	Arcanist = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("AP", 15) } },
-			{ count = 4, effects = { buff("AP", 35) } },
-			{ count = 6, effects = { buff("AP", 60) } },
+			{ count = 2, effects = { buff("AP", 18) } },
+			{ count = 4, effects = { buff("AP", 40) } },
+			{ count = 5, effects = { buff("AP", 68) } },
 		},
 	},
 	Mystic = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("MR", 10, false, "ALL_ALLIES"), buff("AP", 10) } },
-			{ count = 4, effects = { buff("MR", 25, false, "ALL_ALLIES"), buff("AP", 25) } },
+			{ count = 2, effects = { buff("MR", 12, false, "ALL_ALLIES"), buff("AP", 12) } },
+			{ count = 3, effects = { buff("MR", 28, false, "ALL_ALLIES"), buff("AP", 30) } },
 		},
 	},
 	Reaver = {
 		kind = "class",
 		breakpoints = {
-			{ count = 2, effects = { buff("AD", 10, true), buff("AttackSpeed", 10, true) } },
-			{ count = 4, effects = { buff("AD", 20, true), buff("AttackSpeed", 25, true) } },
-			{ count = 6, effects = { buff("AD", 35, true), buff("AttackSpeed", 45, true) } },
+			{ count = 2, effects = { buff("AD", 12, true), buff("AttackSpeed", 12, true) } },
+			{ count = 4, effects = { buff("AD", 23, true), buff("AttackSpeed", 28, true) } },
+			{ count = 5, effects = { buff("AD", 38, true), buff("AttackSpeed", 50, true) } },
 		},
 	},
 })
