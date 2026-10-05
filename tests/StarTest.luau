@@ -151,14 +151,14 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "stat scaling: health x1.15 x (1 / 1.8 / 3.24) and attack damage x1.5 / x2.25; nothing else",
+	name = "stat scaling: health x1.12 x (1 / 1.8 / 3.24) and attack damage x1.5 / x2.25; nothing else",
 	run = function()
 		local base = UnitConfig.Kaien -- 720 health, 48 attack damage
 		local two = StarLevel.scaleStats(base, 2)
 		local three = StarLevel.scaleStats(base, 3)
-		expectEqual(StarLevel.scaleStats(base, 1).health, 828, "1-star health (720 x 1.15)")
-		expectEqual(two.health, 1490, "2-star health (1490.4 rounded)")
-		expectEqual(three.health, 2683, "3-star health (2682.72 rounded)")
+		expectEqual(StarLevel.scaleStats(base, 1).health, 806, "1-star health (806.4 rounded)")
+		expectEqual(two.health, 1452, "2-star health (1451.52 rounded)")
+		expectEqual(three.health, 2613, "3-star health (2612.736 rounded)")
 		expectEqual(two.attackDamage, 72, "2-star attack damage")
 		expectEqual(three.attackDamage, 108, "3-star attack damage")
 		for _, stat in
@@ -172,9 +172,9 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "every unit enters combat with 1.15x its base health; base data and player health are unchanged",
+	name = "every unit enters combat with 1.12x its base health; base data and player health are unchanged",
 	run = function()
-		expectEqual(CombatConfig.globalHealthMultiplier, 1.15, "global health multiplier")
+		expectEqual(CombatConfig.globalHealthMultiplier, 1.12, "global health multiplier")
 		local board = {}
 		local names = {}
 		for name in UnitConfig do
@@ -194,7 +194,7 @@ table.insert(tests, {
 			seed = 1,
 		})
 		for _, unit in battle.units do
-			local expected = math.round(UnitConfig[unit.unitType].health * 1.15)
+			local expected = math.round(UnitConfig[unit.unitType].health * 1.12)
 			expectEqual(unit.maxHealth, expected, unit.unitType .. " combat health")
 			expectEqual(unit.health, expected, unit.unitType .. " starting health")
 			expectEqual(
@@ -234,9 +234,9 @@ table.insert(tests, {
 			seed = 1,
 			critChance = 0, -- exact damage
 		})
-		expectEqual(result.units[1].maxHealth, 1490, "2-star max health (720 x 1.8 x 1.15)")
+		expectEqual(result.units[1].maxHealth, 1452, "2-star max health (720 x 1.8 x 1.12)")
 		expectEqual(result.units[1].starLevel, 2, "2-star summary")
-		expectEqual(result.units[2].maxHealth, 828, "1-star max health (star level omitted; 720 x 1.15)")
+		expectEqual(result.units[2].maxHealth, 806, "1-star max health (star level omitted; 720 x 1.12)")
 		-- Kaien has 40 armor: 72 x 100/140 = 51.4 -> 51, and 48 x 100/140 = 34.3 -> 34.
 		for _, event in result.events do
 			if event.kind == "Attack" then

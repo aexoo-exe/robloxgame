@@ -2,7 +2,9 @@
 -- A unit's price is its UnitConfig cost; selling refunds that full cost.
 return table.freeze({
 	slots = 5,
-	rerollCost = 2,
+	-- EXPERIMENTAL: 2 -> 1 in docs/design/balance-pass-v0.4.md section 5, to test whether reroll
+	-- economics limit rerolling. Pending human playtests; may be too generous for players.
+	rerollCost = 1,
 
 	-- Copies of each character in a match's shared pool, by cost (1-5). docs/design/world-and-traits.md
 	-- (Shared pool), from the first spec's section 14.

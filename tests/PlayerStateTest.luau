@@ -106,17 +106,19 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "reroll costs 2 gold and is refused without it",
+	name = "reroll costs 1 gold (experimental) and is refused without it",
 	run = function()
-		local state = newPlayer(3)
+		expectEqual(ShopConfig.rerollCost, 1, "reroll cost")
+		local state = newPlayer(ShopConfig.rerollCost + 1)
 		state.shop[1] = false
 		assert(PlayerState.reroll(state), "reroll refused")
 		expectEqual(state.gold, 1, "gold after reroll")
 		for i = 1, ShopConfig.slots do
 			assert(type(state.shop[i]) == "string", "slot " .. i .. " empty after reroll")
 		end
-		assert(not PlayerState.reroll(state), "rerolled with 1 gold")
-		expectEqual(state.gold, 1, "gold after refused reroll")
+		state.gold = ShopConfig.rerollCost - 1
+		assert(not PlayerState.reroll(state), "rerolled without enough gold")
+		expectEqual(state.gold, ShopConfig.rerollCost - 1, "gold after refused reroll")
 	end,
 })
 

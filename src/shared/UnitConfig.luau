@@ -1,6 +1,6 @@
 -- Roster v0.1: 25 characters (7/6/5/4/3 by cost), with stats and abilities as in
 -- docs/design/roster-v0.1.md, plus balance pass v0.3 (docs/design/balance-pass-v0.3.md: Ione,
--- Solenne, Kes, Marek, Orin, Calyx, Astra; marked where changed). Health here is the base value;
+-- Solenne, Kes, Marek, Orin, Calyx, Astra) and v0.4 (Lio), marked where changed. Health here is the base value;
 -- combat applies CombatConfig.globalHealthMultiplier. Abilities are pure data for the generic
 -- interpreter in Abilities.luau; per-star values are { 1-star, 2-star, 3-star }.
 --   displayName       full name
@@ -119,7 +119,8 @@ return freezeAll({
 		ability = {
 			name = "Gale Edge",
 			effects = {
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 115, 180, 290 } },
+				-- docs/design/balance-pass-v0.4.md: 115/180/290 -> 130/205/330.
+				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 130, 205, 330 } },
 				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 15, 25, 40 }, duration = 4 },
 			},
 		},
