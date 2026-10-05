@@ -3,8 +3,9 @@
 -- nothing here changes what happens in the fight or when.
 --
 -- The event list is known in full when the fight starts, so attacks are anticipated: melee
--- attackers start their lunge early so it peaks as the hit lands. Damage types come from
--- CastReader, since events do not carry them.
+-- attackers start their lunge early so it peaks as the hit lands, and ranged attackers launch a
+-- projectile that arrives as the hit lands. Damage types and area centers come from CastReader,
+-- since events do not carry them.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -21,6 +22,7 @@ local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
+local CombatEffects = require(script.Parent.CombatEffects)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
@@ -46,6 +48,7 @@ local function clear()
 		UnitView.destroy(view)
 	end
 	table.clear(dying)
+	CombatEffects.clear()
 end
 
 local function play(playback)
@@ -88,6 +91,23 @@ local function play(playback)
 		return UnitConfig[unitsByIndex[index].unitType].ability
 	end)
 
+	-- Pulses every field cell within the area's radius, spreading outward from its center.
+	local function pulseArea(area: CastReader.Area)
+		local cells = {}
+		for row = 1, BoardConfig.rows * 2 do
+			for column = 1, BoardConfig.columns do
+				local distance = HexGrid.distance(area.column, area.row, column, row)
+				if distance <= area.radius then
+					table.insert(cells, {
+						position = toWorld(column, row),
+						delay = distance * RenderConfig.areaWaveDelay,
+					})
+				end
+			end
+		end
+		CombatEffects.areaPulse(cells)
+	end
+
 	-- Applies one CombatSim event (see the Event list in CombatSim) to the views. `fresh` is false
 	-- for events that happened a while ago, which skip their one-shot effects.
 	local function apply(index: number, event, fresh: boolean)
@@ -119,6 +139,9 @@ local function play(playback)
 			UnitView.setMana(view, 0)
 			if fresh then
 				UnitView.cast(view, event.ability)
+				for _, area in reading.areas[index] or {} do
+					pulseArea(area)
+				end
 			end
 		elseif kind == "Heal" and targetView then
 			UnitView.setHealth(targetView, event.health)
@@ -141,6 +164,13 @@ local function play(playback)
 		end
 	end
 
+	local function isRanged(unitIndex: number): boolean
+		return UnitConfig[unitsByIndex[unitIndex].unitType].range > 1
+	end
+	local function leadTime(unitIndex: number): number
+		return if isRanged(unitIndex) then RenderConfig.projectileFlightTime else RenderConfig.lungeDuration / 2
+	end
+
 	-- Starts the wind-up of an attack that lands at `landsAt` (server time).
 	local function anticipate(event, landsAt: number, serverNow: number)
 		local attacker = views[event.unit]
@@ -150,20 +180,19 @@ local function play(playback)
 		end
 		UnitView.face(attacker, target)
 		local landsIn = landsAt - serverNow
-		UnitView.lunge(attacker, target, os.clock() + landsIn - RenderConfig.lungeDuration / 2)
-	end
-
-	local function isRanged(unitIndex: number): boolean
-		return UnitConfig[unitsByIndex[unitIndex].unitType].range > 1
-	end
-	local function leadTime(unitIndex: number): number
-		return if isRanged(unitIndex) then 0 else RenderConfig.lungeDuration / 2
+		if isRanged(event.unit) then
+			local own = unitsByIndex[event.unit].side == localSide
+			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
+			CombatEffects.projectile(attacker, target, os.clock() + landsIn, color)
+		else
+			UnitView.lunge(attacker, target, os.clock() + landsIn - RenderConfig.lungeDuration / 2)
+		end
 	end
 
 	local events = result.events
 	local nextEvent = 1
 	local nextAnticipated = 1
-	local maxLead = RenderConfig.lungeDuration / 2
+	local maxLead = math.max(RenderConfig.projectileFlightTime, RenderConfig.lungeDuration / 2)
 	local upcoming = {} -- indexes of attacks inside the lead window, not yet wound up
 	local lastFrame = os.clock()
 
@@ -207,6 +236,7 @@ local function play(playback)
 				dying[view] = nil
 			end
 		end
+		CombatEffects.update(now)
 	end)
 end
 
