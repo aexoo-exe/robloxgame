@@ -134,6 +134,56 @@ local groups = {}
 -- "Trait level" active, and the final placements of players who had it at least once.
 local traitUse = { boards = 0, active = {}, placementSum = {}, players = {} }
 
+-- Rerolling bots by the cost they chase: seats, how many made a 3-star of that cost, the round
+-- they first did, and final placements split by whether they did.
+local committed = {}
+for cost = 1, 5 do
+	committed[cost] = { bots = 0, completed = 0, roundSum = 0, placementDone = 0, placementFailed = 0 }
+end
+
+-- Top-four boards (final board of each player placing 1-4), by their set of active trait
+-- breakpoints.
+local compositions = { boards = 0, counts = {} }
+
+-- Active trait breakpoints of a board as a sorted, readable key.
+local function traitKey(board): string
+	local active = {}
+	for _, state in Traits.summary(board) do
+		if state.active then
+			table.insert(active, state.name .. " " .. state.reached)
+		end
+	end
+	table.sort(active)
+	return if #active > 0 then table.concat(active, ", ") else "(no active traits)"
+end
+
+-- Timed-out fights: characters present (once per fight), against their presence in all fights,
+-- and the active trait sets of both sides.
+local timeouts = { fights = 0, allFights = 0, units = {}, unitsAll = {}, traitSets = {} }
+
+local function recordTimeoutData(sides, timedOut: boolean)
+	timeouts.allFights += 1
+	local present = {}
+	for _, board in sides do
+		for _, unit in board do
+			present[unit.unitType] = true
+		end
+	end
+	for unitType in present do
+		timeouts.unitsAll[unitType] = (timeouts.unitsAll[unitType] or 0) + 1
+		if timedOut then
+			timeouts.units[unitType] = (timeouts.units[unitType] or 0) + 1
+		end
+	end
+	if timedOut then
+		timeouts.fights += 1
+		for _, board in sides do
+			local key = traitKey(board)
+			timeouts.traitSets[key] = (timeouts.traitSets[key] or 0) + 1
+		end
+	end
+end
+
 local function recordTraitUse(roundBoards, finalRound: number, placements)
 	local had = {}
 	for round = math.max(1, finalRound - 4), finalRound do
@@ -201,6 +251,7 @@ local function playMatch(matchIndex: number)
 	local seenThreeStar = {} -- unit ids already counted
 	local matchHasThreeStar = {}
 	local roundBoards = {}
+	local completedRound = {} -- rerolling bots: round of their first 3-star at their cost
 
 	while not match.finished do
 		local boards = {}
@@ -219,6 +270,9 @@ local function playMatch(matchIndex: number)
 				if unit.starLevel == 3 and not seenThreeStar[key] then
 					seenThreeStar[key] = true
 					local cost = UnitConfig[unit.unitType].cost
+					if policies[id].rerollCost == cost and not completedRound[id] then
+						completedRound[id] = match.round + 1
+					end
 					threeStars.count[cost] += 1
 					threeStars.levelSum[cost] += states[id].level
 					if not matchHasThreeStar[cost] then
@@ -236,6 +290,8 @@ local function playMatch(matchIndex: number)
 		for index, fight in fights do
 			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index)
 			recordFight(result)
+			local sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
+			recordTimeoutData({ boards[fight.a], sideB }, result.timedOut)
 			longestTicks = math.max(longestTicks, result.endTick)
 			stats.fights += 1
 			if result.timedOut then
@@ -266,6 +322,25 @@ local function playMatch(matchIndex: number)
 		placements[id] = player.placement
 	end
 	recordTraitUse(roundBoards, match.round, placements)
+	for id, placement in placements do
+		local cost = policies[id].rerollCost
+		if cost then
+			local entry = committed[cost]
+			entry.bots += 1
+			if completedRound[id] then
+				entry.completed += 1
+				entry.roundSum += completedRound[id]
+				entry.placementDone += placement
+			else
+				entry.placementFailed += placement
+			end
+		end
+		if placement <= 4 then
+			compositions.boards += 1
+			local key = traitKey(lastBoards[id])
+			compositions.counts[key] = (compositions.counts[key] or 0) + 1
+		end
+	end
 	for id, player in match.players do
 		local name = groupOf(policies[id])
 		local group = groups[name] or { seats = 0, placementSum = 0, wins = 0, rerollGold = 0 }
@@ -428,6 +503,65 @@ for _, name in traitNames do
 		)
 	end
 	print(string.format("  %-10s %s", name, table.concat(parts, " | ")))
+end
+print("Rerolling bots by the cost they chase (completed = made at least one 3-star of that cost):")
+for cost = 1, 5 do
+	local entry = committed[cost]
+	if entry.bots > 0 then
+		local failed = entry.bots - entry.completed
+		print(
+			string.format(
+				"  %dc: completed %.1f%% of %d bots, first 3-star in round %s; placement %s when completed, %s when not",
+				cost,
+				entry.completed / entry.bots * 100,
+				entry.bots,
+				if entry.completed > 0 then string.format("%.1f", entry.roundSum / entry.completed) else "-",
+				if entry.completed > 0 then string.format("%.2f", entry.placementDone / entry.completed) else "-",
+				if failed > 0 then string.format("%.2f", entry.placementFailed / failed) else "-"
+			)
+		)
+	end
+end
+
+local function printTop(title: string, counts, total: number, limit: number)
+	local keys = {}
+	for key in counts do
+		table.insert(keys, key)
+	end
+	table.sort(keys, function(a, b)
+		return counts[a] > counts[b] or (counts[a] == counts[b] and a < b)
+	end)
+	print(string.format("%s (%d different):", title, #keys))
+	for i = 1, math.min(limit, #keys) do
+		print(string.format("  %5.1f%%  %s", counts[keys[i]] / total * 100, keys[i]))
+	end
+end
+printTop("Top-four boards by active trait set", compositions.counts, compositions.boards, 10)
+
+local timeoutRate = timeouts.fights / timeouts.allFights
+print(string.format("Timed-out fights: %d of %d (%.1f%%)", timeouts.fights, timeouts.allFights, timeoutRate * 100))
+if timeouts.fights > 0 then
+	-- Characters by how much more often they appear in timed-out fights than in fights overall.
+	local names = {}
+	for name in timeouts.units do
+		table.insert(names, name)
+	end
+	local function ratio(name)
+		return (timeouts.units[name] / timeouts.fights) / (timeouts.unitsAll[name] / timeouts.allFights)
+	end
+	table.sort(names, function(a, b)
+		return ratio(a) > ratio(b)
+	end)
+	local line = {}
+	for i = 1, math.min(8, #names) do
+		local name = names[i]
+		table.insert(
+			line,
+			string.format("%s %.0f%% (x%.1f)", name, timeouts.units[name] / timeouts.fights * 100, ratio(name))
+		)
+	end
+	print("  characters in timed-out fights (share of those fights, x vs all fights): " .. table.concat(line, ", "))
+	printTop("  trait sets of sides in timed-out fights", timeouts.traitSets, timeouts.fights * 2, 8)
 end
 print("Results by strategy: average placement, win rate, gold spent rerolling per bot per match")
 local groupNames = {}
