@@ -17,8 +17,8 @@ return table.freeze({
 
 	-- Every unit's combat health is its UnitConfig health times this (and its star multiplier); see
 	-- StarLevel.scaleStats. UnitConfig keeps the design docs' base values. Player health and player
-	-- damage are separate and unaffected. docs/design/balance-pass-v0.4.md section 3: 1.15 -> 1.12.
-	globalHealthMultiplier = 1.12,
+	-- damage are separate and unaffected. docs/design/revamp-structure.md: 1.16.
+	globalHealthMultiplier = 1.16,
 
 	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.
 	critChance = 0.25, -- per basic attack; abilities cannot crit
@@ -43,80 +43,85 @@ return table.freeze({
 	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.
 	-- Unit counts roughly track the player's unit cap (= level), and from round 9 the boards add
 	-- 2-star units. Costs, star levels, counts and positions were tuned for the old placeholder
-	-- roster (docs/star-upgrades-plan.md); for roster v0.1 some units were swapped for a character
-	-- of the same cost and a similar role so the full roster appears. They are not retuned.
+	-- roster (docs/star-upgrades-plan.md); each unit was then swapped for a roster v1.1 character of
+	-- the same cost and a similar role. They are not retuned.
 	-- Practice enemies never draw from the shared pool.
 	enemyBoardsByRound = table.freeze({
 		-- Round 1: player is level 2 (2 units)
-		table.freeze({ unit("Bren", 4, 4), unit("Sola", 4, 1) }),
+		table.freeze({ unit("iron_rush", 4, 4), unit("blooming_aid", 4, 1) }),
 		-- Round 2: level 3
-		table.freeze({ unit("Kaien", 4, 4), unit("Mira", 3, 1), unit("Sola", 5, 1) }),
+		table.freeze({ unit("cinder_arc", 4, 4), unit("spurshot", 3, 1), unit("blooming_aid", 5, 1) }),
 		-- Round 3
-		table.freeze({ unit("Bren", 3, 4), unit("Rook", 4, 4), unit("Mira", 4, 1) }),
+		table.freeze({ unit("iron_rush", 3, 4), unit("flare_kick", 4, 4), unit("spurshot", 4, 1) }),
 		-- Round 4
-		table.freeze({ unit("Tarek", 4, 4), unit("Sena", 3, 4), unit("Ione", 4, 1) }),
+		table.freeze({ unit("marsh_fortress", 4, 4), unit("field_medic", 3, 4), unit("orbit_breaker", 4, 1) }),
 		-- Round 5: level 4
-		table.freeze({ unit("Rook", 3, 4), unit("Marek", 5, 4), unit("Sena", 4, 3), unit("Mira", 4, 1) }),
+		table.freeze({
+			unit("flare_kick", 3, 4),
+			unit("redline_cut", 5, 4),
+			unit("field_medic", 4, 3),
+			unit("spurshot", 4, 1),
+		}),
 		-- Round 6: level 5
 		table.freeze({
-			unit("Rook", 3, 4),
-			unit("Tarek", 5, 4),
-			unit("Vela", 4, 3),
-			unit("Mira", 3, 1),
-			unit("Sola", 5, 1),
+			unit("flare_kick", 3, 4),
+			unit("marsh_fortress", 5, 4),
+			unit("burst_vector", 4, 3),
+			unit("spurshot", 3, 1),
+			unit("blooming_aid", 5, 1),
 		}),
 		-- Round 7
 		table.freeze({
-			unit("Vael", 4, 4),
-			unit("Rook", 3, 4),
-			unit("Sena", 5, 3),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("volt_spear", 4, 4),
+			unit("flare_kick", 3, 4),
+			unit("field_medic", 5, 3),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 		-- Round 8: level 6
 		table.freeze({
-			unit("Dax", 4, 4),
-			unit("Rook", 3, 4),
-			unit("Tarek", 5, 4),
-			unit("Vela", 6, 3),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("thunder_nest", 4, 4),
+			unit("flare_kick", 3, 4),
+			unit("marsh_fortress", 5, 4),
+			unit("burst_vector", 6, 3),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 		-- Round 9: first 2-star
 		table.freeze({
-			unit("Dax", 4, 4),
-			unit("Rook", 3, 4, 2),
-			unit("Marek", 5, 4),
-			unit("Sena", 6, 3),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("thunder_nest", 4, 4),
+			unit("flare_kick", 3, 4, 2),
+			unit("redline_cut", 5, 4),
+			unit("field_medic", 6, 3),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 		-- Round 10
 		table.freeze({
-			unit("Vael", 4, 4),
-			unit("Rook", 3, 4, 2),
-			unit("Tarek", 5, 4),
-			unit("Sena", 6, 3, 2),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("volt_spear", 4, 4),
+			unit("flare_kick", 3, 4, 2),
+			unit("marsh_fortress", 5, 4),
+			unit("field_medic", 6, 3, 2),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 		-- Round 11
 		table.freeze({
-			unit("Dax", 4, 4),
-			unit("Rook", 3, 4, 2),
-			unit("Torra", 5, 4),
-			unit("Sena", 6, 3, 2),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("thunder_nest", 4, 4),
+			unit("flare_kick", 3, 4, 2),
+			unit("frozen_moment", 5, 4),
+			unit("field_medic", 6, 3, 2),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 		-- Round 12 onwards
 		table.freeze({
-			unit("Dax", 4, 4, 2),
-			unit("Rook", 3, 4, 2),
-			unit("Orin", 5, 4),
-			unit("Vela", 6, 3, 2),
-			unit("Veyra", 4, 1),
-			unit("Solenne", 2, 1),
+			unit("thunder_nest", 4, 4, 2),
+			unit("flare_kick", 3, 4, 2),
+			unit("elastic_wardrum", 5, 4),
+			unit("burst_vector", 6, 3, 2),
+			unit("snapfire", 4, 1),
+			unit("skyboulder", 2, 1),
 		}),
 	}),
 })

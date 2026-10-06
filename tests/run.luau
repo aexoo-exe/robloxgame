@@ -22,6 +22,7 @@ local suites = {
 	{ name = "UnitPool", tests = require("./UnitPoolTest") },
 	{ name = "Trait", tests = require("./TraitTest") },
 	{ name = "Engine", tests = require("./EngineTest") },
+	{ name = "Skin", tests = require("./SkinTest") },
 	{ name = "Regression", tests = require("./RegressionTest") },
 }
 

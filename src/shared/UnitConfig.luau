@@ -1,20 +1,23 @@
--- Roster v0.1: 25 characters (7/6/5/4/3 by cost), with stats and abilities as in
--- docs/design/roster-v0.1.md, plus balance pass v0.3 (docs/design/balance-pass-v0.3.md: Ione,
--- Solenne, Kes, Marek, Orin, Calyx, Astra) and v0.4 (Lio), marked where changed. Health here is the base value;
--- combat applies CombatConfig.globalHealthMultiplier. Abilities are pure data for the generic
--- interpreter in Abilities.luau; per-star values are { 1-star, 2-star, 3-star }.
---   displayName       full name
---   origin, classes   trait membership (docs/design/world-and-traits.md); data only, no effects yet
+-- Roster v1.1: 42 characters (9/9/10/9/5 by cost) with stats and abilities exactly as in
+-- docs/design/revamp-roster.md (Block 2). Each character's key is a neutral internal id taken from
+-- its ability; ability names are the same ids. Everything players see (names, ability names,
+-- colors) lives in SkinConfig, never here.
+--
+-- Fields:
 --   cost              gold price and shop tier (1-5)
---   role              design role (display and simulation reports only; the roster doc gives
---                     roles for the first ten, the others were chosen from their kits)
---   health, attackDamage, abilityPower, armor, magicResist
+--   origin, classes   trait membership (docs/design/revamp-structure.md); data only
+--   health            base health, before CombatConfig.globalHealthMultiplier
+--   attackDamage, abilityPower, armor, magicResist
 --   attacksPerSecond  attack rate
 --   range             attack range in hexes (1 = melee)
 --   moveSpeed         movement scalar (x CombatConfig.baseMoveSpeed hexes per second)
 --   startingMana, maxMana
--- Crit chance and crit damage are global (CombatConfig). Star level scales only health and attack
--- damage; ability values come from the per-star lists.
+--   ability           data for the generic interpreter in Abilities.luau; per-star values are
+--                     { 1-star, 2-star, 3-star }
+--
+-- Abilities resolve every selector once, before any effect. Where Block 2 says a dash gives a
+-- "new CURRENT_TARGET", the dash sets the retarget flag and the cast's later effects name the
+-- dash's own selector, so they hit the same enemy.
 
 local function freezeAll(value)
 	if type(value) == "table" then
@@ -26,715 +29,320 @@ local function freezeAll(value)
 	return value
 end
 
-return freezeAll({
-	Kaien = {
-		displayName = "Kaien Vale",
-		origin = "Ironveil",
-		classes = { "Vanguard", "Warden" },
-		cost = 1,
-		role = "Frontline",
-		health = 720,
-		attackDamage = 48,
-		abilityPower = 100,
-		armor = 40,
-		magicResist = 40,
-		attacksPerSecond = 0.6,
-		range = 1,
-		moveSpeed = 1.0,
-		startingMana = 40,
-		maxMana = 90,
-		ability = {
-			name = "Iron Pulse",
-			effects = {
-				{ type = "SHIELD", target = "SELF", amount = { 180, 300, 500 }, duration = 5 },
-				{ type = "STUN", target = "CURRENT_TARGET", duration = { 1.0, 1.5, 2.25 } },
-			},
-		},
-	},
-	Mira = {
-		displayName = "Mira Quill",
-		origin = "Starfall",
-		classes = { "Marksman" },
-		cost = 1,
-		role = "Ranged Carry",
-		health = 540,
-		attackDamage = 62,
-		abilityPower = 100,
-		armor = 18,
-		magicResist = 18,
-		attacksPerSecond = 0.78,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Starbolt",
-			effects = {
-				-- docs/design/balance-pass-v0.2.md: 140/220/360 -> 120/190/310, +25/35/50% -> +20/30/45%.
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 120, 190, 310 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 20, 30, 45 }, duration = 4 },
-			},
-		},
-	},
-	Bren = {
-		displayName = "Bren Ashward",
-		origin = "Emberwake",
-		classes = { "Vanguard" },
-		cost = 1,
-		role = "Frontline",
-		health = 740,
-		attackDamage = 46,
-		abilityPower = 100,
-		armor = 38,
-		magicResist = 34,
-		attacksPerSecond = 0.58,
-		range = 1,
-		moveSpeed = 0.9,
-		startingMana = 40,
-		maxMana = 90,
-		ability = {
-			name = "Furnace Guard",
-			effects = {
-				{ type = "SHIELD", target = "SELF", amount = { 150, 240, 400 }, duration = 5 },
-				{ type = "BUFF", target = "SELF", stat = "Armor", flat = { 15, 25, 40 }, duration = 5 },
-			},
-		},
-	},
-	Lio = {
-		displayName = "Lio Veylan",
-		origin = "Stormcrest",
-		classes = { "Duelist" },
-		cost = 1,
-		role = "Duelist",
-		health = 590,
-		attackDamage = 58,
-		abilityPower = 100,
-		armor = 22,
-		magicResist = 20,
-		attacksPerSecond = 0.78,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Gale Edge",
-			effects = {
-				-- docs/design/balance-pass-v0.4.md: 115/180/290 -> 130/205/330.
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 130, 205, 330 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 15, 25, 40 }, duration = 4 },
-			},
-		},
-	},
-	Cera = {
-		displayName = "Cera Morn",
-		origin = "Tideglass",
-		classes = { "Mystic" },
-		cost = 1,
-		role = "Support",
-		health = 610,
-		attackDamage = 44,
-		abilityPower = 100,
-		armor = 20,
-		magicResist = 32,
-		attacksPerSecond = 0.64,
-		range = 3,
-		moveSpeed = 1.0,
-		startingMana = 40,
-		maxMana = 100,
-		ability = {
-			name = "Quiet Current",
-			effects = {
-				{ type = "HEAL", target = "LOWEST_HP_ALLY", amount = { 110, 175, 280 } },
-				{ type = "BUFF", target = "LOWEST_HP_ALLY", stat = "MR", flat = { 15, 25, 40 }, duration = 5 },
-			},
-		},
-	},
-	Sola = {
-		displayName = "Sola Aven",
-		origin = "Starfall",
-		classes = { "Arcanist" },
-		cost = 1,
-		role = "Caster",
-		health = 550,
-		attackDamage = 48,
-		abilityPower = 100,
-		armor = 18,
-		magicResist = 24,
-		attacksPerSecond = 0.68,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Falling Spark",
-			effects = {
-				{
-					type = "AREA_DAMAGE",
-					center = "CURRENT_TARGET",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 150, 240, 390 },
-				},
-			},
-		},
-	},
-	Kes = {
-		displayName = "Kes Vanta",
-		origin = "Eclipse",
-		classes = { "Reaver" },
-		cost = 1,
-		role = "Assassin",
-		health = 600,
-		attackDamage = 64,
-		abilityPower = 100,
-		armor = 22,
-		magicResist = 18,
-		attacksPerSecond = 0.76,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Shadecut",
-			effects = {
-				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> HIGHEST_AD_ENEMY, dash 2 -> 3.
-				{
-					type = "DASH",
-					target = "HIGHEST_AD_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{ type = "DAMAGE", target = "HIGHEST_AD_ENEMY", damageType = "PHYSICAL", amount = { 145, 230, 370 } },
-			},
-		},
-	},
+-- A character: cost, origin, classes, health, AD, armor, MR, attack speed, range, move speed,
+-- starting mana, max mana, and the ability's effects (its name is the character's id).
+local function unit(cost, origin, classes, health, ad, armor, mr, as, range, move, startMana, maxMana)
+	return function(id, effects)
+		return {
+			cost = cost,
+			origin = origin,
+			classes = classes,
+			health = health,
+			attackDamage = ad,
+			abilityPower = 100,
+			armor = armor,
+			magicResist = mr,
+			attacksPerSecond = as,
+			range = range,
+			moveSpeed = move,
+			startingMana = startMana,
+			maxMana = maxMana,
+			ability = { name = id, effects = effects },
+		}
+	end
+end
 
-	Rook = {
-		displayName = "Rook Ember",
-		origin = "Emberwake",
-		classes = { "Vanguard", "Duelist" },
-		cost = 2,
-		role = "Bruiser",
-		health = 850,
-		attackDamage = 66,
-		abilityPower = 100,
-		armor = 38,
-		magicResist = 32,
-		attacksPerSecond = 0.68,
-		range = 1,
-		moveSpeed = 1.0,
-		startingMana = 30,
-		maxMana = 90,
-		ability = {
-			name = "Meteor Knuckle",
-			effects = {
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 180, 290, 470 } },
-				-- The spec gives no center; the target of the punch is used.
-				{
-					type = "AREA_DAMAGE",
-					center = "CURRENT_TARGET",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 80, 130, 220 },
-				},
-			},
-		},
-	},
-	Sena = {
-		displayName = "Sena Lume",
-		origin = "Tideglass",
-		classes = { "Mystic", "Warden" },
-		cost = 2,
-		role = "Support",
-		health = 650,
-		attackDamage = 48,
-		abilityPower = 100,
-		armor = 25,
-		magicResist = 35,
-		attacksPerSecond = 0.7,
-		range = 3,
-		moveSpeed = 1.0,
-		startingMana = 40,
-		maxMana = 100,
-		ability = {
-			name = "Moonveil",
-			effects = {
-				{ type = "SHIELD", target = "LOWEST_HP_ALLY", amount = { 180, 300, 480 }, duration = 5 },
-				{ type = "HEAL", target = "LOWEST_HP_ALLY", amount = { 100, 160, 260 } },
-			},
-		},
-	},
-	Tarek = {
-		displayName = "Tarek Flint",
-		origin = "Ironveil",
-		classes = { "Vanguard", "Warden" },
-		cost = 2,
-		role = "Tank",
-		health = 890,
-		attackDamage = 54,
-		abilityPower = 100,
-		armor = 45,
-		magicResist = 40,
-		attacksPerSecond = 0.58,
-		range = 1,
-		moveSpeed = 0.9,
-		startingMana = 40,
-		maxMana = 100,
-		ability = {
-			name = "Lockplate",
-			effects = {
-				{ type = "SHIELD", target = "SELF", amount = { 230, 370, 600 }, duration = 5 },
-				{ type = "STUN", target = "CURRENT_TARGET", duration = { 0.75, 1.25, 1.75 } },
-			},
-		},
-	},
-	Ione = {
-		displayName = "Ione Gale",
-		origin = "Stormcrest",
-		classes = { "Marksman" },
-		cost = 2,
-		role = "Ranged Carry",
-		health = 650,
-		attackDamage = 69,
-		abilityPower = 100,
-		armor = 22,
-		magicResist = 22,
-		attacksPerSecond = 0.83,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Skyneedle",
-			effects = {
-				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> CURRENT_TARGET.
-				{ type = "DAMAGE", target = "CURRENT_TARGET", damageType = "PHYSICAL", amount = { 220, 350, 560 } },
-				{ type = "BUFF", target = "SELF", stat = "AD", percent = { 10, 15, 25 }, duration = 5 },
-			},
-		},
-	},
-	Vela = {
-		displayName = "Vela Nox",
-		origin = "Eclipse",
-		classes = { "Arcanist", "Reaver" },
-		cost = 2,
-		role = "Caster",
-		health = 640,
-		attackDamage = 58,
-		abilityPower = 100,
-		armor = 24,
-		magicResist = 28,
-		attacksPerSecond = 0.76,
-		range = 3,
-		moveSpeed = 1.1,
-		startingMana = 20,
-		maxMana = 90,
-		ability = {
-			name = "Black Arc",
-			effects = {
-				{
-					type = "AREA_DAMAGE",
-					center = "CURRENT_TARGET",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 210, 340, 550 },
-				},
-				{ type = "BUFF", target = "SELF", stat = "AP", flat = { 15, 25, 40 }, duration = 5 },
-			},
-		},
-	},
-	Marek = {
-		displayName = "Marek Sol",
-		origin = "Emberwake",
-		classes = { "Duelist" },
-		cost = 2,
-		role = "Duelist",
-		health = 720,
-		attackDamage = 68,
-		abilityPower = 100,
-		armor = 28,
-		magicResist = 24,
-		attacksPerSecond = 0.84,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Burnrush",
-			effects = {
-				-- docs/design/balance-pass-v0.3.md: CURRENT_TARGET -> HIGHEST_AD_ENEMY, dash 2 -> 3.
-				{
-					type = "DASH",
-					target = "HIGHEST_AD_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{ type = "DAMAGE", target = "HIGHEST_AD_ENEMY", damageType = "PHYSICAL", amount = { 210, 335, 535 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 25, 40, 60 }, duration = 4 },
-			},
-		},
-	},
+local roster = {}
 
-	Veyra = {
-		displayName = "Veyra Storm",
-		origin = "Stormcrest",
-		classes = { "Arcanist" },
-		cost = 3,
-		role = "Caster",
-		health = 720,
-		attackDamage = 55,
-		abilityPower = 100,
-		armor = 25,
-		magicResist = 30,
-		attacksPerSecond = 0.72,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Tempest Core",
-			effects = {
-				{
-					type = "AREA_DAMAGE",
-					center = "CURRENT_TARGET",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 260, 420, 680 },
-				},
-				{ type = "STUN", target = "CURRENT_TARGET", duration = { 1.0, 1.5, 2.0 } },
-			},
-		},
-	},
-	Dax = {
-		displayName = "Dax Ironwind",
-		origin = "Ironveil",
-		classes = { "Duelist", "Reaver" },
-		cost = 3,
-		role = "Duelist",
-		health = 850,
-		attackDamage = 76,
-		abilityPower = 100,
-		armor = 35,
-		magicResist = 30,
-		attacksPerSecond = 0.85,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 30,
-		maxMana = 90,
-		ability = {
-			name = "Flashbreak",
-			effects = {
-				-- docs/design/balance-pass-v0.2.md: dives the farthest enemy (was CURRENT_TARGET, 2 hexes)
-				-- and keeps attacking it; damage 240/380/600 -> 300/475/750.
-				{
-					type = "DASH",
-					target = "FARTHEST_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 300, 475, 750 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 30, 45, 65 }, duration = 4 },
-			},
-		},
-	},
-	Calyx = {
-		displayName = "Calyx Mere",
-		origin = "Tideglass",
-		classes = { "Mystic", "Warden" },
-		cost = 3,
-		role = "Support",
-		health = 900,
-		attackDamage = 60, -- docs/design/balance-pass-v0.3.md: 54 -> 60
-		abilityPower = 100,
-		armor = 42,
-		magicResist = 48,
-		attacksPerSecond = 0.70, -- v0.3: 0.65 -> 0.70
-		range = 2,
-		moveSpeed = 0.9,
-		startingMana = 40,
-		maxMana = 110,
-		ability = {
-			name = "Glass Sanctuary",
-			effects = {
-				{ type = "SHIELD", target = "LOWEST_HP_ALLY", amount = { 270, 430, 690 }, duration = 5 },
-				{ type = "HEAL", target = "LOWEST_HP_ALLY", amount = { 170, 270, 430 } },
-			},
-		},
-	},
-	Solenne = {
-		displayName = "Solenne Ray",
-		origin = "Starfall",
-		classes = { "Marksman", "Arcanist" },
-		cost = 3,
-		role = "Ranged Carry",
-		health = 760,
-		attackDamage = 78,
-		abilityPower = 100,
-		armor = 24,
-		magicResist = 28,
-		attacksPerSecond = 0.88,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 90,
-		ability = {
-			name = "Nova Lance",
-			effects = {
-				-- docs/design/balance-pass-v0.3.md: FARTHEST_ENEMY -> CURRENT_TARGET.
-				{
-					type = "AREA_DAMAGE",
-					center = "CURRENT_TARGET",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 300, 480, 780 },
-				},
-				{ type = "BUFF", target = "SELF", stat = "AP", flat = { 20, 35, 55 }, duration = 5 },
-			},
-		},
-	},
-	Vael = {
-		displayName = "Vael Noct",
-		origin = "Eclipse",
-		classes = { "Reaver", "Duelist" },
-		cost = 3,
-		role = "Assassin",
-		health = 820,
-		attackDamage = 80,
-		abilityPower = 100,
-		armor = 30,
-		magicResist = 25,
-		attacksPerSecond = 0.89,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 20,
-		maxMana = 90,
-		ability = {
-			name = "Nightfall Step",
-			effects = {
-				{
-					type = "DASH",
-					target = "FARTHEST_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 340, 540, 860 } },
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 25, 40, 60 }, duration = 4 },
-			},
-		},
-	},
+local function add(id, make, effects)
+	roster[id] = make(id, effects)
+end
 
-	Orin = {
-		displayName = "Orin Bastion",
-		origin = "Ironveil",
-		classes = { "Vanguard", "Warden" },
-		cost = 4,
-		role = "Main Tank",
-		health = 1180,
-		attackDamage = 64, -- docs/design/balance-pass-v0.3.md: 58 -> 64
-		abilityPower = 100,
-		armor = 60,
-		magicResist = 60,
-		attacksPerSecond = 0.65, -- v0.3: 0.60 -> 0.65
-		range = 1,
-		moveSpeed = 0.9,
-		startingMana = 50,
-		maxMana = 110,
-		ability = {
-			name = "Unbroken Citadel",
-			effects = {
-				{ type = "SHIELD", target = "SELF", amount = { 450, 700, 1100 }, duration = 6 },
-				{ type = "BUFF", target = "SELF", stat = "Armor", flat = { 30, 45, 70 }, duration = 6 },
-				{ type = "BUFF", target = "SELF", stat = "MR", flat = { 30, 45, 70 }, duration = 6 },
-			},
-		},
-	},
-	Nyra = {
-		displayName = "Nyra Voss",
-		origin = "Eclipse",
-		classes = { "Marksman", "Reaver" },
-		cost = 4,
-		role = "Ranged Carry",
-		health = 820,
-		attackDamage = 88,
-		abilityPower = 100,
-		armor = 28,
-		magicResist = 28,
-		attacksPerSecond = 0.9,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 20,
-		maxMana = 80,
-		ability = {
-			name = "Voidline Shot",
-			effects = {
-				-- docs/design/balance-pass-v0.2.md: 350/550/900 -> 320/500/800.
-				{ type = "DAMAGE", target = "FARTHEST_ENEMY", damageType = "PHYSICAL", amount = { 320, 500, 800 } },
-				{ type = "STUN", target = "FARTHEST_ENEMY", duration = { 1.0, 1.5, 2.25 } },
-			},
-		},
-	},
-	Torra = {
-		displayName = "Torra Gale",
-		origin = "Stormcrest",
-		classes = { "Vanguard", "Duelist" },
-		cost = 4,
-		role = "Vanguard Carry",
-		health = 1100,
-		attackDamage = 78,
-		abilityPower = 100,
-		armor = 55,
-		magicResist = 45,
-		attacksPerSecond = 0.82,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 30,
-		maxMana = 100,
-		ability = {
-			name = "Thunder Descent",
-			effects = {
-				{
-					type = "DASH",
-					target = "HIGHEST_AD_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{
-					type = "AREA_DAMAGE",
-					center = "HIGHEST_AD_ENEMY",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 330, 525, 850 },
-				},
-				{ type = "STUN", target = "HIGHEST_AD_ENEMY", duration = { 1.0, 1.5, 2.25 } },
-			},
-		},
-	},
-	Maelin = {
-		displayName = "Maelin Shore",
-		origin = "Tideglass",
-		classes = { "Mystic", "Arcanist" },
-		cost = 4,
-		role = "Support",
-		health = 900,
-		attackDamage = 60,
-		abilityPower = 100,
-		armor = 32,
-		magicResist = 55,
-		attacksPerSecond = 0.72,
-		range = 3,
-		moveSpeed = 1.0,
-		startingMana = 40,
-		maxMana = 110,
-		ability = {
-			name = "High Tide",
-			effects = {
-				{ type = "HEAL", target = "LOWEST_HP_ALLY", amount = { 330, 530, 860 } },
-				{ type = "SHIELD", target = "LOWEST_HP_ALLY", amount = { 360, 580, 930 }, duration = 6 },
-			},
-		},
-	},
+local function dash(target, distance, retarget)
+	return {
+		type = "DASH",
+		target = target,
+		distance = distance,
+		mode = "OFFENSIVE",
+		setsCurrentTarget = if retarget then true else nil,
+	}
+end
 
-	Astra = {
-		displayName = "Astra Ren",
-		origin = "Starfall",
-		classes = { "Arcanist", "Mystic" },
-		cost = 5,
-		role = "Mystic Carry",
-		health = 980,
-		attackDamage = 75,
-		abilityPower = 100,
-		armor = 38,
-		magicResist = 45,
-		attacksPerSecond = 0.85,
-		range = 4,
-		moveSpeed = 1.0,
-		startingMana = 30,
-		maxMana = 100,
-		ability = {
-			name = "Falling Constellation",
-			effects = {
-				{
-					type = "AREA_DAMAGE",
-					center = "HIGHEST_AD_ENEMY",
-					radius = 2,
-					damageType = "MAGIC",
-					-- docs/design/balance-pass-v0.3.md: 400/650/1050 -> 450/725/1175.
-					amount = { 450, 725, 1175 },
-				},
-			},
-		},
-	},
-	Kairo = {
-		displayName = "Kairo Zenith",
-		origin = "Emberwake",
-		classes = { "Vanguard", "Duelist" },
-		cost = 5,
-		role = "Vanguard Carry",
-		health = 1250,
-		attackDamage = 96,
-		abilityPower = 100,
-		armor = 60,
-		magicResist = 50,
-		attacksPerSecond = 0.8,
-		range = 1,
-		moveSpeed = 1.1,
-		startingMana = 40,
-		maxMana = 110,
-		ability = {
-			name = "Heavenbreaker",
-			effects = {
-				{ type = "DASH", target = "HIGHEST_AD_ENEMY", distance = 3, mode = "OFFENSIVE" },
-				{
-					type = "AREA_DAMAGE",
-					center = "SELF",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 400, 650, 1050 },
-				},
-				{ type = "SHIELD", target = "SELF", amount = { 300, 500, 800 }, duration = 5 },
-			},
-		},
-	},
-	Sevrin = {
-		displayName = "Sevrin Null",
-		origin = "Eclipse",
-		classes = { "Reaver", "Arcanist" },
-		cost = 5,
-		role = "Assassin",
-		health = 1050,
-		attackDamage = 94,
-		abilityPower = 100,
-		armor = 42,
-		magicResist = 42,
-		attacksPerSecond = 0.98,
-		range = 2,
-		moveSpeed = 1.1,
-		startingMana = 30,
-		maxMana = 100,
-		ability = {
-			name = "Event Horizon",
-			effects = {
-				{
-					type = "DASH",
-					target = "FARTHEST_ENEMY",
-					distance = 3,
-					mode = "OFFENSIVE",
-					setsCurrentTarget = true,
-				},
-				{
-					type = "AREA_DAMAGE",
-					center = "FARTHEST_ENEMY",
-					radius = 1,
-					damageType = "MAGIC",
-					amount = { 520, 850, 1350 },
-				},
-				{ type = "BUFF", target = "SELF", stat = "AttackSpeed", percent = { 30, 45, 70 }, duration = 5 },
-			},
-		},
-	},
+local function damage(target, damageType, amount)
+	return { type = "DAMAGE", target = target, damageType = damageType, amount = amount }
+end
+
+local function area(center, radius, damageType, amount)
+	return { type = "AREA_DAMAGE", center = center, radius = radius, damageType = damageType, amount = amount }
+end
+
+local function buffPercent(target, stat, percent, duration)
+	return { type = "BUFF", target = target, stat = stat, percent = percent, duration = duration }
+end
+
+local function buffFlat(target, stat, flat, duration)
+	return { type = "BUFF", target = target, stat = stat, flat = flat, duration = duration }
+end
+
+local function heal(target, amount)
+	return { type = "HEAL", target = target, amount = amount }
+end
+
+local function shield(target, amount, duration)
+	return { type = "SHIELD", target = target, amount = amount, duration = duration }
+end
+
+local function stun(target, duration)
+	return { type = "STUN", target = target, duration = duration }
+end
+
+local function areaStun(center, radius, duration)
+	return { type = "AREA_STUN", center = center, radius = radius, duration = duration }
+end
+
+-- Damage over time centered on `center` within `radius`, ticking every second.
+local function dot(center, radius, damageType, amount, duration)
+	return {
+		type = "DAMAGE_OVER_TIME",
+		center = center,
+		radius = radius,
+		damageType = damageType,
+		amount = amount,
+		interval = 1,
+		duration = duration,
+	}
+end
+
+local function summon(count, duration, health, ad, resist, attackSpeed, range, move)
+	return {
+		type = "SUMMON",
+		count = count,
+		duration = duration,
+		healthPercent = health,
+		attackDamagePercent = ad,
+		armorPercent = resist,
+		magicResistPercent = resist,
+		attackSpeedPercent = attackSpeed,
+		range = range,
+		moveSpeed = move,
+	}
+end
+
+-- 1-cost --------------------------------------------------------------------------------------
+
+add("flashline", unit(1, "Hunters", { "Blade", "Assassin" }, 560, 63, 20, 20, 0.78, 1, 1.1, 20, 90), {
+	dash("FARTHEST_ENEMY", 4, true),
+	damage("FARTHEST_ENEMY", "PHYSICAL", { 140, 225, 360 }),
 })
+add("cinder_arc", unit(1, "Hunters", { "Blade" }, 650, 57, 28, 25, 0.70, 1, 1.0, 30, 90), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 105, 170, 270 }),
+	area("CURRENT_TARGET", 1, "MAGIC", { 65, 105, 170 }),
+	buffPercent("SELF", "AttackSpeed", { 18, 28, 42 }, 5),
+})
+add("wolfstep", unit(1, "Corps", { "Blade" }, 590, 62, 22, 20, 0.77, 1, 1.1, 20, 80), {
+	dash("HIGHEST_AD_ENEMY", 3, true),
+	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 135, 215, 345 }),
+})
+add("spurshot", unit(1, "Spirit", { "Marksman" }, 550, 64, 18, 18, 0.76, 3, 1.2, 20, 80), {
+	damage("FARTHEST_ENEMY", "PHYSICAL", { 140, 225, 360 }),
+	buffPercent("SELF", "AttackSpeed", { 15, 25, 40 }, 4),
+})
+add("ripcord_frenzy", unit(1, "Cursed", { "Brawler" }, 700, 58, 28, 24, 0.72, 1, 1.0, 30, 90), {
+	buffPercent("SELF", "AttackSpeed", { 25, 40, 60 }, 5),
+	heal("SELF", { 80, 130, 210 }),
+})
+add("null_edge", unit(1, "Arcane", { "Blade" }, 680, 61, 30, 35, 0.68, 1, 1.0, 30, 90), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 130, 210, 335 }),
+	buffFlat("SELF", "MR", { 25, 40, 65 }, 5),
+})
+add("bitter_vapor", unit(1, "Arcane", { "Support" }, 580, 43, 20, 30, 0.62, 3, 1.0, 40, 100), {
+	dot("CURRENT_TARGET", 1, "MAGIC", { 22, 35, 56 }, 4),
+	heal("LOWEST_HP_ALLY", { 70, 110, 175 }),
+})
+add("iron_rush", unit(1, "Titans", { "Guardian" }, 750, 48, 40, 35, 0.56, 1, 0.9, 40, 100), {
+	buffFlat("SELF", "Armor", { 30, 45, 70 }, 5),
+	dash("HIGHEST_AD_ENEMY", 2, true),
+	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 85, 135, 215 }),
+	stun("HIGHEST_AD_ENEMY", { 0.75, 1, 1.5 }),
+})
+add("blooming_aid", unit(1, "Shinobi", { "Support" }, 600, 46, 22, 28, 0.65, 2, 1.0, 40, 100), {
+	heal("LOWEST_HP_ALLY", { 120, 190, 305 }),
+})
+
+-- 2-cost --------------------------------------------------------------------------------------
+
+add("redline_cut", unit(2, "Corps", { "Blade" }, 690, 68, 27, 25, 0.83, 1, 1.1, 20, 80), {
+	dash("HIGHEST_AD_ENEMY", 3, true),
+	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 215, 345, 550 }),
+	buffPercent("SELF", "AttackSpeed", { 20, 32, 50 }, 4),
+})
+add("flare_kick", unit(2, "Crew", { "Brawler" }, 760, 69, 30, 27, 0.78, 1, 1.1, 30, 90), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 150, 240, 385 }),
+	area("CURRENT_TARGET", 1, "MAGIC", { 75, 120, 190 }),
+})
+add("burst_vector", unit(2, "Heroes", { "Caster", "Marksman" }, 650, 67, 22, 24, 0.78, 4, 1.0, 20, 80), {
+	area("CURRENT_TARGET", 1, "MAGIC", { 210, 335, 535 }),
+	buffPercent("SELF", "AD", { 10, 15, 25 }, 4),
+})
+add("skybreaker", unit(2, "Heroes", { "Brawler" }, 820, 66, 35, 30, 0.70, 1, 1.0, 30, 90), {
+	dash("HIGHEST_AD_ENEMY", 3, false),
+	area("HIGHEST_AD_ENEMY", 1, "PHYSICAL", { 210, 335, 535 }),
+})
+add("crimson_hunger", unit(2, "Cursed", { "Assassin" }, 720, 70, 26, 27, 0.82, 1, 1.1, 20, 80), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 220, 350, 560 }),
+	heal("SELF", { 90, 145, 230 }),
+})
+add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 68, 23, 25, 0.82, 3, 1.2, 20, 90), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 220, 350, 560 }),
+	stun("CURRENT_TARGET", { 1, 1.5, 2 }),
+})
+add("marsh_fortress", unit(2, "Shinobi", { "Guardian" }, 900, 52, 45, 42, 0.58, 1, 0.9, 40, 110), {
+	shield("SELF", { 280, 450, 720 }, 6),
+	area("SELF", 1, "PHYSICAL", { 85, 135, 215 }),
+})
+add("shade_pack", unit(2, "Cursed", { "Caster" }, 650, 50, 23, 30, 0.67, 3, 1.0, 30, 100), {
+	summon({ 2, 2, 3 }, { 8, 9, 10 }, { 30, 35, 40 }, { 45, 50, 55 }, 50, 90, 1, 1.1),
+})
+add("field_medic", unit(2, "Crew", { "Support" }, 640, 46, 24, 32, 0.68, 3, 1.0, 40, 110), {
+	heal("ALL_ALLIES", { 45, 70, 110 }),
+	shield("LOWEST_HP_ALLY", { 150, 240, 385 }, 5),
+})
+
+-- 3-cost --------------------------------------------------------------------------------------
+
+add("volt_spear", unit(3, "Shinobi", { "Blade", "Assassin" }, 790, 79, 28, 30, 0.88, 1, 1.1, 20, 90), {
+	dash("FARTHEST_ENEMY", 4, true),
+	damage("FARTHEST_ENEMY", "MAGIC", { 300, 480, 770 }),
+	stun("FARTHEST_ENEMY", { 0.75, 1.25, 1.75 }),
+})
+add("thunder_nest", unit(3, "Hunters", { "Assassin" }, 770, 78, 26, 27, 0.90, 1, 1.2, 20, 90), {
+	dash("HIGHEST_AD_ENEMY", 3, false),
+	area("SELF", 1, "MAGIC", { 250, 400, 640 }),
+	areaStun("SELF", 1, { 1, 1.5, 2 }),
+})
+add("threefold_crash", unit(3, "Crew", { "Blade" }, 900, 80, 38, 32, 0.78, 1, 1.0, 30, 100), {
+	dash("HIGHEST_AD_ENEMY", 3, false),
+	area("HIGHEST_AD_ENEMY", 1, "PHYSICAL", { 280, 450, 720 }),
+	stun("HIGHEST_AD_ENEMY", { 0.75, 1.25, 1.75 }),
+})
+add("titanheart", unit(3, "Titans", { "Guardian" }, 1050, 65, 50, 45, 0.62, 1, 0.9, 40, 110), {
+	shield("SELF", { 360, 575, 920 }, 6),
+	buffFlat("SELF", "Armor", { 30, 45, 70 }, 6),
+	buffPercent("SELF", "AD", { 15, 25, 40 }, 6),
+})
+add("snapfire", unit(3, "Arcane", { "Caster" }, 740, 57, 24, 32, 0.70, 4, 1.0, 20, 90), {
+	area("HIGHEST_AD_ENEMY", 1, "MAGIC", { 300, 480, 770 }),
+})
+add("mirror_script", unit(3, "Shinobi", { "Assassin", "Caster" }, 780, 72, 30, 34, 0.82, 2, 1.1, 30, 100), {
+	{ type = "COPY", target = "HIGHEST_AD_ENEMY" },
+})
+add("clockbreaker", unit(3, "Spirit", { "Brawler" }, 930, 79, 40, 36, 0.72, 1, 1.0, 30, 100), {
+	areaStun("SELF", 1, { 1, 1.5, 2 }),
+	damage("CURRENT_TARGET", "PHYSICAL", { 300, 480, 770 }),
+})
+add("skyboulder", unit(3, "Titans", { "Marksman" }, 900, 76, 38, 35, 0.72, 4, 0.9, 30, 100), {
+	area("FARTHEST_ENEMY", 1, "PHYSICAL", { 300, 480, 770 }),
+})
+add("horizon_cut", unit(3, "Hunters", { "Blade", "Marksman" }, 820, 80, 32, 30, 0.84, 3, 1.0, 20, 90), {
+	damage("FARTHEST_ENEMY", "MAGIC", { 330, 525, 840 }),
+})
+add("zero_field", unit(3, "Heroes", { "Support" }, 760, 52, 27, 35, 0.68, 3, 1.0, 40, 110), {
+	areaStun("SELF", 2, { 0.75, 1.25, 1.75 }),
+	buffPercent("ALL_ALLIES", "AttackSpeed", { 12, 20, 32 }, 5),
+})
+
+-- 4-cost --------------------------------------------------------------------------------------
+
+add("reelbreaker", unit(4, "Hunters", { "Brawler" }, 1050, 88, 45, 40, 0.72, 2, 1.0, 40, 130), {
+	{ type = "PULL", target = "FARTHEST_ENEMY" },
+	damage("FARTHEST_ENEMY", "PHYSICAL", { 390, 625, 1000 }),
+})
+add("elastic_wardrum", unit(4, "Crew", { "Brawler", "Guardian" }, 1200, 84, 55, 50, 0.80, 1, 1.0, 40, 110), {
+	shield("SELF", { 400, 640, 1025 }, 6),
+	buffPercent("SELF", "AD", { 20, 32, 50 }, 6),
+	buffPercent("SELF", "AttackSpeed", { 20, 32, 50 }, 6),
+})
+add("starless_burst", unit(4, "Arcane", { "Caster", "Marksman" }, 830, 67, 28, 48, 0.80, 4, 1.0, 20, 100), {
+	area("HIGHEST_AD_ENEMY", 1, "MAGIC", { 350, 560, 895 }),
+	shield("SELF", { 250, 400, 640 }, 5),
+})
+add("echo_legion", unit(4, "Shinobi", { "Brawler", "Caster" }, 1050, 82, 42, 42, 0.82, 2, 1.1, 30, 110), {
+	summon({ 2, 2, 3 }, { 8, 9, 10 }, { 25, 30, 35 }, { 35, 40, 45 }, 40, 100, 1, 1.1),
+	area("CURRENT_TARGET", 1, "MAGIC", { 270, 430, 690 }),
+})
+add("night_command", unit(4, "Hunters", { "Assassin" }, 900, 89, 32, 34, 0.94, 1, 1.1, 30, 100), {
+	summon({ 2, 3, 3 }, { 9, 10, 12 }, { 30, 35, 40 }, { 50, 55, 65 }, 55, 95, 1, 1.1),
+})
+add("frozen_moment", unit(4, "Spirit", { "Assassin" }, 950, 88, 38, 38, 0.86, 1, 1.0, 40, 110), {
+	areaStun("SELF", 1, { 1, 1.5, 2 }),
+	damage("CURRENT_TARGET", "PHYSICAL", { 320, 510, 815 }),
+	heal("SELF", { 180, 290, 465 }),
+})
+add("cyclone_edge", unit(4, "Corps", { "Blade", "Assassin" }, 860, 90, 30, 30, 0.95, 1, 1.2, 20, 90), {
+	dash("HIGHEST_AD_ENEMY", 4, true),
+	area("HIGHEST_AD_ENEMY", 1, "PHYSICAL", { 330, 525, 840 }),
+	buffPercent("SELF", "AttackSpeed", { 35, 55, 80 }, 4),
+})
+add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 110), {
+	area("CURRENT_TARGET", 1, "MAGIC", { 220, 350, 560 }),
+	summon({ 2, 2, 3 }, { 9, 10, 12 }, { 35, 40, 45 }, { 40, 50, 60 }, 45, 85, 1, 1.0),
+})
+add("restoration_strike", unit(4, "Spirit", { "Support", "Brawler" }, 1100, 78, 48, 45, 0.72, 1, 1.0, 40, 120), {
+	heal("LOWEST_HP_OTHER_ALLY", { 450, 720, 1150 }),
+	damage("CURRENT_TARGET", "PHYSICAL", { 200, 320, 510 }),
+})
+
+-- 5-cost --------------------------------------------------------------------------------------
+
+add("severing_temple", unit(5, "Cursed", { "Caster", "Blade" }, 1100, 98, 45, 48, 0.88, 2, 1.1, 30, 110), {
+	area("CURRENT_TARGET", 2, "PHYSICAL", { 450, 720, 1150 }),
+	-- "Enemies initially hit": the same center and radius, applied right after the hit.
+	dot("CURRENT_TARGET", 2, "MAGIC", { 35, 55, 90 }, 4),
+})
+add("ascending_core", unit(5, "Heroes", { "Brawler", "Caster" }, 1250, 94, 55, 50, 0.88, 2, 1.1, 30, 100), {
+	{
+		type = "BUFF",
+		target = "SELF",
+		stat = "AD",
+		percent = { 10, 15, 22 },
+		duration = 8,
+		stackPerCast = true,
+		maxStacks = 3,
+	},
+	{
+		type = "BUFF",
+		target = "SELF",
+		stat = "AP",
+		flat = { 12, 18, 27 },
+		duration = 8,
+		stackPerCast = true,
+		maxStacks = 3,
+	},
+	{
+		type = "BUFF",
+		target = "SELF",
+		stat = "AttackSpeed",
+		percent = { 10, 15, 22 },
+		duration = 8,
+		stackPerCast = true,
+		maxStacks = 3,
+	},
+	area("CURRENT_TARGET", 1, "MAGIC", { 400, 640, 1025 }),
+})
+add("final_argument", unit(5, "Heroes", { "Brawler" }, 1350, 100, 65, 60, 0.75, 1, 1.0, 0, 150), {
+	damage("CURRENT_TARGET", "TRUE", { 900, 1500, 3000 }),
+})
+add("infinite_collapse", unit(5, "Cursed", { "Caster" }, 1050, 78, 42, 65, 0.82, 4, 1.0, 40, 120), {
+	areaStun("HIGHEST_AD_ENEMY", 2, { 1.5, 2, 2 }),
+	shield("SELF", { 350, 560, 895 }, 5),
+	-- "Same center": Block 2 gives no radius for the damage, so it uses the stun's radius 2.
+	area("HIGHEST_AD_ENEMY", 2, "MAGIC", { 450, 720, 1150 }),
+})
+add("boiling_crown", unit(5, "Titans", { "Guardian", "Caster" }, 1400, 72, 70, 65, 0.65, 1, 0.8, 50, 130), {
+	area("SELF", 1, "MAGIC", { 170, 270, 430 }),
+	dot("SELF", 1, "MAGIC", { 30, 48, 76 }, 4),
+	buffFlat("SELF", "Armor", { 30, 45, 70 }, 6),
+	buffFlat("SELF", "MR", { 30, 45, 70 }, 6),
+})
+
+return freezeAll(roster)

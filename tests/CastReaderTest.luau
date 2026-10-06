@@ -43,13 +43,13 @@ local function recordedFight(seed: number)
 
 	local trueTypes = {}
 	local original = Battle.damage
-	Battle.damage = function(battle, source, target, raw, damageType, kind, crit)
+	Battle.damage = function(battle, source, target, raw, damageType, kind, crit, manaCap)
 		local before = #battle.events
-		local final = original(battle, source, target, raw, damageType, kind, crit)
+		local final, manaGained = original(battle, source, target, raw, damageType, kind, crit, manaCap)
 		if #battle.events > before then
 			trueTypes[before + 1] = damageType
 		end
-		return final
+		return final, manaGained
 	end
 	local ok, result = pcall(CombatSim.run, {
 		boards = boards,
@@ -126,19 +126,24 @@ table.insert(tests, {
 					if castAreas then
 						areaCount += #castAreas
 					end
-				elseif event.kind == "Damage" and castAreas then
+				elseif event.kind == "Damage" and castAreas and not event.dot then
+					-- (Damage-over-time ticks are not part of any cast.)
 					local cell = cells[event.target]
 					local inside = false
 					for _, area in castAreas do
 						inside = inside or HexGrid.distance(area.column, area.row, cell[1], cell[2]) <= area.radius
 					end
-					-- Single-target DAMAGE (Rook's punch) also hits the area's center, so this holds for all.
+					-- A single-target DAMAGE before an area (a punch) also hits the area's center, so this holds for all.
 					assert(inside, string.format("seed %d event %d: hit outside every area", seed, index))
 				elseif event.kind == "Attack" then
 					castAreas = nil
 				end
 				if event.kind == "Move" or event.kind == "Dash" then
 					cells[event.unit] = { event.column, event.row }
+				elseif event.kind == "Summon" then
+					cells[event.summon] = { event.column, event.row }
+				elseif event.kind == "Pull" then
+					cells[event.target] = { event.column, event.row }
 				end
 			end
 		end
@@ -154,23 +159,23 @@ table.insert(tests, {
 			{ index = 2, side = 2, column = 4, row = 6, starLevel = 1 },
 		}
 		local events = {
-			{ tick = 5, kind = "Cast", unit = 1, ability = "Heavenbreaker" },
+			{ tick = 5, kind = "Cast", unit = 1, ability = "thunder_nest" },
 			{ tick = 5, kind = "Dash", unit = 1, column = 4, row = 5 },
 			{ tick = 5, kind = "Damage", unit = 1, target = 2, damage = 500, health = 1, shield = 0 },
 			{ tick = 5, kind = "Shield", unit = 1, target = 1, shield = 500, duration = 5 },
 			{ tick = 5, kind = "Move", unit = 2, column = 3, row = 6 },
 		}
 		local reading = CastReader.read(units, events, function()
-			return UnitConfig.Kairo.ability
+			return UnitConfig.thunder_nest.ability
 		end)
 		local area = reading.areas[1][1]
 		assert(area.column == 4 and area.row == 5 and area.radius == 1, "wrong area center or radius")
-		assert(reading.damageTypes[3] == "MAGIC", "Heavenbreaker deals magic damage")
+		assert(reading.damageTypes[3] == "MAGIC", "the self-centered area deals magic damage")
 	end,
 })
 
 table.insert(tests, {
-	name = "Rook's punch is physical and its area is magic, centered on the punched unit",
+	name = "a punch is physical and its area is magic, centered on the punched unit",
 	run = function()
 		local units = {
 			{ index = 1, side = 1, column = 3, row = 4, starLevel = 1 },
@@ -178,13 +183,13 @@ table.insert(tests, {
 			{ index = 3, side = 2, column = 4, row = 5, starLevel = 1 },
 		}
 		local events = {
-			{ tick = 9, kind = "Cast", unit = 1, ability = "Meteor Knuckle" },
+			{ tick = 9, kind = "Cast", unit = 1, ability = "flare_kick" },
 			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 180, health = 0, shield = 0 },
 			{ tick = 9, kind = "Death", unit = 2 },
 			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 80, health = 500, shield = 0 },
 		}
 		local reading = CastReader.read(units, events, function()
-			return UnitConfig.Rook.ability
+			return UnitConfig.flare_kick.ability
 		end)
 		assert(reading.damageTypes[2] == "PHYSICAL", "the punch is physical")
 		assert(reading.damageTypes[4] == "MAGIC", "the area is magic")
@@ -204,7 +209,7 @@ table.insert(tests, {
 		}
 		local events = {
 			{ tick = 9, kind = "Cast", unit = 1, ability = "Mirror" },
-			{ tick = 9, kind = "Copy", unit = 1, target = 2, ability = "Meteor Knuckle" },
+			{ tick = 9, kind = "Copy", unit = 1, target = 2, ability = "flare_kick" },
 			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 144, health = 500, shield = 0 },
 			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 64, health = 500, shield = 0 },
 			{
@@ -220,7 +225,7 @@ table.insert(tests, {
 			},
 		}
 		local reading = CastReader.read(units, events, function(index)
-			return if index == 1 then copier else UnitConfig.Rook.ability
+			return if index == 1 then copier else UnitConfig.flare_kick.ability
 		end)
 		expectEqual(reading.damageTypes[3], "PHYSICAL", "copied punch")
 		expectEqual(reading.damageTypes[4], "MAGIC", "copied area")

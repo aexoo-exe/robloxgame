@@ -34,8 +34,9 @@
 --   COPY              target: immediately applies the target's ability as if the caster had cast it
 --                     (caster's stats and star level), with DAMAGE, AREA_DAMAGE, HEAL, SHIELD and
 --                     DAMAGE_OVER_TIME amounts multiplied by CombatConfig.copyPowerByCost for the
---                     copied unit's cost. A COPY inside a copied ability is ignored. Copying a unit
---                     without an ability (a summon) does nothing.
+--                     copied unit's cost. A COPY inside a copied ability is ignored. COPY never
+--                     selects a summon: if its selector would pick one, the same selector picks
+--                     again among non-summoned enemies.
 --
 -- Casting: when a unit's mana is full and it is free to act, it casts. Every selector the ability
 -- uses is resolved once, before any effect, so effects naming the same selector share one target.
@@ -113,21 +114,39 @@ local function deployedAllies(battle, caster)
 	return result
 end
 
+-- Living enemies of `caster`; with `noSummons`, only board units.
+local function enemiesFor(battle, caster, noSummons: boolean?)
+	local enemies = Battle.enemiesOf(battle, caster)
+	if not noSummons then
+		return enemies
+	end
+	local result = {}
+	for _, enemy in enemies do
+		if not enemy.summoned then
+			table.insert(result, enemy)
+		end
+	end
+	return result
+end
+
 -- Target selectors. Each returns a living unit or nil, except ALL_ALLIES, which returns
 -- { many = { units } }. Ties are broken by the battle's seeded random generator. Ally selectors
--- never pick summons.
+-- never pick summons; enemy selectors skip them when `noSummons` is set (COPY uses that).
 local SELECTORS = {
 	[Selector.Self] = function(_battle, caster)
 		return caster
 	end,
-	[Selector.CurrentTarget] = function(battle, caster)
-		if caster.target and not caster.target.dead then
+	[Selector.CurrentTarget] = function(battle, caster, noSummons)
+		if caster.target and not caster.target.dead and not (noSummons and caster.target.summoned) then
 			return caster.target
 		end
-		caster.target = Battle.pickBest(battle, Battle.enemiesOf(battle, caster), function(enemy)
+		local best = Battle.pickBest(battle, enemiesFor(battle, caster, noSummons), function(enemy)
 			return -Battle.distance(caster, enemy)
 		end)
-		return caster.target
+		if not noSummons then
+			caster.target = best
+		end
+		return best
 	end,
 	[Selector.LowestHpAlly] = function(battle, caster)
 		-- Lowest current health percentage; any living deployed ally, the caster included.
@@ -135,19 +154,19 @@ local SELECTORS = {
 			return -ally.health / ally.maxHealth
 		end)
 	end,
-	[Selector.NearestEnemy] = function(battle, caster)
-		return Battle.pickBest(battle, Battle.enemiesOf(battle, caster), function(enemy)
+	[Selector.NearestEnemy] = function(battle, caster, noSummons)
+		return Battle.pickBest(battle, enemiesFor(battle, caster, noSummons), function(enemy)
 			return -Battle.distance(caster, enemy)
 		end)
 	end,
-	[Selector.FarthestEnemy] = function(battle, caster)
-		return Battle.pickBest(battle, Battle.enemiesOf(battle, caster), function(enemy)
+	[Selector.FarthestEnemy] = function(battle, caster, noSummons)
+		return Battle.pickBest(battle, enemiesFor(battle, caster, noSummons), function(enemy)
 			return Battle.distance(caster, enemy)
 		end)
 	end,
-	[Selector.HighestAdEnemy] = function(battle, caster)
+	[Selector.HighestAdEnemy] = function(battle, caster, noSummons)
 		-- Highest current attack damage; ties go to the nearer enemy.
-		return Battle.pickBest(battle, Battle.enemiesOf(battle, caster), function(enemy)
+		return Battle.pickBest(battle, enemiesFor(battle, caster, noSummons), function(enemy)
 			return Battle.stat(battle, enemy, "AD") * 1000 - Battle.distance(caster, enemy)
 		end)
 	end,
@@ -431,10 +450,25 @@ function applyAbility(battle, caster, ability, starLevel: number, context: Conte
 			chosen[selector] = SELECTORS[selector](battle, caster) or false
 		end
 	end
+	-- COPY never selects a summon: if its selector picked one, it picks again among board units.
+	local copyTargets = {}
+	for _, effect in ability.effects do
+		local selector = selectorOf(effect)
+		if effect.type == Effect.Copy and selector and copyTargets[selector] == nil then
+			local picked = chosen[selector]
+			if picked and picked.summoned then
+				picked = SELECTORS[selector](battle, caster, true)
+			end
+			copyTargets[selector] = picked or false
+		end
+	end
 	for _, effect in ability.effects do
 		if not (context.nested and effect.type == Effect.Copy) then
 			local selector = selectorOf(effect)
 			local target = if selector then chosen[selector] or nil else nil
+			if effect.type == Effect.Copy and selector then
+				target = copyTargets[selector] or nil
+			end
 			if target and target.many then
 				for _, each in target.many do
 					APPLY[effect.type](battle, caster, effect, each, starLevel, context)

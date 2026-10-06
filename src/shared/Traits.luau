@@ -1,5 +1,7 @@
--- Trait counting and bonuses (docs/design/world-and-traits.md). Membership is derived from each
--- character's `origin` and `classes` in UnitConfig; breakpoints and effects are in TraitConfig.
+-- Trait counting and bonuses. Membership is derived from each character's `origin` and `classes`
+-- in UnitConfig; breakpoints and effects are in TraitConfig. Every function takes an optional
+-- trait config (TraitConfig if omitted), so tests can use their own; only traits the config
+-- defines are counted.
 --   * A trait's count is the number of different characters with it among the units passed in
 --     (callers pass only units placed on the board, never the bench). Copies count once.
 --   * The highest breakpoint reached applies; lower ones are replaced, not added.
@@ -54,15 +56,18 @@ for _, list in members do
 end
 Traits.members = members
 
--- Different characters per trait among `units` (each with a unitType).
-function Traits.count(units: { any }): { [string]: number }
+-- Different characters per configured trait among `units` (each with a unitType).
+function Traits.count(units: { any }, config: { [string]: any }?): { [string]: number }
+	config = config or TraitConfig
 	local seen = {}
 	local counts = {}
 	for _, unit in units do
 		if not seen[unit.unitType] then
 			seen[unit.unitType] = true
 			for _, trait in Traits.traitsOf(unit.unitType) do
-				counts[trait] = (counts[trait] or 0) + 1
+				if (config :: any)[trait] then
+					counts[trait] = (counts[trait] or 0) + 1
+				end
 			end
 		end
 	end
@@ -70,9 +75,10 @@ function Traits.count(units: { any }): { [string]: number }
 end
 
 -- Index of the highest breakpoint of `trait` reached with `count` members (0 if none).
-function Traits.levelFor(trait: string, count: number): number
+function Traits.levelFor(trait: string, count: number, config: { [string]: any }?): number
+	config = config or TraitConfig
 	local level = 0
-	for index, breakpoint in TraitConfig[trait].breakpoints do
+	for index, breakpoint in (config :: any)[trait].breakpoints do
 		if count >= breakpoint.count then
 			level = index
 		end
@@ -81,14 +87,15 @@ function Traits.levelFor(trait: string, count: number): number
 end
 
 -- Every trait present among `units`: active ones first (most members first), then partial ones.
-function Traits.summary(units: { any }): { TraitState }
+function Traits.summary(units: { any }, config: { [string]: any }?): { TraitState }
+	config = config or TraitConfig
 	local states = {}
-	for trait, count in Traits.count(units) do
-		local breakpoints = TraitConfig[trait].breakpoints
-		local level = Traits.levelFor(trait, count)
+	for trait, count in Traits.count(units, config) do
+		local breakpoints = (config :: any)[trait].breakpoints
+		local level = Traits.levelFor(trait, count, config)
 		table.insert(states, {
 			name = trait,
-			kind = TraitConfig[trait].kind,
+			kind = (config :: any)[trait].kind,
 			count = count,
 			level = level,
 			reached = if level > 0 then breakpoints[level].count else nil,
@@ -114,8 +121,9 @@ end
 
 -- Combat-start bonuses for `units` (each with an id and a unitType): unit id -> Bonus. Units with
 -- no bonus are left out.
-function Traits.bonuses(units: { any }): { [string]: Bonus }
-	local counts = Traits.count(units)
+function Traits.bonuses(units: { any }, config: { [string]: any }?): { [string]: Bonus }
+	config = config or TraitConfig
+	local counts = Traits.count(units, config)
 	local result = {}
 	local traitNames = {}
 	for trait in counts do
@@ -124,9 +132,9 @@ function Traits.bonuses(units: { any }): { [string]: Bonus }
 	table.sort(traitNames) -- a fixed order, so shields are applied the same way every time
 
 	for _, trait in traitNames do
-		local level = Traits.levelFor(trait, counts[trait])
+		local level = Traits.levelFor(trait, counts[trait], config)
 		if level > 0 then
-			for _, effect in TraitConfig[trait].breakpoints[level].effects do
+			for _, effect in (config :: any)[trait].breakpoints[level].effects do
 				for _, unit in units do
 					local receives = effect.target == "ALL_ALLIES"
 						or table.find(Traits.traitsOf(unit.unitType), trait) ~= nil

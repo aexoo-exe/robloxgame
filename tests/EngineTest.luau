@@ -544,35 +544,47 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "COPY of a summon does nothing; a copied SUMMON uses the copier's stats, unscaled count",
+	name = "COPY never selects a summon; a copied SUMMON uses the copier's stats, unscaled count",
 	run = function()
 		local types = {
 			Copier = unitType({ cost = 3, attackDamage = 100 }),
 			Summoner = unitType({ cost = 5, attackDamage = 10 }),
+			Plain = unitType({ cost = 1, attackDamage = 5 }),
 		}
 		types.Summoner.ability = { name = "Pack", effects = { SUMMON } }
-		local battle, units = newBattle({ { "Copier", 1, 4, 4 }, { "Summoner", 2, 4, 8 } }, types)
-		-- The summoner summons; then the copier copies one of its summons (nothing to copy).
+		types.Plain.ability = {
+			name = "Poke",
+			effects = { { type = "DAMAGE", target = "NEAREST_ENEMY", damageType = "TRUE", amount = 1 } },
+		}
+		local battle, units = newBattle({ { "Copier", 1, 4, 4 }, { "Summoner", 2, 4, 8 }, { "Plain", 2, 1, 8 } }, types)
 		battle.units[2].ability = types.Summoner.ability
+		battle.units[3].ability = types.Plain.ability
 		Abilities.cast(battle, units[2])
 		local enemySummon = battle.units[eventsOf(battle, "Summon")[1].summon]
+
+		-- CURRENT_TARGET is a summon: COPY picks again among board units (the nearest, Summoner).
 		units[1].target = enemySummon
-		local before = #battle.events
 		castWith(battle, units[1], { { type = "COPY", target = "CURRENT_TARGET" } })
-		for i = before + 1, #battle.events do
-			assert(battle.events[i].kind == "Cast", "copying a summon produced " .. battle.events[i].kind)
-		end
+		local copy = eventsOf(battle, "Copy")[1]
+		assert(copy and copy.target ~= enemySummon.index, "COPY selected a summon")
+		expectEqual(copy.target, units[2].index, "COPY re-selected the nearest board unit")
+		assert(units[1].target == enemySummon, "re-selecting for COPY does not change the current target")
+
+		-- HIGHEST_AD_ENEMY would be the summon: COPY takes the highest-AD board unit instead.
+		enemySummon.stats.attackDamage = 999
+		castWith(battle, units[1], { { type = "COPY", target = "HIGHEST_AD_ENEMY" } })
+		local copies = eventsOf(battle, "Copy")
+		expectEqual(copies[#copies].target, units[2].index, "highest-AD board unit (10 AD beats 5)")
 
 		-- Copying the summoner: 2 summons (count unscaled), stats from the copier.
-		units[1].target = units[2]
-		castWith(battle, units[1], { { type = "COPY", target = "CURRENT_TARGET" } })
 		local mine = {}
 		for _, event in eventsOf(battle, "Summon") do
 			if event.unit == units[1].index then
 				table.insert(mine, battle.units[event.summon])
 			end
 		end
-		expectEqual(#mine, 2, "copied summon count is not scaled")
+		-- Both copies above copied the summoner: two summons each, the count unscaled by COPY power.
+		expectEqual(#mine, 4, "copied summon count is not scaled")
 		near(mine[1].stats.attackDamage, 50, "50% of the copier's 100 AD")
 		expectEqual(mine[1].summoner, units[1], "summons belong to the copier")
 	end,

@@ -6,8 +6,8 @@ local UnitConfig = require("../src/shared/UnitConfig")
 -- A 7x4 board with a 9-slot bench holding units "a" (slot 1) and "b" (slot 2).
 local function newBoard()
 	local board = Board.new(7, 4, 9)
-	assert(Board.addUnit(board, "a", "Kaien"))
-	assert(Board.addUnit(board, "b", "Mira"))
+	assert(Board.addUnit(board, "a", "cinder_arc"))
+	assert(Board.addUnit(board, "b", "spurshot"))
 	return board
 end
 
@@ -28,7 +28,7 @@ table.insert(tests, {
 		local board = newBoard()
 		assert(findUnit(board, "a").slot == 1, "unit a is not in slot 1")
 		assert(findUnit(board, "b").slot == 2, "unit b is not in slot 2")
-		assert(not Board.addUnit(board, "a", "Kaien"), "duplicate id accepted")
+		assert(not Board.addUnit(board, "a", "cinder_arc"), "duplicate id accepted")
 	end,
 })
 
@@ -36,9 +36,9 @@ table.insert(tests, {
 	name = "bench rejects units when full",
 	run = function()
 		local board = Board.new(7, 4, 2)
-		assert(Board.addUnit(board, "a", "Kaien"))
-		assert(Board.addUnit(board, "b", "Kaien"))
-		assert(not Board.addUnit(board, "c", "Kaien"), "added a unit to a full bench")
+		assert(Board.addUnit(board, "a", "cinder_arc"))
+		assert(Board.addUnit(board, "b", "cinder_arc"))
+		assert(not Board.addUnit(board, "c", "cinder_arc"), "added a unit to a full bench")
 	end,
 })
 
@@ -85,7 +85,7 @@ table.insert(tests, {
 		assert(a.column == 2 and a.row == 2 and b.column == 5 and b.row == 3, "cell swap")
 
 		-- Board -> occupied bench slot
-		assert(Board.addUnit(board, "c", "Kaien"))
+		assert(Board.addUnit(board, "c", "cinder_arc"))
 		local cSlot = findUnit(board, "c").slot
 		assert(Board.moveUnit(board, "a", { slot = cSlot }), "board -> occupied slot refused")
 		local c = findUnit(board, "c")
@@ -100,7 +100,7 @@ table.insert(tests, {
 	name = "unit cap refuses extra units on the board but allows swaps",
 	run = function()
 		local board = newBoard()
-		assert(Board.addUnit(board, "c", "Kaien"))
+		assert(Board.addUnit(board, "c", "cinder_arc"))
 		assert(Board.moveUnit(board, "a", { column = 1, row = 1 }, 2))
 		assert(Board.moveUnit(board, "b", { column = 2, row = 1 }, 2))
 		assert(not Board.moveUnit(board, "c", { column = 3, row = 1 }, 2), "placed a third unit at cap 2")
@@ -119,7 +119,7 @@ table.insert(tests, {
 		assert(findUnit(board, "a").starLevel == 1, "new unit is not 1-star")
 		assert(Board.moveUnit(board, "a", { column = 3, row = 3 }))
 		local removed = Board.removeUnit(board, "a")
-		assert(removed and removed.unitType == "Kaien", "removeUnit did not return the unit")
+		assert(removed and removed.unitType == "cinder_arc", "removeUnit did not return the unit")
 		assert(findUnit(board, "a") == nil and Board.countPlaced(board) == 0, "unit still on the board")
 		assert(Board.moveUnit(board, "b", { column = 3, row = 3 }), "cell was not freed")
 		assert(Board.removeUnit(board, "a") == nil, "removed a unit twice")
@@ -127,7 +127,7 @@ table.insert(tests, {
 
 		local full = Board.new(7, 4, 1)
 		assert(Board.hasBenchSpace(full), "empty bench has no space")
-		assert(Board.addUnit(full, "x", "Kaien"))
+		assert(Board.addUnit(full, "x", "cinder_arc"))
 		assert(not Board.hasBenchSpace(full), "full bench has space")
 	end,
 })
