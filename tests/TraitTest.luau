@@ -1,5 +1,7 @@
--- Traits: config against docs/design/world-and-traits.md, counting, breakpoints, stacking,
--- all-allies bonuses, Warden shields, and that boards without active traits fight as before.
+-- The trait system. The real TraitConfig is empty until the new traits are built, so the rules
+-- are tested with a test-only trait config over the new origins and classes: counting, every
+-- breakpoint, replacement, stacking, all-allies bonuses, combat-start shields, max health bonuses,
+-- and that boards without active traits fight exactly as before.
 
 local Battle = require("../src/shared/Battle")
 local Board = require("../src/shared/Board")
@@ -12,65 +14,74 @@ local function expectEqual(actual, expected, label)
 	assert(actual == expected, string.format("%s: expected %s, got %s", label, tostring(expected), tostring(actual)))
 end
 
--- docs/design/balance-pass-v0.4.md section 1, written the way traitText (below) describes the config.
-local SPEC = {
-	Ironveil = "origin | 2: MEMBERS Armor +14, MEMBERS MR +14 | 3: MEMBERS Armor +32, MEMBERS MR +32",
-	Emberwake = "origin | 2: MEMBERS AD +14% | 3: MEMBERS AD +28%, MEMBERS AttackSpeed +18%",
-	Tideglass = "origin | 2: MEMBERS AP +18, ALL_ALLIES MR +9 | 3: MEMBERS AP +40, ALL_ALLIES MR +20",
-	Stormcrest = "origin | 2: MEMBERS AttackSpeed +18% | 3: MEMBERS AttackSpeed +40%, MEMBERS MoveSpeed +18%",
-	Starfall = "origin | 2: MEMBERS AP +24 | 3: MEMBERS AP +52",
-	Eclipse = "origin | 2: MEMBERS AD +12%, MEMBERS AP +12 | 3: MEMBERS AD +23%, MEMBERS AP +23 | 4: MEMBERS AD +38%, MEMBERS AP +45",
-	Vanguard = "class | 2: MEMBERS Armor +12, MEMBERS MR +12 | 4: MEMBERS Armor +25, MEMBERS MR +25 | 5: MEMBERS Armor +42, MEMBERS MR +42",
-	Warden = "class | 2: MEMBERS SHIELD 140 6s | 3: MEMBERS SHIELD 310 6s",
-	Duelist = "class | 2: MEMBERS AttackSpeed +14% | 4: MEMBERS AttackSpeed +32% | 5: MEMBERS AttackSpeed +55%",
-	Marksman = "class | 2: MEMBERS AD +14% | 3: MEMBERS AD +33%",
-	Arcanist = "class | 2: MEMBERS AP +18 | 4: MEMBERS AP +40 | 5: MEMBERS AP +68",
-	Mystic = "class | 2: ALL_ALLIES MR +12, MEMBERS AP +12 | 3: ALL_ALLIES MR +28, MEMBERS AP +30",
-	Reaver = "class | 2: MEMBERS AD +12%, MEMBERS AttackSpeed +12% | 4: MEMBERS AD +23%, MEMBERS AttackSpeed +28% | 5: MEMBERS AD +38%, MEMBERS AttackSpeed +50%",
-}
-
--- docs/design/world-and-traits.md membership lists.
-local MEMBERS = {
-	Ironveil = { "Kaien", "Tarek", "Dax", "Orin" },
-	Emberwake = { "Bren", "Rook", "Marek", "Kairo" },
-	Tideglass = { "Cera", "Sena", "Calyx", "Maelin" },
-	Stormcrest = { "Lio", "Ione", "Veyra", "Torra" },
-	Starfall = { "Sola", "Mira", "Solenne", "Astra" },
-	Eclipse = { "Kes", "Vela", "Vael", "Nyra", "Sevrin" },
-	Vanguard = { "Kaien", "Bren", "Rook", "Tarek", "Orin", "Kairo", "Torra" },
-	Warden = { "Kaien", "Sena", "Tarek", "Calyx", "Orin" },
-	Duelist = { "Lio", "Rook", "Marek", "Dax", "Vael", "Torra", "Kairo" },
-	Marksman = { "Mira", "Ione", "Solenne", "Nyra" },
-	Arcanist = { "Sola", "Vela", "Veyra", "Solenne", "Maelin", "Astra", "Sevrin" },
-	Mystic = { "Cera", "Sena", "Calyx", "Maelin", "Astra" },
-	Reaver = { "Kes", "Dax", "Vela", "Vael", "Nyra", "Sevrin" },
-}
-
-local function traitText(trait): string
-	local parts = { trait.kind }
-	for _, breakpoint in trait.breakpoints do
-		local effects = {}
-		for _, effect in breakpoint.effects do
-			if effect.type == "BUFF" then
-				local amount = if effect.percent then "+" .. effect.percent .. "%" else "+" .. effect.flat
-				table.insert(effects, string.format("%s %s %s", effect.target, effect.stat, amount))
-			else
-				table.insert(
-					effects,
-					string.format("%s %s %d %ds", effect.target, effect.type, effect.amount, effect.duration)
-				)
-			end
-		end
-		table.insert(parts, breakpoint.count .. ": " .. table.concat(effects, ", "))
-	end
-	return table.concat(parts, " | ")
+local function buff(stat: string, amount: number, percent: boolean?, target: string?)
+	return {
+		type = "BUFF",
+		target = target or "MEMBERS",
+		stat = stat,
+		flat = if percent then nil else amount,
+		percent = if percent then amount else nil,
+	}
 end
 
--- Placed units from a list of character names (ids are "1", "2", ...).
-local function placed(names: { string }): { any }
+-- Test-only traits (numbers are arbitrary but distinct).
+local TEST_TRAITS = {
+	Hunters = {
+		kind = "origin",
+		breakpoints = {
+			{ count = 2, effects = { buff("AD", 10, true) } },
+			{ count = 4, effects = { buff("AD", 20, true), buff("AttackSpeed", 22, true) } },
+			{ count = 5, effects = { buff("AD", 30, true), buff("AttackSpeed", 36, true) } },
+		},
+	},
+	Titans = {
+		kind = "origin",
+		breakpoints = {
+			{ count = 2, effects = { { type = "SHIELD", target = "MEMBERS", amount = 140, duration = 6 } } },
+			{ count = 3, effects = { buff("MaxHealth", 28, true), buff("Armor", 25) } },
+		},
+	},
+	Guardian = {
+		kind = "class",
+		breakpoints = {
+			{ count = 2, effects = { buff("Armor", 18), buff("MR", 18) } },
+			{ count = 4, effects = { buff("Armor", 38), buff("MR", 38), buff("MaxHealth", 12, true) } },
+		},
+	},
+	Support = {
+		kind = "class",
+		breakpoints = {
+			{ count = 2, effects = { buff("AP", 20), buff("MR", 8, false, "ALL_ALLIES") } },
+			{ count = 4, effects = { buff("AP", 42), buff("Armor", 18, false, "ALL_ALLIES") } },
+		},
+	},
+}
+
+-- Membership sizes from docs/design/revamp-structure.md (origins and classes).
+local MEMBER_COUNTS = {
+	Shinobi = 5,
+	Cursed = 6,
+	Crew = 4,
+	Titans = 4,
+	Corps = 3,
+	Spirit = 5,
+	Heroes = 5,
+	Hunters = 6,
+	Arcane = 4,
+	Blade = 10,
+	Brawler = 10,
+	Caster = 11,
+	Marksman = 6,
+	Assassin = 8,
+	Guardian = 5,
+	Support = 5,
+}
+
+-- Placed units from a list of character ids (unit ids are "1", "2", ...).
+local function placed(ids: { string }): { any }
 	local units = {}
-	for i, name in names do
-		table.insert(units, { id = tostring(i), unitType = name })
+	for i, unitType in ids do
+		table.insert(units, { id = tostring(i), unitType = unitType })
 	end
 	return units
 end
@@ -85,11 +96,14 @@ local function expectedBonus(units, unitId: string)
 			unitType = unit.unitType
 		end
 	end
+	local function hasTrait(id, traitName)
+		return UnitConfig[id].origin == traitName or table.find(UnitConfig[id].classes, traitName) ~= nil
+	end
 	local stats, shields = {}, {}
-	for traitName, trait in TraitConfig do
+	for traitName, trait in TEST_TRAITS do
 		local count = 0
-		for name in distinct do
-			if UnitConfig[name].origin == traitName or table.find(UnitConfig[name].classes, traitName) then
+		for id in distinct do
+			if hasTrait(id, traitName) then
 				count += 1
 			end
 		end
@@ -99,9 +113,8 @@ local function expectedBonus(units, unitId: string)
 				reached = breakpoint
 			end
 		end
-		local isMember = UnitConfig[unitType].origin == traitName or table.find(UnitConfig[unitType].classes, traitName)
 		for _, effect in if reached then reached.effects else {} do
-			if effect.target == "ALL_ALLIES" or isMember then
+			if effect.target == "ALL_ALLIES" or hasTrait(unitType, traitName) then
 				if effect.type == "BUFF" then
 					local stat = stats[effect.stat] or { flat = 0, percent = 0 }
 					stat.flat += effect.flat or 0
@@ -117,7 +130,7 @@ local function expectedBonus(units, unitId: string)
 end
 
 local function expectBonusMatches(units, unitId: string, label: string)
-	local bonus = Traits.bonuses(units)[unitId] or { stats = {}, shields = {} }
+	local bonus = Traits.bonuses(units, TEST_TRAITS)[unitId] or { stats = {}, shields = {} }
 	local stats, shields = expectedBonus(units, unitId)
 	for stat, expected in stats do
 		local actual = bonus.stats[stat] or { flat = 0, percent = 0 }
@@ -143,10 +156,10 @@ local function fight(boards, startBonuses, seed: number?)
 	})
 end
 
-local function onBoard(names: { string }): { any }
+local function onBoard(ids: { string }): { any }
 	local units = {}
-	for i, name in names do
-		table.insert(units, { id = tostring(i), unitType = name, column = i, row = 4 })
+	for i, unitType in ids do
+		table.insert(units, { id = tostring(i), unitType = unitType, column = i, row = 4 })
 	end
 	return units
 end
@@ -154,73 +167,55 @@ end
 local tests = {}
 
 table.insert(tests, {
-	name = "trait config matches the world doc",
+	name = "the real trait config is empty, so no trait counts and no bonus applies",
 	run = function()
-		local count = 0
-		for name, trait in TraitConfig do
-			count += 1
-			assert(SPEC[name], "unexpected trait " .. name)
-			expectEqual(traitText(trait), SPEC[name], name)
-			for _, breakpoint in trait.breakpoints do
-				for _, effect in breakpoint.effects do
-					if effect.type == "BUFF" then
-						assert(Battle.StatFields[effect.stat], name .. ": unknown stat " .. tostring(effect.stat))
-					end
-				end
-			end
-		end
-		expectEqual(count, 13, "traits")
+		expectEqual(next(TraitConfig), nil, "TraitConfig entries")
+		local board = placed({ "flashline", "cinder_arc", "thunder_nest", "iron_rush", "titanheart" })
+		expectEqual(#Traits.summary(board), 0, "traits listed")
+		expectEqual(next(Traits.bonuses(board)), nil, "bonuses")
 	end,
 })
 
 table.insert(tests, {
-	name = "membership derived from UnitConfig matches the world doc",
+	name = "membership derived from UnitConfig has the sizes listed in Block 1",
 	run = function()
-		for trait, expected in MEMBERS do
-			local sorted = table.clone(expected)
-			table.sort(sorted)
-			expectEqual(table.concat(Traits.members[trait], ","), table.concat(sorted, ","), trait)
-			assert(TraitConfig[trait], "no config for " .. trait)
+		for trait, size in MEMBER_COUNTS do
+			expectEqual(#(Traits.members[trait] or {}), size, trait .. " members")
 		end
 		for trait in Traits.members do
-			assert(MEMBERS[trait], "a character has an unknown trait: " .. trait)
+			assert(MEMBER_COUNTS[trait], "unexpected trait " .. trait)
 		end
 	end,
 })
 
 table.insert(tests, {
-	name = "counting: different characters only, and bench units never count",
+	name = "counting: different characters only, only configured traits, and bench units never count",
 	run = function()
-		local counts = Traits.count(placed({ "Kaien", "Kaien", "Kaien", "Tarek" }))
-		expectEqual(counts.Ironveil, 2, "two Kaien copies count once")
-		expectEqual(counts.Vanguard, 2, "Vanguard")
-		expectEqual(counts.Warden, 2, "Warden")
+		local counts = Traits.count(placed({ "iron_rush", "iron_rush", "iron_rush", "titanheart" }), TEST_TRAITS)
+		expectEqual(counts.Titans, 2, "copies count once")
+		expectEqual(counts.Guardian, 2, "Guardian")
+		expectEqual(counts.Blade, nil, "traits outside the config are not counted")
 
 		local board = Board.new(7, 4, 9)
-		Board.addUnit(board, "a", "Kaien")
-		Board.addUnit(board, "b", "Tarek")
-		Board.addUnit(board, "c", "Orin")
+		Board.addUnit(board, "a", "iron_rush")
+		Board.addUnit(board, "b", "titanheart")
+		Board.addUnit(board, "c", "skyboulder")
 		Board.moveUnit(board, "a", { column = 1, row = 1 })
 		Board.moveUnit(board, "b", { column = 2, row = 1 })
-		-- Orin stays on the bench.
-		counts = Traits.count(Board.getPlacedUnits(board))
-		expectEqual(counts.Ironveil, 2, "Ironveil without the benched Orin")
-		local summary = Traits.summary(Board.getPlacedUnits(board))
-		for _, state in summary do
-			assert(state.count <= 2, state.name .. " counted the bench")
-		end
+		-- skyboulder stays on the bench.
+		expectEqual(Traits.count(Board.getPlacedUnits(board), TEST_TRAITS).Titans, 2, "Titans without the bench")
 	end,
 })
 
 table.insert(tests, {
-	name = "every breakpoint of every trait activates at its count and gives its exact bonus",
+	name = "every breakpoint of every test trait activates at its count and gives its exact bonus",
 	run = function()
-		for traitName, trait in TraitConfig do
+		for traitName, trait in TEST_TRAITS do
 			for level, breakpoint in trait.breakpoints do
-				local names = table.move(Traits.members[traitName], 1, breakpoint.count, 1, {})
-				local units = placed(names)
+				local ids = table.move(Traits.members[traitName], 1, breakpoint.count, 1, {})
+				local units = placed(ids)
 				local state
-				for _, each in Traits.summary(units) do
+				for _, each in Traits.summary(units, TEST_TRAITS) do
 					if each.name == traitName then
 						state = each
 					end
@@ -228,10 +223,9 @@ table.insert(tests, {
 				local label = string.format("%s at %d", traitName, breakpoint.count)
 				expectEqual(state.level, level, label .. " level")
 				expectEqual(state.active, true, label .. " active")
-				-- One short of the breakpoint stays on the level below.
-				local fewer = placed(table.move(names, 1, breakpoint.count - 1, 1, {}))
+				local fewer = placed(table.move(ids, 1, breakpoint.count - 1, 1, {}))
 				expectEqual(
-					Traits.levelFor(traitName, Traits.count(fewer)[traitName] or 0),
+					Traits.levelFor(traitName, Traits.count(fewer, TEST_TRAITS)[traitName] or 0, TEST_TRAITS),
 					level - 1,
 					label .. " minus one"
 				)
@@ -246,47 +240,51 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a higher breakpoint replaces the lower one; different traits stack",
 	run = function()
-		-- Vanguard 4 (Kaien, Bren, Rook, Tarek): +25 armor, not +12 + +25.
-		local units = placed({ "Kaien", "Bren", "Rook", "Tarek" })
-		local bren = Traits.bonuses(units)["2"]
-		expectEqual(bren.stats.Armor.flat, 25, "Bren armor at Vanguard 4")
-		-- Kaien also has Ironveil 2 (Kaien, Tarek): +25 Vanguard + 14 Ironveil.
-		local kaien = Traits.bonuses(units)["1"]
-		expectEqual(kaien.stats.Armor.flat, 39, "Kaien armor from Vanguard 4 and Ironveil 2")
-		expectEqual(kaien.stats.MR.flat, 39, "Kaien MR from Vanguard 4 and Ironveil 2")
-		-- Percent bonuses add: Dax with Duelist 2 (Dax, Lio) and Reaver 2 (Dax, Kes).
-		local dax = Traits.bonuses(placed({ "Dax", "Lio", "Kes" }))["1"]
-		expectEqual(dax.stats.AttackSpeed.percent, 26, "Dax attack speed 14% + 12%")
-		expectEqual(dax.stats.AD.percent, 12, "Dax AD from Reaver")
+		-- Guardian 4: +38 armor, not +18 + +38. iron_rush is also Titans 2 (with titanheart).
+		local units = placed({ "iron_rush", "marsh_fortress", "titanheart", "elastic_wardrum" })
+		local bonuses = Traits.bonuses(units, TEST_TRAITS)
+		expectEqual(bonuses["2"].stats.Armor.flat, 38, "marsh_fortress armor at Guardian 4")
+		expectEqual(bonuses["2"].stats.MaxHealth.percent, 12, "marsh_fortress max health at Guardian 4")
+		expectEqual(#bonuses["1"].shields, 1, "iron_rush also gets the Titans 2 shield")
+		-- Percent bonuses add: a Hunters 4 board where one member is also Support... use Titans 3 + Guardian 4.
+		local stacked =
+			Traits.bonuses(placed({ "iron_rush", "titanheart", "boiling_crown", "marsh_fortress" }), TEST_TRAITS)
+		expectEqual(stacked["1"].stats.Armor.flat, 25 + 38, "Titans 3 armor + Guardian 4 armor")
+		expectEqual(stacked["1"].stats.MaxHealth.percent, 28 + 12, "Titans 3 + Guardian 4 max health")
 	end,
 })
 
 table.insert(tests, {
-	name = "all-allies bonuses reach every unit on the board, members or not",
+	name = "all-allies bonuses reach every placed unit, members or not",
 	run = function()
-		-- Tideglass 2 (Cera, Sena): all allies +9 MR; Mystic 2 (Cera, Sena): all allies +12 MR.
-		local bonuses = Traits.bonuses(placed({ "Cera", "Sena", "Kes", "Mira" }))
+		local bonuses = Traits.bonuses(placed({ "bitter_vapor", "blooming_aid", "flashline", "spurshot" }), TEST_TRAITS)
 		for _, id in { "3", "4" } do
-			expectEqual(bonuses[id].stats.MR.flat, 21, "non-member " .. id .. " MR")
+			expectEqual(bonuses[id].stats.MR.flat, 8, "non-member " .. id .. " MR")
 			assert(bonuses[id].stats.AP == nil, "non-members get no member AP")
 		end
-		expectEqual(bonuses["1"].stats.AP.flat, 30, "Cera AP: Tideglass 18 + Mystic 12")
+		expectEqual(bonuses["1"].stats.AP.flat, 20, "member AP")
 	end,
 })
 
 table.insert(tests, {
-	name = "trait stat bonuses apply in combat; percent AD applies after star scaling",
+	name = "trait shields apply at combat start and scale with ability power",
 	run = function()
-		-- Rook (2-star) and Bren: Emberwake 2 gives +14% AD.
-		local boards = {
-			{
-				{ id = "rook", unitType = "Rook", starLevel = 2, column = 4, row = 4 },
-				{ id = "bren", unitType = "Bren", column = 3, row = 4 },
-			},
-			{},
-		}
+		local board = onBoard({ "iron_rush", "titanheart" })
+		local result = fight({ board, {} }, { Traits.bonuses(board, TEST_TRAITS), {} })
+		local shields = 0
+		for _, event in result.events do
+			if event.kind == "Shield" and event.tick == 0 then
+				shields += 1
+				expectEqual(event.source, "Titans", "shield source")
+				expectEqual(event.shield, 140, "shield at 100 AP")
+				expectEqual(event.duration, 6, "shield duration")
+			end
+		end
+		expectEqual(shields, 2, "shields at tick 0")
+
+		-- With +20 AP (Support 2 on a member), a shield of 140 would be 168: check the scaling path.
 		local battle = Battle.new({
-			boards = boards,
+			boards = { onBoard({ "iron_rush" }), {} },
 			columns = 7,
 			rows = 4,
 			unitTypes = UnitConfig,
@@ -294,56 +292,23 @@ table.insert(tests, {
 			maxTicks = 10,
 			seed = 1,
 		})
-		local bonuses = Traits.bonuses(boards[1])
-		local rook = battle.units[1]
-		Battle.applyStartBonus(battle, rook, bonuses.rook)
-		-- 66 AD x 1.5 (2-star) = 99; x 1.14 = 112.86.
-		assert(math.abs(Battle.stat(battle, rook, "AD") - 112.86) < 1e-9, "Rook AD " .. Battle.stat(battle, rook, "AD"))
-		-- An ability buff stacks with it: +20% more makes 99 x 1.34.
-		Battle.buff(battle, rook, rook, "AD", 0, 20, 4)
-		assert(math.abs(Battle.stat(battle, rook, "AD") - 99 * 1.34) < 1e-9, "trait and ability buffs should add")
-		-- The trait bonus never expires.
-		battle.tick = 100000
-		Battle.expire(battle)
-		assert(math.abs(Battle.stat(battle, rook, "AD") - 112.86) < 1e-9, "trait bonus expired")
+		Battle.applyStartBonus(battle, battle.units[1], {
+			stats = { AP = { flat = 20, percent = 0 } },
+			shields = { { amount = 140, duration = 6, source = "Test" } },
+		})
+		expectEqual(battle.units[1].shield, 168, "shield scaled by 120 AP")
 	end,
 })
 
 table.insert(tests, {
-	name = "Warden shields are applied at combat start and scale with ability power",
+	name = "a max health trait bonus raises max and current health at combat start",
 	run = function()
-		-- Kaien and Tarek: Warden 2 (140 for 6s). Sena with Calyx: Warden 2 as well, and Mystic 2
-		-- (+12 AP) and Tideglass 2 (+18 AP) make their AP 130, so their shields are 182.
-		for _, case in
-			{
-				{ names = { "Kaien", "Tarek" }, shield = 140 },
-				{ names = { "Sena", "Calyx" }, shield = 182 },
-				{ names = { "Kaien", "Tarek", "Sena", "Calyx" }, shield = nil },
-			}
-		do
-			local board = onBoard(case.names)
-			local result = fight({ board, {} }, { Traits.bonuses(board), {} })
-			local shields = 0
-			for _, event in result.events do
-				if event.kind == "Shield" and event.tick == 0 then
-					shields += 1
-					expectEqual(event.source, "Warden", "shield source")
-					expectEqual(event.unit, event.target, "shield on the Warden itself")
-					expectEqual(event.duration, 6, "shield duration")
-					if case.shield then
-						expectEqual(event.shield, case.shield, table.concat(case.names, "+") .. " shield")
-					end
-				end
-			end
-			expectEqual(shields, #case.names, table.concat(case.names, "+") .. " shields at tick 0")
-		end
-		-- Warden 3 and above: 310 each (Kaien, Tarek and Orin get no AP bonus).
-		local board = onBoard({ "Kaien", "Tarek", "Orin", "Sena" })
-		local result = fight({ board, {} }, { Traits.bonuses(board), {} })
-		for _, event in result.events do
-			if event.kind == "Shield" and event.tick == 0 and result.units[event.target].unitType ~= "Sena" then
-				expectEqual(event.shield, 310, "Warden 3+ shield")
-			end
+		local board = onBoard({ "iron_rush", "titanheart", "skyboulder" }) -- Titans 3: +28% max health
+		local plain = fight({ board, {} }, nil)
+		local bonused = fight({ board, {} }, { Traits.bonuses(board, TEST_TRAITS), {} })
+		for i = 1, 3 do
+			local base = plain.units[i].maxHealth
+			expectEqual(bonused.units[i].maxHealth, math.round(base * 1.28), "unit " .. i .. " max health")
 		end
 	end,
 })
@@ -351,23 +316,26 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a board with no active traits fights exactly as before",
 	run = function()
-		-- Six characters that share no trait with each other (one per origin), against another such board.
-		local quiet = onBoard({ "Kaien", "Mira", "Veyra", "Cera", "Kes", "Marek" })
-		for _, state in Traits.summary(quiet) do
+		-- One unit per origin, sharing no configured test trait.
+		local quiet = onBoard({ "flashline", "iron_rush", "bitter_vapor", "wolfstep", "spurshot" })
+		for _, state in Traits.summary(quiet, TEST_TRAITS) do
 			assert(not state.active, "test setup: " .. state.name .. " is active")
 		end
-		local enemy = onBoard({ "Bren", "Sola", "Ione", "Dax" })
-		for _, state in Traits.summary(enemy) do
+		local enemy = onBoard({ "cinder_arc", "titanheart", "redline_cut", "orbit_breaker" })
+		for _, state in Traits.summary(enemy, TEST_TRAITS) do
 			assert(not state.active, "test setup: enemy " .. state.name .. " is active")
 		end
 		for seed = 1, 5 do
 			local before = fight({ quiet, enemy }, nil, seed)
-			local after = fight({ quiet, enemy }, { Traits.bonuses(quiet), Traits.bonuses(enemy) }, seed)
+			local after = fight(
+				{ quiet, enemy },
+				{ Traits.bonuses(quiet, TEST_TRAITS), Traits.bonuses(enemy, TEST_TRAITS) },
+				seed
+			)
 			expectEqual(#after.events, #before.events, "event count")
 			for i, event in before.events do
-				local other = after.events[i]
 				for key, value in event do
-					expectEqual(other[key], value, string.format("seed %d event %d %s", seed, i, key))
+					expectEqual(after.events[i][key], value, string.format("seed %d event %d %s", seed, i, key))
 				end
 			end
 			expectEqual(after.winner, before.winner, "winner")

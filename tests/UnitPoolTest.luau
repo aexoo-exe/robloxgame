@@ -63,16 +63,16 @@ end
 local tests = {}
 
 table.insert(tests, {
-	name = "a new pool has 22/20/17/10/9 copies per character by cost",
+	name = "a new pool has 30/26/22/15/10 copies per character by cost",
 	run = function()
 		local pool = UnitPool.new()
 		for name, unit in UnitConfig do
-			expectEqual(UnitPool.remaining(pool, name), ({ 22, 20, 17, 10, 9 })[unit.cost], name)
+			expectEqual(UnitPool.remaining(pool, name), ({ 30, 26, 22, 15, 10 })[unit.cost], name)
 		end
-		for cost, perTier in { 7 * 22, 6 * 20, 5 * 17, 4 * 10, 3 * 9 } do
+		for cost, perTier in { 9 * 30, 9 * 26, 10 * 22, 9 * 15, 5 * 10 } do
 			expectEqual(UnitPool.tierRemaining(pool, cost), perTier, cost .. "-cost tier")
 		end
-		expectEqual(total(pool), 154 + 120 + 85 + 40 + 27, "whole pool")
+		expectEqual(total(pool), 270 + 234 + 220 + 135 + 50, "whole pool")
 	end,
 })
 
@@ -80,16 +80,16 @@ table.insert(tests, {
 	name = "characters are picked in proportion to the copies left in their tier",
 	run = function()
 		local pool = UnitPool.new()
-		onlyInTier(pool, 1, { Kaien = 20, Mira = 10, Sola = 5 })
+		onlyInTier(pool, 1, { cinder_arc = 20, spurshot = 10, blooming_aid = 5 })
 		local rng = SeededRandom.new(3)
-		local counts = { Kaien = 0, Mira = 0, Sola = 0 }
+		local counts = { cinder_arc = 0, spurshot = 0, blooming_aid = 0 }
 		local rolls = 35000
 		for _ = 1, rolls do
 			local name = UnitPool.rollUnit(pool, rng, 2) -- level 2 rolls only 1-costs
 			counts[name] += 1
 			UnitPool.give(pool, name, 1)
 		end
-		for name, copies in { Kaien = 20, Mira = 10, Sola = 5 } do
+		for name, copies in { cinder_arc = 20, spurshot = 10, blooming_aid = 5 } do
 			local share = counts[name] / rolls
 			assert(
 				math.abs(share - copies / 35) < 0.01,
@@ -104,11 +104,11 @@ table.insert(tests, {
 	name = "a character with no copies left is never rolled",
 	run = function()
 		local pool = UnitPool.new()
-		pool.remaining.Kaien = 0
+		pool.remaining.cinder_arc = 0
 		local rng = SeededRandom.new(4)
 		for _ = 1, 3000 do
 			local name = UnitPool.rollUnit(pool, rng, 2)
-			assert(name ~= "Kaien", "rolled a character with no copies")
+			assert(name ~= "cinder_arc", "rolled a character with no copies")
 			UnitPool.give(pool, name, 1)
 		end
 	end,
@@ -154,16 +154,16 @@ table.insert(tests, {
 			local pool = UnitPool.new()
 			local state = PlayerState.new(3, pool)
 			for _ = 1, copies do
-				buyCopy(state, "Kaien")
+				buyCopy(state, "cinder_arc")
 			end
 			local units = state.board.units
 			local id, unit = next(units)
 			expectEqual(unit.starLevel, starLevel, "merged star level")
 			expectEqual(next(units, id), nil, "one unit after merging")
 
-			local before = UnitPool.remaining(pool, "Kaien")
+			local before = UnitPool.remaining(pool, "cinder_arc")
 			assert(PlayerState.sellUnit(state, id), "sell refused")
-			expectEqual(UnitPool.remaining(pool, "Kaien"), before + copies, starLevel .. "-star sell return")
+			expectEqual(UnitPool.remaining(pool, "cinder_arc"), before + copies, starLevel .. "-star sell return")
 		end
 	end,
 })
@@ -174,9 +174,9 @@ table.insert(tests, {
 		local pool = UnitPool.new()
 		local state = PlayerState.new(4, pool)
 		for _ = 1, 3 do
-			buyCopy(state, "Rook") -- one 2-star Rook
+			buyCopy(state, "flare_kick") -- one 2-star Rook
 		end
-		buyCopy(state, "Astra")
+		buyCopy(state, "severing_temple")
 		state.shop = UnitPool.rollShop(pool, state.rng, 8)
 		assert(total(pool) < FULL, "test setup: the player holds copies")
 
@@ -221,7 +221,7 @@ table.insert(tests, {
 			expectEqual(shop[slot], false, "slot " .. slot)
 		end
 		-- Higher tiers are untouched.
-		expectEqual(UnitPool.tierRemaining(pool, 2), 6 * 20, "2-cost tier")
+		expectEqual(UnitPool.tierRemaining(pool, 2), 9 * 26, "2-cost tier")
 	end,
 })
 
@@ -229,18 +229,18 @@ table.insert(tests, {
 	name = "the last copies of a tier are shared out until none are left",
 	run = function()
 		local pool = UnitPool.new()
-		onlyInTier(pool, 1, { Kes = 3 })
+		onlyInTier(pool, 1, { wolfstep = 3 })
 		local shop = UnitPool.rollShop(pool, SeededRandom.new(7), 2)
-		local kes = 0
+		local shown = 0
 		for _, unitType in shop do
-			if unitType == "Kes" then
-				kes += 1
+			if unitType == "wolfstep" then
+				shown += 1
 			else
 				expectEqual(unitType, false, "slot after the tier ran dry")
 			end
 		end
-		expectEqual(kes, 3, "copies shown")
-		expectEqual(UnitPool.remaining(pool, "Kes"), 0, "copies left")
+		expectEqual(shown, 3, "copies shown")
+		expectEqual(UnitPool.remaining(pool, "wolfstep"), 0, "copies left")
 	end,
 })
 

@@ -18,7 +18,20 @@ local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
+
+-- A character's skin color as a Color3.
+local function skinColor(unitType: string): Color3
+	local color = SkinConfig[unitType].color
+	return Color3.fromRGB(color[1], color[2], color[3])
+end
+
+-- Display name of an ability. Abilities are named by their character's internal id.
+local function abilityName(abilityId: string): string
+	local skin = SkinConfig[abilityId]
+	return if skin then skin.ability else abilityId
+end
 
 local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
@@ -72,9 +85,9 @@ local function play(playback)
 		unitsByIndex[unit.index] = unit
 		local own = unit.side == localSide
 		views[unit.index] = UnitView.new(
-			unit.unitType,
+			SkinConfig[unit.unitType].name,
 			unit.starLevel,
-			RenderConfig.originColors[UnitConfig[unit.unitType].origin],
+			skinColor(unit.unitType),
 			toWorld(unit.column, unit.row),
 			Arena.folder,
 			{
@@ -160,7 +173,7 @@ local function play(playback)
 		elseif kind == "Cast" and view then
 			UnitView.setMana(view, 0)
 			if fresh then
-				UnitView.cast(view, event.ability)
+				UnitView.cast(view, abilityName(event.ability))
 				for _, area in reading.areas[index] or {} do
 					pulseArea(area)
 				end
@@ -190,25 +203,18 @@ local function play(playback)
 			pulseArea({ column = event.column, row = event.row, radius = event.radius }, RenderConfig.areaStunColor)
 		elseif kind == "Summon" and view then
 			local own = info[event.summon].side == localSide
-			local summonerType = unitsByIndex[info[event.summon].summoner]
-			views[event.summon] = UnitView.new(
-				if summonerType then summonerType.unitType else "summon",
-				1,
-				view.color,
-				toWorld(event.column, event.row),
-				Arena.folder,
-				{
+			views[event.summon] =
+				UnitView.new("summon", 1, view.color, toWorld(event.column, event.row), Arena.folder, {
 					maxHealth = event.maxHealth,
 					yaw = if own then 0 else math.pi,
 					healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
 					summon = true,
-				}
-			)
+				})
 		elseif kind == "Pull" and targetView then
 			-- The pulled unit slides to its new cell, like a dash.
 			UnitView.dashTo(targetView, toWorld(event.column, event.row))
 		elseif kind == "Copy" and view and fresh then
-			UnitView.popText(view, "Copy: " .. event.ability, RenderConfig.castTextColor)
+			UnitView.popText(view, "Copy: " .. abilityName(event.ability), RenderConfig.castTextColor)
 		elseif (kind == "Death" or kind == "SummonEnd") and view then
 			-- Deaths and expiring summons fade out.
 			UnitView.kill(view)

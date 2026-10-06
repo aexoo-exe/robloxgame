@@ -11,7 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
-local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
@@ -56,8 +56,9 @@ local function render()
 	for _, unit in units do
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
 		local stats = UnitConfig[unit.unitType]
-		local color = RenderConfig.originColors[stats.origin]
-		local view = UnitView.new(unit.unitType, unit.starLevel, color, position, Arena.folder, {
+		local skin = SkinConfig[unit.unitType]
+		local color = Color3.fromRGB(skin.color[1], skin.color[2], skin.color[3])
+		local view = UnitView.new(skin.name, unit.starLevel, color, position, Arena.folder, {
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,

@@ -13,6 +13,7 @@ local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local BoardController = require(script.Parent.BoardController)
@@ -161,7 +162,7 @@ function ShopPanel.start()
 				local unit = UnitConfig[unitType]
 				button.Text = string.format(
 					'%s  (%d gold)\n<font size="12">%s · %s</font>',
-					unit.displayName,
+					SkinConfig[unitType].name,
 					unit.cost,
 					unit.origin,
 					table.concat(unit.classes, " / ")

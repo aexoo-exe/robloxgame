@@ -2,7 +2,8 @@
 -- units the player has placed on the board (bench units do not count), updating as units move.
 -- During Combat and Results it shows the traits the server used for the fight: the player's own
 -- column and an opponent column. Each row shows the trait's count against its next breakpoint (or
--- its top breakpoint once reached); active traits are highlighted. Presentation only.
+-- its top breakpoint once reached); active traits are highlighted. Hidden while TraitConfig has
+-- no traits. Presentation only.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local TraitConfig = require(Shared:WaitForChild("TraitConfig"))
 local Traits = require(Shared:WaitForChild("Traits"))
 
 local BoardController = require(script.Parent.BoardController)
@@ -118,6 +120,10 @@ local function boardSummary(units: { any }): { Traits.TraitState }
 end
 
 function TraitPanel.start()
+	-- No traits are defined yet (TraitConfig is empty), so there is nothing to show.
+	if next(TraitConfig) == nil then
+		return
+	end
 	local matchState = ReplicatedStorage:WaitForChild("MatchState")
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 

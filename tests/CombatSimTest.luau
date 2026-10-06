@@ -15,11 +15,11 @@ end
 -- Five low-cost units spread across the front two rows, as a player might place them.
 local function playerBoard()
 	return {
-		placed("1", "Rook", 4, 4),
-		placed("2", "Kaien", 3, 4),
-		placed("3", "Kaien", 5, 4),
-		placed("4", "Mira", 4, 2),
-		placed("5", "Sena", 6, 3),
+		placed("1", "flare_kick", 4, 4),
+		placed("2", "cinder_arc", 3, 4),
+		placed("3", "cinder_arc", 5, 4),
+		placed("4", "spurshot", 4, 2),
+		placed("5", "field_medic", 6, 3),
 	}
 end
 
@@ -81,7 +81,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a clearly stronger team wins on either side",
 	run = function()
-		local weak = { placed("w", "Mira", 4, 1) }
+		local weak = { placed("w", "spurshot", 4, 1) }
 		for seed = 1, 10 do
 			local asSide1 = CombatSim.run(params(playerBoard(), weak, seed))
 			assert(asSide1.winner == 1, "stronger side 1 did not win with seed " .. seed)
@@ -168,7 +168,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "side 2 is rotated into the far half of the field",
 	run = function()
-		local result = CombatSim.run(params({ placed("a", "Mira", 1, 1) }, { placed("b", "Mira", 1, 1) }, 1))
+		local result = CombatSim.run(params({ placed("a", "spurshot", 1, 1) }, { placed("b", "spurshot", 1, 1) }, 1))
 		local a, b = result.units[1], result.units[2]
 		assert(a.side == 1 and a.column == 1 and a.row == 1, "side 1 unit moved during setup")
 		assert(b.side == 2 and b.column == COLUMNS and b.row == ROWS * 2, "side 2 unit was not rotated")

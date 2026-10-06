@@ -17,15 +17,18 @@ return table.freeze({
 	ownCellColor = Color3.fromRGB(70, 95, 130),
 	enemyCellColor = Color3.fromRGB(120, 75, 75),
 	benchSlotColor = Color3.fromRGB(95, 95, 95),
-	-- Unit body color by origin (placeholder), so boards are readable at a glance. Which side a
-	-- unit is on shows in its health bar color.
+	-- Origin colors (placeholder), shown as the shop's origin stripe. Unit bodies use their skin
+	-- color from SkinConfig. Which side a unit is on shows in its health bar color.
 	originColors = table.freeze({
-		Ironveil = Color3.fromRGB(150, 165, 185),
-		Emberwake = Color3.fromRGB(235, 110, 45),
-		Tideglass = Color3.fromRGB(50, 190, 185),
-		Stormcrest = Color3.fromRGB(110, 135, 255),
-		Starfall = Color3.fromRGB(240, 205, 70),
-		Eclipse = Color3.fromRGB(140, 70, 185),
+		Hunters = Color3.fromRGB(214, 120, 52),
+		Corps = Color3.fromRGB(112, 152, 196),
+		Spirit = Color3.fromRGB(120, 200, 140),
+		Cursed = Color3.fromRGB(150, 70, 180),
+		Arcane = Color3.fromRGB(90, 110, 230),
+		Titans = Color3.fromRGB(150, 120, 95),
+		Shinobi = Color3.fromRGB(70, 170, 175),
+		Crew = Color3.fromRGB(232, 92, 92),
+		Heroes = Color3.fromRGB(240, 200, 70),
 	}),
 	healthBarColor = Color3.fromRGB(80, 220, 100), -- the local player's units
 	enemyHealthBarColor = Color3.fromRGB(235, 70, 70),
