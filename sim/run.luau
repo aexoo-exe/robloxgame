@@ -7,6 +7,7 @@
 local process = require("@lune/process")
 
 local Bot = require("./Bot")
+local Mechanics = require("./Mechanics")
 local BoardConfig = require("../src/shared/BoardConfig")
 local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
@@ -315,6 +316,7 @@ local function playMatch(matchIndex: number)
 		for index, fight in fights do
 			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index)
 			recordFight(result)
+			Mechanics.record(result)
 			local sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
 			recordTimeoutData({ boards[fight.a], sideB }, result.timedOut)
 			longestTicks = math.max(longestTicks, result.endTick)
@@ -620,8 +622,17 @@ print(
 )
 
 -- Diagnostic 1-star damage per fight by cost, for tanks/supports and for carries
--- (docs/design/world-and-traits.md, Base stat bands). Roles not listed here count as carries.
-local SUPPORT_ROLES = { Frontline = true, Support = true, Tank = true, ["Main Tank"] = true }
+-- (docs/design/world-and-traits.md, Base stat bands). Characters with the Guardian or Support
+-- class use the tank/support band; everyone else uses the carry band.
+local SUPPORT_CLASSES = { Guardian = true, Support = true }
+local function isSupport(unit): boolean
+	for _, class in unit.classes do
+		if SUPPORT_CLASSES[class] then
+			return true
+		end
+	end
+	return false
+end
 local BANDS = {
 	{ support = { 250, 600 }, carry = { 700, 1000 } },
 	{ support = { 350, 750 }, carry = { 750, 1150 } },
@@ -643,7 +654,7 @@ local outliers = {}
 for _, name in names do
 	local stats = unitStats[name]
 	local unit = UnitConfig[name]
-	local bucket = if SUPPORT_ROLES[unit.role] then "support" else "carry"
+	local bucket = if isSupport(unit) then "support" else "carry"
 	local band = BANDS[unit.cost][bucket]
 	local damage = stats.damage / stats.fights
 	local verdict = "in"
@@ -669,7 +680,7 @@ for _, name in names do
 	end
 	print(
 		string.format(
-			"  %-7s (%d %-7s) %5.0f damage [%d-%d %s], %4.2f casts, %4.1fs alive (%.0f%%)%s  [%d fights]",
+			"  %-18s (%d %-7s) %5.0f damage [%d-%d %s], %4.2f casts, %4.1fs alive (%.0f%%)%s  [%d fights]",
 			name,
 			unit.cost,
 			bucket,
@@ -693,3 +704,4 @@ for i = 1, math.min(5, #outliers) do
 	table.insert(worst, outliers[i].name .. " " .. outliers[i].verdict)
 end
 print(string.format("Outside the band: %d of %d. Worst: %s", #outliers, #names, table.concat(worst, ", ")))
+Mechanics.report()
