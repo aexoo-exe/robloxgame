@@ -80,11 +80,12 @@ function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number,
 	})
 end
 
--- Pulses the given ground positions. Each entry is { position = Vector3, delay = seconds }.
-function CombatEffects.areaPulse(cells: { { position: Vector3, delay: number } })
+-- Pulses the given ground positions. Each entry is { position = Vector3, delay = seconds }. `color`
+-- defaults to RenderConfig.areaPulseColor.
+function CombatEffects.areaPulse(cells: { { position: Vector3, delay: number } }, color: Color3?)
 	local now = os.clock()
 	for _, cell in cells do
-		local part = effectPart(RenderConfig.areaPulseColor)
+		local part = effectPart(color or RenderConfig.areaPulseColor)
 		part.Shape = Enum.PartType.Cylinder
 		part.Transparency = 1 -- shown when its delay has passed
 		part.Size = Vector3.new(PULSE_THICKNESS, HEX_WIDTH, HEX_WIDTH)

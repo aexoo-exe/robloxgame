@@ -65,6 +65,7 @@ export type UnitView = {
 	floaterCount: number,
 	shownColor: Color3,
 	shownMaterial: Enum.Material,
+	baseTransparency: number, -- see-through for summons
 }
 
 export type Options = {
@@ -73,6 +74,7 @@ export type Options = {
 	maxMana: number?, -- no mana bar fill if nil
 	yaw: number?, -- initial facing in radians around the vertical axis (0 faces -Z)
 	healthColor: Color3?, -- RenderConfig.healthBarColor if nil
+	summon: boolean?, -- drawn smaller and see-through, labeled as a summon
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -143,7 +145,9 @@ function UnitView.new(
 	part.Name = name
 	part.Anchored = true
 	part.CanCollide = false
-	part.Size = RenderConfig.unitSize * RenderConfig.starSizeScale[starLevel]
+	part.Size = RenderConfig.unitSize
+		* RenderConfig.starSizeScale[starLevel]
+		* (if options.summon then RenderConfig.summonScale else 1)
 	local base = partPosition(groundPosition, part)
 	part.CFrame = CFrame.new(base) * CFrame.Angles(0, yaw, 0)
 	part.Color = color
@@ -195,7 +199,7 @@ function UnitView.new(
 	label.Position = UDim2.fromOffset(0, 14)
 	label.Size = UDim2.new(1, 0, 0, 18)
 	label.BackgroundTransparency = 1
-	label.Text = name .. " " .. string.rep(RenderConfig.starSymbol, starLevel)
+	label.Text = if options.summon then "summon" else name .. " " .. string.rep(RenderConfig.starSymbol, starLevel)
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0
 	label.Font = Enum.Font.GothamBold
@@ -255,6 +259,7 @@ function UnitView.new(
 		floaterCount = 0,
 		shownColor = color,
 		shownMaterial = part.Material,
+		baseTransparency = if options.summon then RenderConfig.summonTransparency else 0,
 	}
 	UnitView.setMana(view, options.mana or 0)
 	return view
@@ -432,6 +437,18 @@ function UnitView.healNumber(view: UnitView, amount: number)
 	floatNumber(view, "+" .. amount, RenderConfig.healTextColor, RenderConfig.damageNumberSize)
 end
 
+-- A damage-over-time tick: a small number in the damage type's color, with no hit flash.
+function UnitView.dotNumber(view: UnitView, amount: number, damageType: string?)
+	local color = RenderConfig[DAMAGE_COLORS[damageType or "PHYSICAL"] or "physicalDamageColor"]
+	floatNumber(view, tostring(amount), color, RenderConfig.dotNumberSize)
+end
+
+-- Sets a new max health (and current health), as after a MaxHealth bonus.
+function UnitView.setMaxHealth(view: UnitView, maxHealth: number, health: number)
+	view.maxHealth = maxHealth
+	UnitView.setHealth(view, health)
+end
+
 -- Floats `text` up from above the unit and fades it out (ability names, buffs).
 function UnitView.popText(view: UnitView, text: string, color: Color3)
 	addFloater(
@@ -510,10 +527,10 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		view.yaw = wrapAngle(view.yaw + difference * math.min(1, RenderConfig.turnRate * dt))
 	end
 
-	local transparency = 0
+	local transparency = view.baseTransparency
 	if view.dyingSince then
 		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
-		transparency = progress
+		transparency = view.baseTransparency + (1 - view.baseTransparency) * progress
 		offset -= Vector3.new(0, RenderConfig.deathSinkDistance * progress, 0)
 	end
 

@@ -64,21 +64,46 @@ local function recordFight(result)
 
 	local oneStar = {}
 	local deathTick = {}
+	local summonerOf = {} -- summon index -> summoner index
 	for _, unit in result.units do
 		if unit.starLevel == 1 then
 			oneStar[unit.index] = unit.unitType
 			local stats = unitStats[unit.unitType]
-				or { fights = 0, damage = 0, casts = 0, dashes = 0, aliveSeconds = 0, fightSeconds = 0 }
+				or {
+					fights = 0,
+					damage = 0,
+					summonDamage = 0,
+					dotDamage = 0,
+					casts = 0,
+					dashes = 0,
+					aliveSeconds = 0,
+					fightSeconds = 0,
+				}
 			stats.fights += 1
 			stats.fightSeconds += seconds
 			unitStats[unit.unitType] = stats
 		end
 	end
 	for _, event in result.events do
+		if event.kind == "Summon" then
+			summonerOf[event.summon] = event.unit
+		end
+		-- Damage by a summon is credited to its summoner (and also counted separately).
+		local summoner = summonerOf[event.unit]
+		if summoner and (event.kind == "Attack" or event.kind == "Damage") then
+			local summonerType = oneStar[summoner]
+			if summonerType then
+				unitStats[summonerType].damage += event.damage
+				unitStats[summonerType].summonDamage += event.damage
+			end
+		end
 		local unitType = oneStar[event.unit]
 		if unitType then
 			if event.kind == "Attack" or event.kind == "Damage" then
 				unitStats[unitType].damage += event.damage
+				if event.dot then
+					unitStats[unitType].dotDamage += event.damage
+				end
 			elseif event.kind == "Cast" then
 				unitStats[unitType].casts += 1
 			elseif event.kind == "Dash" then
@@ -634,6 +659,13 @@ for _, name in names do
 		if effect.type == "DASH" and stats.casts > 0 then
 			dashLine = string.format(", dash moved %.0f%% of casts", stats.dashes / stats.casts * 100)
 		end
+	end
+	-- Parts of the damage above: from its summons, and from damage over time.
+	if stats.summonDamage > 0 then
+		dashLine ..= string.format(", %.0f of it by summons", stats.summonDamage / stats.fights)
+	end
+	if stats.dotDamage > 0 then
+		dashLine ..= string.format(", %.0f of it over time", stats.dotDamage / stats.fights)
 	end
 	print(
 		string.format(
