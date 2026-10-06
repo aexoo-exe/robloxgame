@@ -500,7 +500,7 @@ table.insert(tests, {
 	name = "validate rejects unknown effects, selectors, stats and missing star values",
 	run = function()
 		local good =
-			{ name = "Ok", effects = { { type = Effect.Stun, target = Selector.Self, duration = { 1, 2, 3 } } } }
+			{ name = "Ok", effects = { { type = Effect.Stun, target = Selector.Self, duration = { 1, 1.5, 2 } } } }
 		assert(Abilities.validate(good), "a valid ability was rejected")
 		local bad = {
 			{ name = "A", effects = { { type = "LIFESTEAL", target = Selector.Self } } },
@@ -511,6 +511,8 @@ table.insert(tests, {
 			},
 			{ name = "D", effects = { { type = Effect.Stun, target = Selector.Self, duration = { 1, 2 } } } },
 			{ name = "E", effects = {} },
+			-- Stuns longer than CombatConfig.maxStunSeconds (2.0s) fail validation.
+			{ name = "F", effects = { { type = Effect.Stun, target = Selector.Self, duration = { 1, 2, 2.5 } } } },
 		}
 		for _, ability in bad do
 			assert(not Abilities.validate(ability), ability.name .. " should be rejected")

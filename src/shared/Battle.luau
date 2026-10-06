@@ -1,6 +1,12 @@
 -- State of one fight and the primitive actions everything else uses: damage (the only place
--- damage is applied), heals, shields, stuns, buffs and relocation. Each primitive records an event
--- for client playback. CombatSim runs the tick loop; Abilities composes these primitives.
+-- damage is applied), heals, shields, stuns, buffs, relocation, pulls, summons and damage over
+-- time. Each primitive records an event for client playback. CombatSim runs the tick loop;
+-- Abilities composes these primitives.
+--
+-- Summons are units with `summoned` set: they attack and move, never gain mana or cast, get no
+-- trait bonuses, vanish when they die or expire, and are left out of the timeout health
+-- percentage and surviving-unit counts (see CombatSim). Their damage events carry their own index;
+-- `summoner` links them to the unit that made them.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local CombatConfig = if script then require(script.Parent.CombatConfig) else require("./CombatConfig")
@@ -11,7 +17,8 @@ local StarLevel = if script then require(script.Parent.StarLevel) else require("
 
 local Battle = {}
 
--- Stats a BUFF can change, mapped to the unit stat field they modify.
+-- Stats a BUFF can change, mapped to the unit stat field they modify. MaxHealth is special: it
+-- changes `maxHealth` directly (see refreshMaxHealth) rather than being read through Battle.stat.
 local STAT_FIELDS = table.freeze({
 	AD = "attackDamage",
 	AP = "abilityPower",
@@ -19,6 +26,7 @@ local STAT_FIELDS = table.freeze({
 	Armor = "armor",
 	MR = "magicResist",
 	MoveSpeed = "moveSpeed",
+	MaxHealth = "maxHealth",
 })
 Battle.StatFields = STAT_FIELDS
 
@@ -35,17 +43,34 @@ export type Unit = {
 	row: number,
 	health: number,
 	maxHealth: number,
+	baseMaxHealth: number, -- max health at fight start; MaxHealth bonuses are a percentage of this
 	mana: number,
 	maxMana: number?, -- nil: the unit never casts
 	shield: number,
 	shieldEndsTick: number,
 	stunnedUntilTick: number,
 	castEndsTick: number,
-	buffs: { [string]: { stat: string, flat: number, percent: number, endsTick: number } },
+	buffs: { [string]: { stat: string, flat: number, percent: number, endsTick: number, stacks: number? } },
 	attackCooldown: number,
 	moveCooldown: number,
 	target: Unit?,
 	dead: boolean,
+	summoned: boolean?, -- true for summons
+	summoner: Unit?, -- summons: the unit that made it
+	expiresTick: number?, -- summons: when it vanishes
+}
+
+-- A running DAMAGE_OVER_TIME application on one victim.
+export type Dot = {
+	key: string, -- source, ability and victim; a new application with the same key refreshes it
+	source: Unit,
+	target: Unit,
+	amount: number, -- raw damage per tick
+	damageType: string,
+	intervalTicks: number,
+	nextTick: number,
+	endTick: number,
+	manaLeft: number, -- mana the victim can still gain from this application
 }
 
 export type Battle = {
@@ -58,6 +83,7 @@ export type Battle = {
 	units: { Unit },
 	occupied: { [number]: Unit },
 	events: { any },
+	dots: { Dot },
 }
 
 -- Creates a battle. Side 2's units are rotated half a turn into the far half of the field.
@@ -73,6 +99,7 @@ function Battle.new(params): Battle
 		units = {},
 		occupied = {},
 		events = {},
+		dots = {},
 	}
 	for side = 1, 2 do
 		for _, placed in params.boards[side] do
@@ -95,6 +122,7 @@ function Battle.new(params): Battle
 				row = row,
 				health = stats.health,
 				maxHealth = stats.health,
+				baseMaxHealth = stats.health,
 				mana = stats.startingMana or 0,
 				maxMana = stats.maxMana,
 				shield = 0,
@@ -199,15 +227,21 @@ function Battle.stat(battle: Battle, unit: Unit, name: string): number
 	return (base + flat) * (1 + percent / 100)
 end
 
-local function gainMana(unit: Unit, amount: number)
+-- Adds mana (never above max; units without max mana, such as summons, gain none). Returns the
+-- mana actually gained.
+local function gainMana(unit: Unit, amount: number): number
 	if unit.maxMana and not unit.dead then
+		local before = unit.mana
 		unit.mana = math.min(unit.maxMana, unit.mana + amount)
+		return unit.mana - before
 	end
+	return 0
 end
 
 -- Applies one hit: resistance, shield, health, mana for both sides, the event and any death.
 -- `kind` is "Attack" for a basic attack (the attacker gains mana) or "Damage" for ability damage.
--- Returns the final damage after resistance.
+-- `manaCap` limits the mana the target gains from this hit (damage over time uses it).
+-- Returns the final damage after resistance and the mana the target gained.
 function Battle.damage(
 	battle: Battle,
 	source: Unit,
@@ -215,10 +249,11 @@ function Battle.damage(
 	raw: number,
 	damageType: string,
 	kind: string,
-	crit: boolean?
-): number
+	crit: boolean?,
+	manaCap: number?
+): (number, number)
 	if target.dead then
-		return 0
+		return 0, 0
 	end
 	local armor = Battle.stat(battle, target, "Armor")
 	local magicResist = Battle.stat(battle, target, "MR")
@@ -228,7 +263,11 @@ function Battle.damage(
 	target.shield -= absorbed
 	local healthLost = math.min(target.health, final - absorbed)
 	target.health -= healthLost
-	gainMana(target, CombatMath.manaFromDamage(healthLost, target.maxHealth))
+	local mana = CombatMath.manaFromDamage(healthLost, target.maxHealth)
+	if manaCap then
+		mana = math.min(mana, manaCap)
+	end
+	local manaGained = gainMana(target, mana)
 	if kind == "Attack" then
 		gainMana(source, CombatConfig.manaPerAttack)
 	end
@@ -250,7 +289,7 @@ function Battle.damage(
 		battle.occupied[Battle.cellKey(battle, target.column, target.row)] = nil
 		Battle.emit(battle, { kind = "Death", unit = target.index })
 	end
-	return final
+	return final, manaGained
 end
 
 -- Restores health, capped at max health. Amounts are rounded to whole numbers.
@@ -297,8 +336,30 @@ function Battle.stun(battle: Battle, source: Unit, target: Unit, seconds: number
 	Battle.emit(battle, { kind = "Stun", unit = source.index, target = target.index, duration = seconds })
 end
 
+-- Recomputes a unit's max health from its MaxHealth buffs: base x (1 + percents / 100) + flats,
+-- rounded. A rise also raises current health by the same amount; a fall only caps current health.
+local function refreshMaxHealth(battle: Battle, unit: Unit)
+	local flat, percent = 0, 0
+	for _, buff in unit.buffs do
+		if buff.stat == "MaxHealth" and battle.tick < buff.endsTick then
+			flat += buff.flat
+			percent += buff.percent
+		end
+	end
+	local newMax = math.round(unit.baseMaxHealth * (1 + percent / 100) + flat)
+	local change = newMax - unit.maxHealth
+	if change == 0 then
+		return
+	end
+	unit.maxHealth = newMax
+	unit.health = if change > 0 then unit.health + change else math.min(unit.health, newMax)
+	Battle.emit(battle, { kind = "MaxHealth", unit = unit.index, maxHealth = newMax, health = unit.health })
+end
+
 -- Buffs one stat for `seconds`. Buffs from the same source to the same stat refresh (replace)
 -- rather than stack; buffs from different sources stack.
+-- With `stackPerCast`, each application instead adds one stack of `flat`/`percent` up to
+-- `maxStacks`; every application (including one at the cap) refreshes the duration of all stacks.
 function Battle.buff(
 	battle: Battle,
 	source: Unit,
@@ -306,16 +367,27 @@ function Battle.buff(
 	stat: string,
 	flat: number,
 	percent: number,
-	seconds: number
+	seconds: number,
+	stackPerCast: boolean?,
+	maxStacks: number?
 )
 	if target.dead then
 		return
 	end
-	target.buffs[source.index .. ":" .. stat] = {
+	local key = source.index .. ":" .. stat
+	local stacks = 1
+	if stackPerCast then
+		local existing = target.buffs[key]
+		if existing and battle.tick < existing.endsTick then
+			stacks = math.min((existing.stacks or 1) + 1, maxStacks or 1)
+		end
+	end
+	target.buffs[key] = {
 		stat = stat,
-		flat = flat,
-		percent = percent,
+		flat = flat * stacks,
+		percent = percent * stacks,
 		endsTick = battle.tick + Battle.seconds(battle, seconds),
+		stacks = if stackPerCast then stacks else nil,
 	}
 	Battle.emit(battle, {
 		kind = "Buff",
@@ -325,8 +397,14 @@ function Battle.buff(
 		flat = flat,
 		percent = percent,
 		duration = seconds,
+		stacks = if stackPerCast then stacks else nil,
 	})
+	if stat == "MaxHealth" then
+		refreshMaxHealth(battle, target)
+	end
 end
+
+Battle.refreshMaxHealth = refreshMaxHealth
 
 -- Applies a combat-start bonus (Traits.Bonus) that lasts the whole fight. Stat changes become one
 -- permanent buff per stat, separate from ability buffs and stacking with them (Battle.stat adds
@@ -347,6 +425,9 @@ function Battle.applyStartBonus(battle: Battle, unit: Unit, bonus)
 			endsTick = math.huge,
 		}
 	end
+	if bonus.stats.MaxHealth then
+		refreshMaxHealth(battle, unit)
+	end
 	for _, shield in bonus.shields do
 		local before = #battle.events
 		local amount = CombatMath.scaleByAbilityPower(shield.amount, Battle.stat(battle, unit, "AP"))
@@ -365,17 +446,214 @@ function Battle.relocate(battle: Battle, unit: Unit, column: number, row: number
 	unit.row = row
 end
 
--- Ends expired shields and buffs. Called at the start of every tick.
+-- Living units (board units and summons) on one side.
+function Battle.livingCount(battle: Battle, side: number): number
+	local count = 0
+	for _, unit in battle.units do
+		if unit.side == side and not unit.dead then
+			count += 1
+		end
+	end
+	return count
+end
+
+-- The free cell nearest `column`, `row` (by hex distance; ties go to the first cell in field order:
+-- row, then column). `filter` can restrict the candidates. Returns nil if there is none.
+local function nearestFreeCell(
+	battle: Battle,
+	column: number,
+	row: number,
+	filter: ((number, number) -> boolean)?
+): (number?, number?)
+	local bestColumn, bestRow, bestDistance = nil, nil, math.huge
+	for r = 1, battle.fieldRows do
+		for c = 1, battle.columns do
+			if Battle.isFree(battle, c, r) and (filter == nil or filter(c, r)) then
+				local distance = HexGrid.distance(column, row, c, r)
+				if distance < bestDistance then
+					bestColumn, bestRow, bestDistance = c, r, distance
+				end
+			end
+		end
+	end
+	return bestColumn, bestRow
+end
+
+-- Creates one summon for `summoner` on the free cell nearest it, or returns nil (without error)
+-- when there is no free cell or the side already has CombatConfig.maxEntitiesPerSide living units.
+-- `spec` holds absolute values: health, attackDamage, armor, magicResist, attacksPerSecond, range,
+-- moveSpeed and duration (seconds).
+function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
+	if Battle.livingCount(battle, summoner.side) >= CombatConfig.maxEntitiesPerSide then
+		return nil
+	end
+	local column, row = nearestFreeCell(battle, summoner.column, summoner.row)
+	if not column or not row then
+		return nil
+	end
+	local health = math.max(1, math.round(spec.health))
+	local index = #battle.units + 1
+	local unit = {
+		index = index,
+		side = summoner.side,
+		id = summoner.id .. "~" .. index,
+		unitType = summoner.unitType,
+		starLevel = summoner.starLevel,
+		stats = {
+			health = health,
+			attackDamage = spec.attackDamage,
+			armor = spec.armor,
+			magicResist = spec.magicResist,
+			attacksPerSecond = spec.attacksPerSecond,
+			range = spec.range,
+			moveSpeed = spec.moveSpeed,
+		},
+		ability = nil,
+		column = column,
+		row = row,
+		health = health,
+		maxHealth = health,
+		baseMaxHealth = health,
+		mana = 0,
+		maxMana = nil,
+		shield = 0,
+		shieldEndsTick = 0,
+		stunnedUntilTick = 0,
+		castEndsTick = 0,
+		buffs = {},
+		attackCooldown = 0,
+		moveCooldown = 0,
+		target = nil,
+		dead = false,
+		summoned = true,
+		summoner = summoner,
+		expiresTick = battle.tick + Battle.seconds(battle, spec.duration),
+	}
+	table.insert(battle.units, unit)
+	battle.occupied[Battle.cellKey(battle, column, row)] = unit
+	Battle.emit(battle, {
+		kind = "Summon",
+		unit = summoner.index,
+		summon = index,
+		column = column,
+		row = row,
+		maxHealth = health,
+		range = spec.range,
+		moveSpeed = spec.moveSpeed,
+		duration = spec.duration,
+	})
+	return unit
+end
+
+-- Pulls `target` to the free cell adjacent to `caster` nearest the target's current cell. If the
+-- target is already adjacent it stays; if no adjacent cell is free it does not move. Returns true
+-- if it moved.
+function Battle.pull(battle: Battle, caster: Unit, target: Unit): boolean
+	if target.dead or Battle.distance(caster, target) <= 1 then
+		return false
+	end
+	local column, row = nearestFreeCell(battle, target.column, target.row, function(c, r)
+		return HexGrid.distance(caster.column, caster.row, c, r) == 1
+	end)
+	if not column or not row then
+		return false
+	end
+	Battle.relocate(battle, target, column, row)
+	Battle.emit(battle, { kind = "Pull", unit = caster.index, target = target.index, column = column, row = row })
+	return true
+end
+
+-- Starts damage over time on `target`: `amount` raw damage of `damageType` every `interval`
+-- seconds for `seconds`, the first tick one interval from now. Applications from different
+-- sources (or abilities) stack. Re-applying the same `key` refreshes the duration, keeps the
+-- stronger tick, and resets the mana cap; the next tick stays where it was.
+function Battle.damageOverTime(
+	battle: Battle,
+	source: Unit,
+	target: Unit,
+	key: string,
+	amount: number,
+	damageType: string,
+	interval: number,
+	seconds: number
+)
+	if target.dead then
+		return
+	end
+	local endTick = battle.tick + Battle.seconds(battle, seconds)
+	for _, dot in battle.dots do
+		if dot.key == key and dot.target == target and battle.tick < dot.endTick then
+			dot.endTick = endTick
+			dot.amount = math.max(dot.amount, amount)
+			dot.manaLeft = CombatConfig.dotManaCap
+			Battle.emit(battle, { kind = "Dot", unit = source.index, target = target.index, refreshed = true })
+			return
+		end
+	end
+	local intervalTicks = math.max(1, Battle.seconds(battle, interval))
+	table.insert(battle.dots, {
+		key = key,
+		source = source,
+		target = target,
+		amount = amount,
+		damageType = damageType,
+		intervalTicks = intervalTicks,
+		nextTick = battle.tick + intervalTicks,
+		endTick = endTick,
+		manaLeft = CombatConfig.dotManaCap,
+	})
+	Battle.emit(battle, { kind = "Dot", unit = source.index, target = target.index, damageType = damageType })
+end
+
+-- Deals every damage-over-time tick that is due, in application order, and drops finished ones.
+-- Tick damage events are "Damage" events marked `dot = true`, with their `damageType`.
+function Battle.tickDots(battle: Battle)
+	if #battle.dots == 0 then
+		return
+	end
+	local remaining = {}
+	for _, dot in table.clone(battle.dots) do
+		if not dot.target.dead and battle.tick >= dot.nextTick and dot.nextTick <= dot.endTick then
+			local before = #battle.events
+			local _, gained =
+				Battle.damage(battle, dot.source, dot.target, dot.amount, dot.damageType, "Damage", nil, dot.manaLeft)
+			dot.manaLeft -= gained
+			local event = battle.events[before + 1]
+			if event then
+				event.dot = true
+				event.damageType = dot.damageType
+			end
+			dot.nextTick += dot.intervalTicks
+		end
+		if not dot.target.dead and dot.nextTick <= dot.endTick then
+			table.insert(remaining, dot)
+		end
+	end
+	battle.dots = remaining
+end
+
+-- Ends expired shields, buffs and summons. Called at the start of every tick.
 function Battle.expire(battle: Battle)
 	for _, unit in battle.units do
 		if not unit.dead then
-			if unit.shield > 0 and battle.tick >= unit.shieldEndsTick then
-				unit.shield = 0
-				Battle.emit(battle, { kind = "ShieldEnd", unit = unit.index })
-			end
-			for key, buff in unit.buffs do
-				if battle.tick >= buff.endsTick then
-					unit.buffs[key] = nil
+			if unit.summoned and unit.expiresTick and battle.tick >= unit.expiresTick then
+				unit.dead = true
+				battle.occupied[Battle.cellKey(battle, unit.column, unit.row)] = nil
+				Battle.emit(battle, { kind = "SummonEnd", unit = unit.index })
+			else
+				if unit.shield > 0 and battle.tick >= unit.shieldEndsTick then
+					unit.shield = 0
+					Battle.emit(battle, { kind = "ShieldEnd", unit = unit.index })
+				end
+				local maxHealthChanged = false
+				for key, buff in unit.buffs do
+					if battle.tick >= buff.endsTick then
+						unit.buffs[key] = nil
+						maxHealthChanged = maxHealthChanged or buff.stat == "MaxHealth"
+					end
+				end
+				if maxHealthChanged then
+					refreshMaxHealth(battle, unit)
 				end
 			end
 		end

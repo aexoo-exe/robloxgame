@@ -30,6 +30,14 @@ return table.freeze({
 	castTime = 0.75, -- seconds a caster cannot act after casting
 	baseMoveSpeed = 1, -- hexes per second at a unit's move speed scalar of 1.0
 
+	-- Engine v2 building blocks (docs/design/revamp-structure.md, Building blocks).
+	maxStunSeconds = 2.0, -- no STUN or AREA_STUN may last longer; enforced by Abilities.validate
+	maxEntitiesPerSide = 12, -- living board units plus summons on one side; SUMMON stops at this
+	dotManaCap = 10, -- most mana a victim gains from one DAMAGE_OVER_TIME application, over all its ticks
+	-- COPY magnitude multiplier, by the copied unit's cost (1-5). Scales DAMAGE, AREA_DAMAGE, HEAL,
+	-- SHIELD and DAMAGE_OVER_TIME amounts only.
+	copyPowerByCost = table.freeze({ 0.80, 0.80, 0.80, 0.60, 0.45 }),
+
 	-- Opponents for a player who is alone, by round. Round n uses entry n; rounds past the end of
 	-- the list reuse the last entry. Positions are in the enemy's own board coordinates
 	-- (row 1 = back row, BoardConfig.rows = front row); the optional 4th argument is the star level.
