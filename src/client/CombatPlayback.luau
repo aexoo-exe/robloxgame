@@ -88,12 +88,31 @@ local function play(playback)
 		)
 	end
 
+	-- Side, range and move speed of every unit, summons included. Summons appear only in Summon
+	-- events, so they are read up front: attack anticipation looks ahead of the applied events.
+	local info = {}
+	for _, unit in result.units do
+		local stats = UnitConfig[unit.unitType]
+		info[unit.index] = { side = unit.side, range = stats.range, moveSpeed = stats.moveSpeed }
+	end
+	for _, event in result.events do
+		if event.kind == "Summon" and info[event.unit] then
+			info[event.summon] = {
+				side = info[event.unit].side,
+				range = event.range,
+				moveSpeed = event.moveSpeed,
+				summoner = event.unit,
+			}
+		end
+	end
+
 	local reading = CastReader.read(result.units, result.events, function(index)
-		return UnitConfig[unitsByIndex[index].unitType].ability
+		local unit = unitsByIndex[index]
+		return if unit then UnitConfig[unit.unitType].ability else nil
 	end)
 
 	-- Pulses every field cell within the area's radius, spreading outward from its center.
-	local function pulseArea(area: CastReader.Area)
+	local function pulseArea(area: CastReader.Area, color: Color3?)
 		local cells = {}
 		for row = 1, BoardConfig.rows * 2 do
 			for column = 1, BoardConfig.columns do
@@ -106,7 +125,7 @@ local function play(playback)
 				end
 			end
 		end
-		CombatEffects.areaPulse(cells)
+		CombatEffects.areaPulse(cells, color)
 	end
 
 	-- Applies one CombatSim event (see the Event list in CombatSim) to the views. `fresh` is false
@@ -116,7 +135,7 @@ local function play(playback)
 		local targetView = if event.target then views[event.target] else nil
 		local kind = event.kind
 		if kind == "Move" and view then
-			local hexesPerSecond = CombatConfig.baseMoveSpeed * UnitConfig[unitsByIndex[event.unit].unitType].moveSpeed
+			local hexesPerSecond = CombatConfig.baseMoveSpeed * info[event.unit].moveSpeed
 			UnitView.moveTo(view, toWorld(event.column, event.row), 1 / hexesPerSecond)
 		elseif kind == "Dash" and view then
 			UnitView.dashTo(view, toWorld(event.column, event.row))
@@ -131,7 +150,9 @@ local function play(playback)
 				UnitView.setHealth(targetView, event.health)
 				UnitView.setShield(targetView, event.shield)
 				UnitView.setMana(targetView, event.targetMana)
-				if fresh then
+				if fresh and event.dot then
+					UnitView.dotNumber(targetView, event.damage, event.damageType)
+				elseif fresh then
 					UnitView.flash(targetView, event.crit)
 					UnitView.damageNumber(targetView, event.damage, reading.damageTypes[index], event.crit)
 				end
@@ -161,8 +182,35 @@ local function play(playback)
 			UnitView.stun(targetView, event.duration)
 		elseif kind == "Buff" and targetView and fresh then
 			local amount = if event.percent ~= 0 then event.percent .. "%" else tostring(event.flat)
-			UnitView.popText(targetView, "+" .. amount .. " " .. event.stat, RenderConfig.castTextColor)
-		elseif kind == "Death" and view then
+			local stacks = if event.stacks and event.stacks > 1 then " x" .. event.stacks else ""
+			UnitView.popText(targetView, "+" .. amount .. " " .. event.stat .. stacks, RenderConfig.castTextColor)
+		elseif kind == "MaxHealth" and view then
+			UnitView.setMaxHealth(view, event.maxHealth, event.health)
+		elseif kind == "AreaStun" and fresh then
+			pulseArea({ column = event.column, row = event.row, radius = event.radius }, RenderConfig.areaStunColor)
+		elseif kind == "Summon" and view then
+			local own = info[event.summon].side == localSide
+			local summonerType = unitsByIndex[info[event.summon].summoner]
+			views[event.summon] = UnitView.new(
+				if summonerType then summonerType.unitType else "summon",
+				1,
+				view.color,
+				toWorld(event.column, event.row),
+				Arena.folder,
+				{
+					maxHealth = event.maxHealth,
+					yaw = if own then 0 else math.pi,
+					healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
+					summon = true,
+				}
+			)
+		elseif kind == "Pull" and targetView then
+			-- The pulled unit slides to its new cell, like a dash.
+			UnitView.dashTo(targetView, toWorld(event.column, event.row))
+		elseif kind == "Copy" and view and fresh then
+			UnitView.popText(view, "Copy: " .. event.ability, RenderConfig.castTextColor)
+		elseif (kind == "Death" or kind == "SummonEnd") and view then
+			-- Deaths and expiring summons fade out.
 			UnitView.kill(view)
 			views[event.unit] = nil
 			dying[view] = true
@@ -170,7 +218,7 @@ local function play(playback)
 	end
 
 	local function isRanged(unitIndex: number): boolean
-		return UnitConfig[unitsByIndex[unitIndex].unitType].range > 1
+		return info[unitIndex] ~= nil and info[unitIndex].range > 1
 	end
 	local function leadTime(unitIndex: number): number
 		return if isRanged(unitIndex) then RenderConfig.projectileFlightTime else RenderConfig.lungeDuration / 2
@@ -186,7 +234,7 @@ local function play(playback)
 		UnitView.face(attacker, target)
 		local landsIn = landsAt - serverNow
 		if isRanged(event.unit) then
-			local own = unitsByIndex[event.unit].side == localSide
+			local own = info[event.unit].side == localSide
 			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
 			CombatEffects.projectile(attacker, target, os.clock() + landsIn, color)
 		else

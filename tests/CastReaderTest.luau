@@ -8,6 +8,10 @@ local HexGrid = require("../src/shared/HexGrid")
 local SeededRandom = require("../src/shared/SeededRandom")
 local UnitConfig = require("../src/shared/UnitConfig")
 
+local function expectEqual(actual, expected, label)
+	assert(actual == expected, string.format("%s: expected %s, got %s", label, tostring(expected), tostring(actual)))
+end
+
 local UNIT_TYPES = {}
 for name in UnitConfig do
 	table.insert(UNIT_TYPES, name)
@@ -186,6 +190,43 @@ table.insert(tests, {
 		assert(reading.damageTypes[4] == "MAGIC", "the area is magic")
 		local area = reading.areas[1][1]
 		assert(area.column == 3 and area.row == 5, "the area is centered where the punched unit stood")
+	end,
+})
+
+table.insert(tests, {
+	name = "a COPY is read with the copied ability's effects; damage-over-time ticks keep their own type",
+	run = function()
+		local copier = { name = "Mirror", effects = { { type = "COPY", target = "NEAREST_ENEMY" } } }
+		local units = {
+			{ index = 1, side = 1, column = 3, row = 4, starLevel = 1 },
+			{ index = 2, side = 2, column = 3, row = 5, starLevel = 1 },
+			{ index = 3, side = 2, column = 4, row = 5, starLevel = 1 },
+		}
+		local events = {
+			{ tick = 9, kind = "Cast", unit = 1, ability = "Mirror" },
+			{ tick = 9, kind = "Copy", unit = 1, target = 2, ability = "Meteor Knuckle" },
+			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 144, health = 500, shield = 0 },
+			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 64, health = 500, shield = 0 },
+			{
+				tick = 30,
+				kind = "Damage",
+				unit = 1,
+				target = 2,
+				damage = 20,
+				health = 480,
+				shield = 0,
+				dot = true,
+				damageType = "MAGIC",
+			},
+		}
+		local reading = CastReader.read(units, events, function(index)
+			return if index == 1 then copier else UnitConfig.Rook.ability
+		end)
+		expectEqual(reading.damageTypes[3], "PHYSICAL", "copied punch")
+		expectEqual(reading.damageTypes[4], "MAGIC", "copied area")
+		local area = reading.areas[1] and reading.areas[1][1]
+		assert(area and area.column == 3 and area.row == 5, "the copied area is centered on the punched unit")
+		expectEqual(reading.damageTypes[5], "MAGIC", "damage-over-time tick")
 	end,
 })
 

@@ -68,6 +68,10 @@ return table.freeze({
 	areaWaveDelay = 0.06, -- extra delay per hex from the center, so the pulse spreads outward
 	shieldBubbleColor = Color3.fromRGB(150, 220, 255),
 	shieldBubbleScale = 1.35, -- bubble diameter relative to the unit's largest side
+	summonScale = 0.65, -- summons are drawn smaller than units
+	summonTransparency = 0.45, -- and see-through
+	areaStunColor = Color3.fromRGB(255, 230, 60), -- AREA_STUN pulse
+	dotNumberSize = 13, -- damage-over-time ticks
 	deathFadeDuration = 0.5,
 	deathSinkDistance = 1.2,
 

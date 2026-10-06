@@ -71,15 +71,24 @@ export type UnitSummary = {
 --   Dash      column, row
 --   Attack    target, damage, health, shield (target's, after the hit), mana (attacker's),
 --             targetMana, crit (true or nil)
---   Damage    same fields as Attack, for ability damage (never crits)
+--   Damage    same fields as Attack, for ability damage (never crits). Damage-over-time ticks are
+--             Damage events with dot = true and their damageType; `unit` is the DOT's source.
 --   Cast      ability (name); the caster's mana is now 0
 --   Heal      target, amount, health
 --   Shield    target, shield (new shield), duration (seconds), source (trait name, for shields
 --             given at combat start by a trait; nil for ability shields)
 --   ShieldEnd the unit's shield expired
 --   Stun      target, duration (seconds)
---   Buff      target, stat, flat, percent, duration (seconds)
+--   Buff      target, stat, flat, percent (per stack), duration (seconds), stacks (stacking buffs)
 --   Death     the unit died
+--   MaxHealth the unit's maxHealth changed (MaxHealth bonus); health is its current health
+--   AreaStun  column, row, radius: an AREA_STUN centered there (Stun events follow per enemy)
+--   Summon    summon (new unit index), column, row, maxHealth, range, moveSpeed, duration; the new
+--             unit is a summon on `unit`'s side and appears in no UnitSummary
+--   SummonEnd the summon expired and vanished
+--   Pull      target, column, row: the target was pulled next to `unit`
+--   Dot       target, damageType, refreshed (true when an existing application was refreshed)
+--   Copy      target, ability (name of the copied ability); the copied effects' events follow
 export type Event = { [string]: any }
 
 export type Result = {
@@ -179,19 +188,21 @@ local function act(battle, unit)
 	end
 end
 
+-- True while a side has a living board unit. Summons alone do not keep a side in the fight.
 local function sideAlive(battle, side: number): boolean
 	for _, unit in battle.units do
-		if unit.side == side and not unit.dead then
+		if unit.side == side and not unit.dead and not unit.summoned then
 			return true
 		end
 	end
 	return false
 end
 
--- Advances the battle by one tick.
+-- Advances the battle by one tick: expiries, then damage-over-time ticks, then every unit acts.
 function CombatSim.step(battle)
 	battle.tick += 1
 	Battle.expire(battle)
+	Battle.tickDots(battle)
 	local order = {}
 	for _, unit in battle.units do
 		if not unit.dead then
@@ -236,14 +247,17 @@ function CombatSim.run(params: Params): Result
 		CombatSim.step(battle)
 	end
 
+	-- Summons count for neither survivors nor the timeout health percentage.
 	local survivors = { 0, 0 }
 	local currentHealth = { 0, 0 }
 	local maxHealth = { 0, 0 }
 	for _, unit in battle.units do
-		currentHealth[unit.side] += unit.health
-		maxHealth[unit.side] += unit.maxHealth
-		if not unit.dead then
-			survivors[unit.side] += 1
+		if not unit.summoned then
+			currentHealth[unit.side] += unit.health
+			maxHealth[unit.side] += unit.maxHealth
+			if not unit.dead then
+				survivors[unit.side] += 1
+			end
 		end
 	end
 	local healthPercent = {

@@ -21,6 +21,8 @@ local suites = {
 	{ name = "CastReader", tests = require("./CastReaderTest") },
 	{ name = "UnitPool", tests = require("./UnitPoolTest") },
 	{ name = "Trait", tests = require("./TraitTest") },
+	{ name = "Engine", tests = require("./EngineTest") },
+	{ name = "Regression", tests = require("./RegressionTest") },
 }
 
 local passed = 0

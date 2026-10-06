@@ -291,12 +291,32 @@ table.insert(tests, {
 	end,
 })
 
+-- Current characters whose 3-star stun (2.25s) is longer than the 2.0s limit added with engine v2
+-- (docs/design/revamp-structure.md). They stay as they are until the roster revamp replaces them;
+-- any other character breaking the limit fails.
+local STUN_LIMIT_EXCEPTIONS = { Kaien = true, Nyra = true, Torra = true }
+
 table.insert(tests, {
 	name = "every ability is valid data for the generic interpreter",
 	run = function()
 		for name, unit in UnitConfig do
 			local ok, reason = Abilities.validate(unit.ability)
-			assert(ok, name .. ": " .. tostring(reason))
+			if STUN_LIMIT_EXCEPTIONS[name] then
+				assert(not ok and string.find(reason, "stun lasts", 1, true), name .. ": expected only the stun limit")
+				-- With its stuns capped at the limit, the rest of the ability must be valid.
+				local capped = { name = unit.ability.name, effects = {} }
+				for _, effect in unit.ability.effects do
+					local copy = table.clone(effect)
+					if copy.type == "STUN" then
+						copy.duration = { 1, 1.5, 2 }
+					end
+					table.insert(capped.effects, copy)
+				end
+				local cappedOk, cappedReason = Abilities.validate(capped)
+				assert(cappedOk, name .. " (stuns capped): " .. tostring(cappedReason))
+			else
+				assert(ok, name .. ": " .. tostring(reason))
+			end
 		end
 	end,
 })

@@ -23,7 +23,18 @@ local EVENT_FOR_EFFECT = {
 	STUN = "Stun",
 	BUFF = "Buff",
 	DASH = "Dash",
+	AREA_STUN = "Stun",
+	SUMMON = "Summon",
+	PULL = "Pull",
+	DAMAGE_OVER_TIME = "Dot",
+	COPY = "Copy",
 }
+
+-- Effects that can produce any number of their event, so matching stays on them.
+local MANY_EVENTS = { AREA_DAMAGE = true, AREA_STUN = true, SUMMON = true, DAMAGE_OVER_TIME = true }
+
+-- Events inside a cast that carry another unit's index rather than the caster's.
+local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true }
 
 export type Area = { column: number, row: number, radius: number }
 
@@ -40,7 +51,7 @@ local function valueAt(value: any, starLevel: number): number
 end
 
 -- `units` are the fight's starting units (CombatSim UnitSummary). `abilityOf(unitIndex)` returns
--- that unit's ability data (a UnitConfig ability) or nil.
+-- that unit's ability data (a UnitConfig ability) or nil; it is also asked for the target of a COPY.
 function CastReader.read(units: { any }, events: { any }, abilityOf: (number) -> any?): Reading
 	local damageTypes = {}
 	local areas = {}
@@ -85,15 +96,56 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number) ->
 		end
 	end
 
+	local function newCast(caster: number, tick: number, castIndex: number, ability)
+		local effects = {}
+		for _, effect in if ability then ability.effects else {} do
+			table.insert(effects, effect)
+		end
+		local cast = {
+			caster = caster,
+			tick = tick,
+			castIndex = castIndex,
+			effects = effects,
+			cursor = 1,
+			selected = {},
+			areas = {},
+		}
+		for position, effect in effects do
+			if effect.type == "AREA_DAMAGE" then
+				cast.areas[position] = {
+					selector = effect.center,
+					radius = valueAt(effect.radius, starLevels[caster] or 1),
+					hits = {},
+				}
+			end
+		end
+		return cast
+	end
+
 	-- Matches one of the caster's events to the next effect (from the cursor on) that produces it.
+	-- Returns a new cast to continue with when the event is a COPY (the copied ability's effects).
 	local function match(cast, index: number, event)
 		for position = cast.cursor, #cast.effects do
 			local effect = cast.effects[position]
 			if EVENT_FOR_EFFECT[effect.type] == event.kind then
-				if effect.type == "AREA_DAMAGE" then
-					damageTypes[index] = effect.damageType
-					table.insert(cast.areas[position].hits, event.target)
-					cast.cursor = position -- an area hits any number of units
+				if effect.type == "COPY" then
+					-- The copied ability's events follow, as if the caster had cast it. A COPY inside it
+					-- is ignored by the engine, so it is dropped here too.
+					finish(cast)
+					local copied = newCast(cast.caster, cast.tick, cast.castIndex, abilityOf(event.target))
+					for i = #copied.effects, 1, -1 do
+						if copied.effects[i].type == "COPY" then
+							table.remove(copied.effects, i)
+							copied.areas[i] = nil
+						end
+					end
+					return copied
+				elseif MANY_EVENTS[effect.type] then
+					if effect.type == "AREA_DAMAGE" then
+						damageTypes[index] = effect.damageType
+						table.insert(cast.areas[position].hits, event.target)
+					end
+					cast.cursor = position -- this effect can produce more of the same event
 				else
 					if event.kind == "Damage" then
 						damageTypes[index] = effect.damageType
@@ -103,50 +155,41 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number) ->
 					end
 					cast.cursor = position + 1
 				end
-				return
+				return cast
 			end
 		end
+		return cast
 	end
 
 	local cast = nil
 	for index, event in events do
-		-- A cast's events all come straight after it in the same tick, apart from deaths it causes.
-		if cast and (event.tick ~= cast.tick or (event.unit ~= cast.caster and event.kind ~= "Death")) then
+		-- A cast's events all come straight after it in the same tick, apart from deaths and max
+		-- health changes it causes on other units.
+		if cast and (event.tick ~= cast.tick or (event.unit ~= cast.caster and not OTHER_UNIT_EVENTS[event.kind])) then
 			finish(cast)
 			cast = nil
 		end
 
 		if event.kind == "Attack" then
 			damageTypes[index] = "PHYSICAL"
+		elseif event.kind == "Damage" and event.dot then
+			-- Damage-over-time ticks carry their own type.
+			damageTypes[index] = event.damageType
 		elseif event.kind == "Cast" then
 			if cast then
 				finish(cast)
 			end
-			local ability = abilityOf(event.unit)
-			cast = {
-				caster = event.unit,
-				tick = event.tick,
-				castIndex = index,
-				effects = if ability then ability.effects else {},
-				cursor = 1,
-				selected = {},
-				areas = {},
-			}
-			for position, effect in cast.effects do
-				if effect.type == "AREA_DAMAGE" then
-					cast.areas[position] = {
-						selector = effect.center,
-						radius = valueAt(effect.radius, starLevels[event.unit]),
-						hits = {},
-					}
-				end
-			end
+			cast = newCast(event.unit, event.tick, index, abilityOf(event.unit))
 		elseif cast and event.unit == cast.caster then
-			match(cast, index, event)
+			cast = match(cast, index, event)
 		end
 
 		if event.kind == "Move" or event.kind == "Dash" then
 			cells[event.unit] = { event.column, event.row }
+		elseif event.kind == "Summon" then
+			cells[event.summon] = { event.column, event.row }
+		elseif event.kind == "Pull" then
+			cells[event.target] = { event.column, event.row }
 		end
 	end
 	if cast then
