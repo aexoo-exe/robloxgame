@@ -64,17 +64,23 @@ export type UnitSummary = {
 	maxHealth: number,
 	mana: number,
 	maxMana: number?,
+	-- Units with forms only: the starting form and its health pool (nil without a pool).
+	form: string?,
+	formIndex: number?,
+	formHealth: number?,
+	maxFormHealth: number?,
 }
 
 -- Events, each with `tick`, `kind` and the acting `unit`:
 --   Move      column, row
 --   Dash      column, row
 --   Attack    target, damage, health, shield (target's, after the hit), mana (attacker's),
---             targetMana, crit (true or nil)
+--             targetMana, crit (true or nil), formHealth (the target's form health pool after the
+--             hit; nil when it has none)
 --   Damage    same fields as Attack, for ability damage (never crits). Damage-over-time ticks are
 --             Damage events with dot = true and their damageType; `unit` is the DOT's source.
 --   Cast      ability (name); the caster's mana is now 0
---   Heal      target, amount, health
+--   Heal      target, amount, health, formHealth (as in Attack)
 --   Shield    target, shield (new shield), duration (seconds), source (trait name, for shields
 --             given at combat start by a trait; nil for ability shields)
 --   ShieldEnd the unit's shield expired
@@ -89,6 +95,9 @@ export type UnitSummary = {
 --   Pull      target, column, row: the target was pulled next to `unit`
 --   Dot       target, damageType, refreshed (true when an existing application was refreshed)
 --   Copy      target, ability (name of the copied ability); the copied effects' events follow
+--   Form      the unit changed form (Battle.enterForm): form (name), formIndex, formHealth and
+--             maxFormHealth (the new form's pool; nil without one), health (the unit's own),
+--             cleansed (true when the change ended its stun and damage over time)
 export type Event = { [string]: any }
 
 export type Result = {
@@ -240,6 +249,10 @@ function CombatSim.run(params: Params): Result
 			maxHealth = unit.maxHealth,
 			mana = unit.mana,
 			maxMana = unit.maxMana,
+			form = if unit.form then unit.form.name else nil,
+			formIndex = unit.formIndex,
+			formHealth = unit.formHealth,
+			maxFormHealth = unit.maxFormHealth,
 		})
 	end
 

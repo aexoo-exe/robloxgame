@@ -7,10 +7,15 @@
 -- trait bonuses, vanish when they die or expire, and are left out of the timeout health
 -- percentage and surviving-unit counts (see CombatSim). Their damage events carry their own index;
 -- `summoner` links them to the unit that made them.
+--
+-- Units whose type lists `forms` start in the first form and change form when its trigger fires
+-- (Battle.checkForm; data rules in Forms). While a form has a health pool, hits go to the pool
+-- instead of the unit's health (Battle.damage). Units without forms never touch any of this.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local CombatConfig = if script then require(script.Parent.CombatConfig) else require("./CombatConfig")
 local CombatMath = if script then require(script.Parent.CombatMath) else require("./CombatMath")
+local Forms = if script then require(script.Parent.Forms) else require("./Forms")
 local HexGrid = if script then require(script.Parent.HexGrid) else require("./HexGrid")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 local StarLevel = if script then require(script.Parent.StarLevel) else require("./StarLevel")
@@ -58,6 +63,12 @@ export type Unit = {
 	summoned: boolean?, -- true for summons
 	summoner: Unit?, -- summons: the unit that made it
 	expiresTick: number?, -- summons: when it vanishes
+	-- Forms (units whose type lists `forms` only; all nil otherwise):
+	form: any?, -- the current form (Forms data)
+	formIndex: number?,
+	formHealth: number?, -- the current form's health pool, if it has one
+	maxFormHealth: number?,
+	formUses: { [number]: number }?, -- times each form's trigger has fired this fight
 }
 
 -- A running DAMAGE_OVER_TIME application on one victim.
@@ -71,6 +82,7 @@ export type Dot = {
 	nextTick: number,
 	endTick: number,
 	manaLeft: number, -- mana the victim can still gain from this application
+	cancelled: boolean?, -- ended early by a form change (FormConfig.rules.statusEffectsCarryThrough)
 }
 
 export type Battle = {
@@ -137,6 +149,10 @@ function Battle.new(params): Battle
 			}
 			table.insert(battle.units, unit)
 			battle.occupied[Battle.cellKey(battle, column, row)] = unit
+			if stats.forms then
+				unit.formUses = {}
+				Battle.enterForm(battle, unit, 1, nil, true)
+			end
 		end
 	end
 	return battle
@@ -209,7 +225,8 @@ function Battle.pickBest(battle: Battle, candidates: { Unit }, score: (Unit) -> 
 	return best[SeededRandom.nextInt(battle.rng, #best)]
 end
 
--- A stat with active buffs applied: (base + flat bonuses) x (1 + percent bonuses / 100).
+-- A stat with active buffs and the current form's change applied:
+-- (base + flat bonuses) x (1 + percent bonuses / 100).
 -- `name` is a BUFF stat name (AD, AP, AttackSpeed, Armor, MR, MoveSpeed).
 function Battle.stat(battle: Battle, unit: Unit, name: string): number
 	local field = STAT_FIELDS[name]
@@ -223,6 +240,11 @@ function Battle.stat(battle: Battle, unit: Unit, name: string): number
 			flat += buff.flat
 			percent += buff.percent
 		end
+	end
+	if unit.form then
+		local formFlat, formPercent = Forms.modifier(unit.form, name)
+		flat += formFlat
+		percent += formPercent
 	end
 	return (base + flat) * (1 + percent / 100)
 end
@@ -241,6 +263,11 @@ end
 -- Applies one hit: resistance, shield, health, mana for both sides, the event and any death.
 -- `kind` is "Attack" for a basic attack (the attacker gains mana) or "Damage" for ability damage.
 -- `manaCap` limits the mana the target gains from this hit (damage over time uses it).
+-- `overTime` marks a damage-over-time tick.
+--
+-- A target whose form has a health pool takes the hit in the pool instead of its health; when the
+-- pool runs out, the rest of that hit is discarded and the form's trigger moves it on. Whether
+-- shields absorb first and whether damage over time reaches the pool are FormConfig rules.
 -- Returns the final damage after resistance and the mana the target gained.
 function Battle.damage(
 	battle: Battle,
@@ -250,7 +277,8 @@ function Battle.damage(
 	damageType: string,
 	kind: string,
 	crit: boolean?,
-	manaCap: number?
+	manaCap: number?,
+	overTime: boolean?
 ): (number, number)
 	if target.dead then
 		return 0, 0
@@ -259,11 +287,28 @@ function Battle.damage(
 	local magicResist = Battle.stat(battle, target, "MR")
 	local final = CombatMath.finalDamage(raw, damageType, armor, magicResist)
 
-	local absorbed = math.min(target.shield, final)
-	target.shield -= absorbed
-	local healthLost = math.min(target.health, final - absorbed)
-	target.health -= healthLost
-	local mana = CombatMath.manaFromDamage(healthLost, target.maxHealth)
+	local form = target.form
+	local pooled = target.formHealth ~= nil
+		and target.formHealth > 0
+		and (not overTime or Forms.rule(form, "damageOverTimeHitsFormHealth"))
+	local absorbed = 0
+	if not pooled or Forms.rule(form, "shieldsAbsorbBeforeFormHealth") then
+		absorbed = math.min(target.shield, final)
+		target.shield -= absorbed
+	end
+	local healthLost, poolLost = 0, 0
+	if pooled then
+		poolLost = math.min(target.formHealth, final - absorbed)
+		target.formHealth -= poolLost
+	else
+		healthLost = math.min(target.health, final - absorbed)
+		target.health -= healthLost
+	end
+	local lost = healthLost
+	if poolLost > 0 and Forms.rule(form, "formHealthDamageGivesMana") then
+		lost += poolLost
+	end
+	local mana = CombatMath.manaFromDamage(lost, target.maxHealth)
 	if manaCap then
 		mana = math.min(mana, manaCap)
 	end
@@ -282,27 +327,110 @@ function Battle.damage(
 		mana = source.mana,
 		targetMana = target.mana,
 		crit = if crit then true else nil,
+		formHealth = target.formHealth,
 	})
 
 	if target.health <= 0 then
 		target.dead = true
 		battle.occupied[Battle.cellKey(battle, target.column, target.row)] = nil
 		Battle.emit(battle, { kind = "Death", unit = target.index })
+		if source.form and not target.summoned and source.side ~= target.side then
+			Battle.checkForm(battle, source, Forms.Hook.Takedown)
+		end
+	elseif form then
+		Battle.checkForm(battle, target, Forms.Hook.Damaged)
 	end
 	return final, manaGained
 end
 
--- Restores health, capped at max health. Amounts are rounded to whole numbers.
+-- Restores health, capped at max health. Amounts are rounded to whole numbers. Form health pools
+-- are not healed unless FormConfig.rules.healingRestoresFormHealth allows it: then healing beyond
+-- the unit's missing health refills the pool.
 function Battle.heal(battle: Battle, source: Unit, target: Unit, amount: number)
 	if target.dead then
 		return
 	end
-	local healed = math.min(target.maxHealth - target.health, math.round(amount))
+	local rounded = math.round(amount)
+	local healed = math.min(target.maxHealth - target.health, rounded)
 	target.health += healed
-	Battle.emit(
-		battle,
-		{ kind = "Heal", unit = source.index, target = target.index, amount = healed, health = target.health }
-	)
+	if target.formHealth and target.maxFormHealth and Forms.rule(target.form, "healingRestoresFormHealth") then
+		local refill = math.max(0, math.min(target.maxFormHealth - target.formHealth, rounded - healed))
+		target.formHealth += refill
+		healed += refill
+	end
+	Battle.emit(battle, {
+		kind = "Heal",
+		unit = source.index,
+		target = target.index,
+		amount = healed,
+		health = target.health,
+		formHealth = target.formHealth,
+	})
+end
+
+-- Puts `unit` into its form `index`: the form's stats and ability apply from now on, and a form
+-- with a health pool starts it at `healthPercent` (100 if nil) of full. Emits a Form event unless
+-- `silent` (the starting form, which the fight's unit summary reports instead). When the form being
+-- left does not let status effects carry through, the unit's stun and damage over time end.
+function Battle.enterForm(battle: Battle, unit: Unit, index: number, healthPercent: number?, silent: boolean?)
+	local form = unit.stats.forms[index]
+	local previous = unit.form
+	unit.form = form
+	unit.formIndex = index
+	unit.ability = form.ability or unit.stats.ability
+	if form.health then
+		local full = StarLevel.scaleHealth(form.health, unit.starLevel)
+		unit.maxFormHealth = full
+		unit.formHealth = math.max(1, math.round(full * (healthPercent or 100) / 100))
+	else
+		unit.maxFormHealth = nil
+		unit.formHealth = nil
+	end
+	local cleansed = false
+	if previous and not Forms.rule(previous, "statusEffectsCarryThrough") then
+		unit.stunnedUntilTick = math.min(unit.stunnedUntilTick, battle.tick)
+		for _, dot in battle.dots do
+			if dot.target == unit then
+				dot.cancelled = true
+			end
+		end
+		cleansed = true
+	end
+	if not silent then
+		Battle.emit(battle, {
+			kind = "Form",
+			unit = unit.index,
+			form = form.name,
+			formIndex = index,
+			formHealth = unit.formHealth,
+			maxFormHealth = unit.maxFormHealth,
+			health = unit.health,
+			cleansed = if cleansed then true else nil,
+		})
+	end
+end
+
+-- Asks `unit`'s current form whether its trigger fires at `hook` (Forms.Hook), and if so moves the
+-- unit to the trigger's destination form. A trigger with maxUses stops firing after that many times
+-- in the fight.
+function Battle.checkForm(battle: Battle, unit: Unit, hook: string)
+	local form = unit.form
+	if not form or unit.dead or not Forms.fires(form, unit, hook) then
+		return
+	end
+	local trigger = form.trigger
+	local uses = unit.formUses or {}
+	local used = uses[unit.formIndex] or 0
+	if trigger.maxUses and used >= trigger.maxUses then
+		return
+	end
+	local destination = Forms.destination(unit.stats.forms, unit.formIndex, trigger)
+	if not destination then
+		return
+	end
+	uses[unit.formIndex] = used + 1
+	unit.formUses = uses
+	Battle.enterForm(battle, unit, destination, trigger.healthPercent)
 end
 
 -- Gives a shield for `seconds`. Shields do not stack: the larger of the new shield and the
@@ -582,7 +710,7 @@ function Battle.damageOverTime(
 	end
 	local endTick = battle.tick + Battle.seconds(battle, seconds)
 	for _, dot in battle.dots do
-		if dot.key == key and dot.target == target and battle.tick < dot.endTick then
+		if dot.key == key and dot.target == target and battle.tick < dot.endTick and not dot.cancelled then
 			dot.endTick = endTick
 			dot.amount = math.max(dot.amount, amount)
 			dot.manaLeft = CombatConfig.dotManaCap
@@ -613,10 +741,20 @@ function Battle.tickDots(battle: Battle)
 	end
 	local remaining = {}
 	for _, dot in table.clone(battle.dots) do
-		if not dot.target.dead and battle.tick >= dot.nextTick and dot.nextTick <= dot.endTick then
+		local due = battle.tick >= dot.nextTick and dot.nextTick <= dot.endTick
+		if due and not dot.cancelled and not dot.target.dead then
 			local before = #battle.events
-			local _, gained =
-				Battle.damage(battle, dot.source, dot.target, dot.amount, dot.damageType, "Damage", nil, dot.manaLeft)
+			local _, gained = Battle.damage(
+				battle,
+				dot.source,
+				dot.target,
+				dot.amount,
+				dot.damageType,
+				"Damage",
+				nil,
+				dot.manaLeft,
+				true
+			)
 			dot.manaLeft -= gained
 			local event = battle.events[before + 1]
 			if event then
@@ -625,7 +763,7 @@ function Battle.tickDots(battle: Battle)
 			end
 			dot.nextTick += dot.intervalTicks
 		end
-		if not dot.target.dead and dot.nextTick <= dot.endTick then
+		if not dot.cancelled and not dot.target.dead and dot.nextTick <= dot.endTick then
 			table.insert(remaining, dot)
 		end
 	end
