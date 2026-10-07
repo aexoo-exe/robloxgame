@@ -172,7 +172,7 @@ powershell -ExecutionPolicy Bypass -File scripts\simulate.ps1  # headless 8-bot 
 The tests run with [Lune](https://github.com/lune-org/lune) outside Roblox Studio. They cover
 the modules in `src/shared` that use no Roblox APIs: hex grid, board rules, economy, shop,
 star upgrades, pairing, match rules and the combat simulation, including forms
-(transformations; see `docs/forms.md`). `scripts\simulate.ps1` plays
+(transformations; see `docs/forms.md`) and PvE rounds (creeps and bosses; see `docs/pve-rounds.md`). `scripts\simulate.ps1` plays
 full matches between scripted bots with those same modules and prints pacing numbers (rounds,
 match length, winner level, fight timeouts). These modules require each other with
 `if script then require(script.Parent.X) else require("./X")` so the same code loads in both
