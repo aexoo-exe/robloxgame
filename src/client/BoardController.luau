@@ -11,10 +11,12 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
+local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
 local BoardController = {}
@@ -57,13 +59,15 @@ local function render()
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
 		local stats = UnitConfig[unit.unitType]
 		local skin = SkinConfig[unit.unitType]
-		local color = Color3.fromRGB(skin.color[1], skin.color[2], skin.color[3])
+		local color = RenderConfig.costColors[stats.cost]
 		local view = UnitView.new(skin.name, unit.starLevel, color, position, Arena.folder, {
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
+			traits = TraitIcon.traitsOf(stats),
 		})
 		view.part:SetAttribute("UnitId", unit.id)
+		view.part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
 		views[unit.id] = view
 	end
 end

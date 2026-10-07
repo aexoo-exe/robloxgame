@@ -1,6 +1,6 @@
 -- Placeholder shop and economy panel on the right edge of the screen: gold, level, XP progress,
--- units on the board against the cap, five shop buttons (name, cost, origin and classes, with an
--- origin color stripe), reroll, buy XP and sell. Buttons only send
+-- units on the board against the cap, five shop cards (name and cost, with a stripe and border in
+-- the cost's color, and each trait's symbol and name), reroll, buy XP and sell. Buttons only send
 -- requests and are disabled outside Preparation; everything shown comes from the server's
 -- PlayerStateUpdated and BoardUpdated.
 
@@ -17,10 +17,15 @@ local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local BoardController = require(script.Parent.BoardController)
+local TraitIcon = require(script.Parent.TraitIcon)
 
 local ShopPanel = {}
 
-local PANEL_WIDTH = 220
+local PANEL_WIDTH = 250
+local CARD_HEIGHT = 50
+local CARD_ICON_SIZE = 16
+
+type Card = { stripe: Frame, stroke: UIStroke, content: CanvasGroup, title: TextLabel, traits: Frame? }
 
 local function createButton(parent: Instance, order: number, height: number): TextButton
 	local button = Instance.new("TextButton")
@@ -92,18 +97,41 @@ function ShopPanel.start()
 	local view = nil
 	local placedCount = 0
 
+	-- Each card: a stripe and border in the cost's color (matching the unit's color on the board),
+	-- the name and price on top, and the trait symbols with names below. The card's content sits
+	-- in a CanvasGroup so a disabled card can fade it all at once.
 	local shopButtons = {}
-	local originStripes = {}
+	local cards: { Card } = {}
 	for slot = 1, ShopConfig.slots do
-		local button = createButton(panel, slot, 44)
-		button.RichText = true
-		-- A stripe in the character's origin color, matching its unit color on the board.
+		local button = createButton(panel, slot, CARD_HEIGHT)
+		button.Text = ""
 		local stripe = Instance.new("Frame")
 		stripe.Size = UDim2.new(0, 6, 1, 0)
 		stripe.BorderSizePixel = 0
 		stripe.Visible = false
 		stripe.Parent = button
-		originStripes[slot] = stripe
+		local stroke = Instance.new("UIStroke")
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Thickness = 2
+		stroke.Enabled = false
+		stroke.Parent = button
+
+		local content = Instance.new("CanvasGroup")
+		content.Position = UDim2.fromOffset(12, 4)
+		content.Size = UDim2.new(1, -16, 1, -8)
+		content.BackgroundTransparency = 1
+		content.Parent = button
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, 0, 0, 20)
+		title.BackgroundTransparency = 1
+		title.RichText = true
+		title.TextColor3 = Color3.new(1, 1, 1)
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = 14
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = content
+
+		cards[slot] = { stripe = stripe, stroke = stroke, content = content, title = title, traits = nil }
 		button.Activated:Connect(function()
 			if isPreparation() and view and view.shop[slot] then
 				requestBuyUnit:FireServer(slot)
@@ -157,24 +185,36 @@ function ShopPanel.start()
 		)
 		for slot, button in shopButtons do
 			local unitType = view.shop[slot]
-			local stripe = originStripes[slot]
+			local card = cards[slot]
+			if card.traits then
+				card.traits:Destroy()
+				card.traits = nil
+			end
 			if unitType then
 				local unit = UnitConfig[unitType]
-				button.Text = string.format(
-					'%s  (%d gold)\n<font size="12">%s · %s</font>',
+				local costColor = RenderConfig.costColors[unit.cost]
+				card.title.Text = string.format(
+					'%s  <font color="#%s">(%d gold)</font>',
 					SkinConfig[unitType].name,
-					unit.cost,
-					unit.origin,
-					table.concat(unit.classes, " / ")
+					costColor:ToHex(),
+					unit.cost
 				)
-				stripe.BackgroundColor3 = RenderConfig.originColors[unit.origin]
-				stripe.Visible = true
+				card.stripe.BackgroundColor3 = costColor
+				card.stripe.Visible = true
+				card.stroke.Color = costColor
+				card.stroke.Enabled = true
+				local traits = TraitIcon.row(TraitIcon.traitsOf(unit), CARD_ICON_SIZE, 11, 6)
+				traits.Position = UDim2.fromOffset(0, 22)
+				traits.Parent = card.content
+				card.traits = traits
 			else
 				-- Bought, or nothing left in the shared pool to show.
-				button.Text = "(empty)"
-				stripe.Visible = false
+				card.title.Text = "(empty)"
+				card.stripe.Visible = false
+				card.stroke.Enabled = false
 			end
 			setUsable(button, preparation and unitType ~= false)
+			card.content.GroupTransparency = if preparation and unitType ~= false then 0 else 0.4
 		end
 	end
 

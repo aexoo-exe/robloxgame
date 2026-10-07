@@ -22,10 +22,9 @@ local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
--- A character's skin color as a Color3.
-local function skinColor(unitType: string): Color3
-	local color = SkinConfig[unitType].color
-	return Color3.fromRGB(color[1], color[2], color[3])
+-- A character's body color: its cost's color.
+local function costColor(unitType: string): Color3
+	return RenderConfig.costColors[UnitConfig[unitType].cost]
 end
 
 -- Display name of an ability. Abilities are named by their character's internal id.
@@ -37,6 +36,7 @@ end
 local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
 local CombatEffects = require(script.Parent.CombatEffects)
+local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
@@ -98,7 +98,7 @@ local function play(playback)
 		views[unit.index] = UnitView.new(
 			SkinConfig[unit.unitType].name,
 			unit.starLevel,
-			skinColor(unit.unitType),
+			costColor(unit.unitType),
 			toWorld(unit.column, unit.row),
 			Arena.folder,
 			{
@@ -111,8 +111,10 @@ local function play(playback)
 				formHealth = unit.formHealth,
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
+				traits = TraitIcon.traitsOf(UnitConfig[unit.unitType]),
 			}
 		)
+		views[unit.index].part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
 	end
 
 	-- Side, range and move speed of every unit, summons included. Summons appear only in Summon
