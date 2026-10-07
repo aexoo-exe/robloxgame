@@ -15,9 +15,12 @@ return table.freeze({
 	-- within this fraction (1 percentage point) of each other. docs/design/match-structure.md section 6.
 	timeoutDrawMargin = 0.01,
 
-	-- Every unit's combat health is its UnitConfig health times this (and its star multiplier); see
-	-- StarLevel.scaleStats. UnitConfig keeps the design docs' base values. Player health and player
-	-- damage are separate and unaffected. docs/design/revamp-structure.md: 1.16.
+	-- The roster health dial. Every roster unit's combat health is its UnitConfig health times this
+	-- (and its star multiplier), and so is every form health pool (rider horses, FormConfig); see
+	-- StarLevel. Creeps and bosses (PveThemeConfig) list final health and are not scaled by it.
+	-- Summons follow it through their summoner's health. UnitConfig keeps the design docs' base
+	-- values. Player health and player damage are separate and unaffected.
+	-- docs/design/revamp-structure.md: 1.16. A 12% increase is 1.16 x 1.12 = 1.2992.
 	globalHealthMultiplier = 1.16,
 
 	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.

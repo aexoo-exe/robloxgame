@@ -3,8 +3,9 @@
 -- at the start (Pve.pickTheme) and uses it for every PvE round, so a new theme is a new entry here.
 -- docs/pve-rounds.md explains the fields.
 --
--- Unit types use the UnitConfig stat fields and run through the same combat engine. Health is
--- before CombatConfig.globalHealthMultiplier (x1.16), like UnitConfig. They are never in UnitConfig,
+-- Unit types use the UnitConfig stat fields and run through the same combat engine. Health is the
+-- final combat health: the roster health dial (CombatConfig.globalHealthMultiplier) does not apply
+-- to creeps and bosses (StarLevel.scaleStats). They are never in UnitConfig,
 -- so they never appear in the shop or the unit pool. Their ids must be unique across UnitConfig and
 -- every theme. Creeps have no ability (no maxMana). `look` is what players see: name, body color
 -- { r, g, b } and a size multiplier.
@@ -69,17 +70,21 @@ local themes = {
 	placeholder = {
 		units = {
 			-- creep(HP, AD, armor, MR, attack speed, range, move, look)
-			placeholder_creep = creep(180, 12, 0, 0, 0.60, 1, 0.9, CREEP_LOOK),
-			placeholder_creep_ranged = creep(140, 14, 0, 0, 0.60, 3, 0.9, CREEP_LOOK),
-			placeholder_creep_big = creep(380, 22, 15, 10, 0.55, 1, 0.8, BIG_CREEP_LOOK),
+			-- Health is final combat health. These equal the earlier values x1.16 (180 / 140 / 380 under
+			-- the roster dial), so the creeps are unchanged.
+			placeholder_creep = creep(209, 12, 0, 0, 0.60, 1, 0.9, CREEP_LOOK),
+			placeholder_creep_ranged = creep(162, 14, 0, 0, 0.60, 3, 0.9, CREEP_LOOK),
+			placeholder_creep_big = creep(441, 22, 15, 10, 0.55, 1, 0.8, BIG_CREEP_LOOK),
 
 			-- boss(HP, AD, armor, MR, attack speed, max mana, slam damage, slam stun seconds, look)
 			-- Interim health (tuning pass 1): x1.60 / x1.70 / x1.75 / x1.50 of 3500 / 6000 / 10000 /
-			-- 15000, until the sim's boss calibration report gives measured values.
-			placeholder_boss_stage2 = boss(5600, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
-			placeholder_boss_stage3 = boss(10200, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
-			placeholder_boss_stage4 = boss(17500, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
-			placeholder_boss_stage5 = boss(22500, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
+			-- 15000 (= 5600 / 10200 / 17500 / 22500), then x1.16 now that the roster health dial no
+			-- longer applies to bosses. Final combat health; the fights are unchanged by the x1.16.
+			-- To be replaced by the sim's boss calibration report.
+			placeholder_boss_stage2 = boss(6496, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
+			placeholder_boss_stage3 = boss(11832, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
+			placeholder_boss_stage4 = boss(20300, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
+			placeholder_boss_stage5 = boss(26100, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
 		},
 
 		-- Opening creep rounds, by round number. Every player fights the same lineup.

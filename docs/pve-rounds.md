@@ -104,9 +104,10 @@ my_theme = {
 }
 ```
 
-- **Unit types.** They use the `UnitConfig` stat fields, with health before the ×1.16 global
-  multiplier. They run through the same combat engine, with the theme's types added to
-  `UnitConfig` for that fight only (`Pve.unitTypes`).
+- **Unit types.** They use the `UnitConfig` stat fields. Their health is the final combat health:
+  the roster health dial (`CombatConfig.globalHealthMultiplier`) does not apply to creeps or bosses.
+  They run through the same combat engine, with the theme's types added to `UnitConfig` for that
+  fight only (`Pve.unitTypes`).
 - **Never in the shop.** Theme units are never in `UnitConfig`, so they never reach the shop or
   the unit pool.
 - **Unique ids.** Every unit id must be unique across `UnitConfig` and all themes.

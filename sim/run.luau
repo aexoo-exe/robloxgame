@@ -870,12 +870,7 @@ end
 print("Boss calibration (each boss-round board against an undying copy of the boss, until wiped or 50s):")
 print("  damage dealt to the boss per board: average, median, 25th-75th percentile; average fight length;")
 print("  boss combat health (current) and the combat health at which the median board removes 60%")
-print(
-	string.format(
-		"  (combat health = PveThemeConfig health x %.2f, CombatConfig.globalHealthMultiplier)",
-		CombatConfig.globalHealthMultiplier
-	)
-)
+print("  (boss health in PveThemeConfig is combat health; the roster health dial does not apply to it)")
 local calibrationRounds = {}
 for round in bossCalibration do
 	table.insert(calibrationRounds, round)

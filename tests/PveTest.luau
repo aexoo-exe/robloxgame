@@ -3,7 +3,10 @@
 
 local Abilities = require("../src/shared/Abilities")
 local Board = require("../src/shared/Board")
+local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
+local FormConfig = require("../src/shared/FormConfig")
+local StarLevel = require("../src/shared/StarLevel")
 local Economy = require("../src/shared/Economy")
 local EconomyConfig = require("../src/shared/EconomyConfig")
 local Match = require("../src/shared/Match")
@@ -179,6 +182,36 @@ table.insert(tests, {
 				})
 				expectEqual(fight.winner, 1, string.format("%s vs round-1 creeps, seed %d", id, seed))
 			end
+		end
+	end,
+})
+
+table.insert(tests, {
+	name = "the roster health dial scales characters and rider horses, never creeps or bosses",
+	run = function()
+		local dial = CombatConfig.globalHealthMultiplier
+		expectEqual(dial, 1.16, "the dial's value is unchanged in tuning pass 1")
+		local placed = { { id = "r", unitType = "spurshot", column = 4, row = 4 } }
+		local fight = CombatSim.run({
+			boards = { placed, Pve.enemyBoard("placeholder", 8) },
+			columns = 7,
+			rows = 4,
+			unitTypes = Pve.unitTypes("placeholder"),
+			ticksPerSecond = 20,
+			maxTicks = 1,
+			seed = 1,
+		})
+		local rider, boss = fight.units[1], fight.units[2]
+		expectEqual(rider.maxHealth, math.round(UnitConfig.spurshot.health * dial), "character health x dial")
+		expectEqual(
+			rider.maxFormHealth,
+			math.round(FormConfig.mount.horseHealth.spurshot * dial),
+			"horse pool x dial"
+		)
+		local bossType = PveThemeConfig.placeholder.units[Pve.enemyBoard("placeholder", 8)[1].unitType]
+		expectEqual(boss.maxHealth, bossType.health, "boss health is listed as final combat health")
+		for id, unit in PveThemeConfig.placeholder.units do
+			expectEqual(StarLevel.scaleStats(unit, 1).health, unit.health, id .. " is not scaled by the dial")
 		end
 	end,
 })
