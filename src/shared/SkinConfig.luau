@@ -2,6 +2,8 @@
 -- name, its ability's display name and its color as { red, green, blue } (0-255). All character
 -- text in the UI comes from here and nowhere else, so renaming or reskinning a character is a
 -- change to this file only. Names are from docs/design/revamp-roster.md (Block 2).
+-- The colors are not drawn at the moment: unit bodies and shop cards are colored by cost
+-- (RenderConfig.costColors), and traits show as symbols (TraitIconConfig).
 -- Pure Luau: no Roblox APIs, so it loads in Lune tests too.
 
 local HUNTERS = { 214, 120, 52 }
