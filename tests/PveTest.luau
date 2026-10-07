@@ -186,14 +186,26 @@ table.insert(tests, {
 -- Rewards ---------------------------------------------------------------------------------------
 
 table.insert(tests, {
-	name = "creep rewards: goldPerCreep for each creep killed",
+	name = "creep rewards: the round's gold (1/2/2) times the share of creeps killed, rounded down",
 	run = function()
-		local creeps = #Pve.enemyBoard("placeholder", 2)
-		local all = Pve.reward("placeholder", 2, { 2, 0 }, { 0.5, 0 })
-		expectEqual(all.gold, creeps * PveConfig.goldPerCreep, "every creep killed")
-		expectEqual(all.creepsKilled, creeps, "creeps killed")
-		local some = Pve.reward("placeholder", 2, { 0, 2 }, { 0, 0.8 })
-		expectEqual(some.gold, (creeps - 2) * PveConfig.goldPerCreep, "two creeps survived")
+		expectEqual(PveConfig.creepRoundGold[1], 1, "round 1 gold")
+		expectEqual(PveConfig.creepRoundGold[2], 2, "round 2 gold")
+		expectEqual(PveConfig.creepRoundGold[3], 2, "round 3 gold")
+		for round = 1, 3 do
+			local creeps = #Pve.enemyBoard("placeholder", round)
+			local full = PveConfig.creepRoundGold[round]
+			local all = Pve.reward("placeholder", round, { 2, 0 }, { 0.5, 0 })
+			expectEqual(all.gold, full, "round " .. round .. ": every creep killed")
+			expectEqual(all.creepsKilled, creeps, "creeps killed")
+			expectEqual(Pve.reward("placeholder", round, { 0, creeps }, { 0, 1 }).gold, 0, "none killed")
+			for survivors = 0, creeps do
+				local gold = Pve.reward("placeholder", round, { 1, survivors }, { 0.5, 0.5 }).gold
+				expectEqual(gold, math.floor(full * (creeps - survivors) / creeps), "round " .. round .. " share")
+			end
+		end
+		-- Round 3 has 4 creeps and pays 2: 3 killed -> 1.5 -> 1, 2 killed -> 1, 1 killed -> 0.
+		expectEqual(Pve.reward("placeholder", 3, { 1, 1 }, nil).gold, 1, "3 of 4 killed")
+		expectEqual(Pve.reward("placeholder", 3, { 1, 3 }, nil).gold, 0, "1 of 4 killed")
 	end,
 })
 
@@ -201,6 +213,23 @@ table.insert(tests, {
 	name = "boss rewards: the highest share step reached, plus the kill bonus",
 	run = function()
 		local steps = PveConfig.bossRewardSteps
+		-- Under 25%: 0. 25-44%: 1. 45-64%: 2. 65-84%: 3. 85%+: 4. Kill: +1.
+		local cases = {
+			{ 0.24, 0 },
+			{ 0.25, 1 },
+			{ 0.44, 1 },
+			{ 0.45, 2 },
+			{ 0.64, 2 },
+			{ 0.65, 3 },
+			{ 0.84, 3 },
+			{ 0.85, 4 },
+			{ 1, 4 },
+		}
+		for _, case in cases do
+			expectEqual(Pve.bossGold(case[1], false), case[2], "share " .. case[1])
+		end
+		expectEqual(Pve.bossGold(1 - 0.55, false), 2, "an exact 45% computed as 1 - 0.55")
+		expectEqual(PveConfig.bossKillBonus, 1, "kill bonus")
 		expectEqual(Pve.bossGold(0, false), 0, "no damage")
 		expectEqual(Pve.bossGold(steps[1].minShare - 0.01, false), 0, "below the first step")
 		for _, step in steps do
@@ -240,7 +269,8 @@ table.insert(tests, {
 		for id, player in match.players do
 			expectEqual(player.health, MatchConfig.startingHealth, "HP of player " .. id)
 			assert(summary.pve[id], "reward for player " .. id)
-			expectEqual(summary.pve[id].gold, PveConfig.goldPerCreep, "one of two creeps killed")
+			-- Round 1 pays 1 gold for both creeps; one of two killed is 0.5, rounded down to 0.
+			expectEqual(summary.pve[id].gold, 0, "one of two creeps killed")
 		end
 		expectEqual(next(summary.outcomes), nil, "PvE rounds report no PvP outcomes")
 		expectEqual(#summary.eliminated, 0, "nobody is eliminated")

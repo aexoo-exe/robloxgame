@@ -128,7 +128,8 @@ end
 function Pve.bossGold(share: number, killed: boolean): number
 	local gold = 0
 	for _, step in PveConfig.bossRewardSteps do
-		if share >= step.minShare then
+		-- The tolerance keeps exact boundaries (1 - 0.55 is 0.4499...) in the higher step.
+		if share + 1e-9 >= step.minShare then
 			gold = math.max(gold, step.gold)
 		end
 	end
@@ -141,8 +142,9 @@ function Pve.reward(themeId: string, round: number, survivors: { number }, healt
 	local kind = Pve.roundKind(round)
 	if kind == Pve.Kind.Creep then
 		local creeps = #Pve.enemyBoard(themeId, round)
-		local killed = math.max(0, creeps - survivors[2])
-		return { kind = kind, gold = killed * PveConfig.goldPerCreep, creepsKilled = killed, creeps = creeps }
+		local killed = math.clamp(creeps - survivors[2], 0, creeps)
+		local gold = (PveConfig.creepRoundGold[round] or 0) * killed // creeps
+		return { kind = kind, gold = gold, creepsKilled = killed, creeps = creeps }
 	end
 	local bossKilled = survivors[2] == 0
 	local remaining = if bossKilled then 0 elseif healthPercent then healthPercent[2] else 1

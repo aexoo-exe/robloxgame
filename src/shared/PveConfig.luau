@@ -31,17 +31,23 @@ return table.freeze({
 		}),
 	}),
 
-	-- Gold for each creep killed in a creep round, the same for every player.
-	goldPerCreep = 1,
+	-- Gold for each creep round, the same for every player: the round's amount times the share of
+	-- its creeps killed, rounded down (all killed pays it in full).
+	creepRoundGold = table.freeze({
+		[1] = 1,
+		[2] = 2,
+		[3] = 2,
+	}),
 
 	-- Boss rewards by the share of the boss's health removed when the fight ends: the highest step
-	-- reached pays its gold, plus killBonus if the boss died.
+	-- reached pays its gold (under the first step: 0), plus bossKillBonus if the boss died.
 	bossRewardSteps = table.freeze({
-		table.freeze({ minShare = 0.25, gold = 1 }),
-		table.freeze({ minShare = 0.50, gold = 2 }),
-		table.freeze({ minShare = 0.75, gold = 3 }),
+		table.freeze({ minShare = 0.25, gold = 1 }), -- 25-44%
+		table.freeze({ minShare = 0.45, gold = 2 }), -- 45-64%
+		table.freeze({ minShare = 0.65, gold = 3 }), -- 65-84%
+		table.freeze({ minShare = 0.85, gold = 4 }), -- 85% or more
 	}),
-	bossKillBonus = 2,
+	bossKillBonus = 1,
 
 	-- Player HP lost for not winning a PvE round (a loss or a timeout).
 	healthLoss = table.freeze({

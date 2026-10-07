@@ -37,17 +37,20 @@ is round 21 onwards.
 - **Starting unit.** When the match starts, every player gets one random 1-cost unit, placed on
   the board. It's drawn from the shared pool and weighted by copies left, the same way a shop roll
   picks a character.
-- **Creep rounds.** Each creep killed pays `goldPerCreep` (1) gold, the same for every player.
-  You don't need to win to get paid.
+- **Creep rounds.** Each creep round has a gold amount (round 1: 1, round 2: 2, round 3: 2), the
+  same for every player. It's paid in proportion to the share of creeps killed, rounded down, so
+  only a full clear is guaranteed the whole amount. You don't need to win to get paid.
 - **Boss rounds.** Gold depends on the share of the boss's health removed when the fight ends. The
   highest step reached pays, and killing the boss adds a bonus:
 
   | Health removed | Gold |
   | --- | --- |
-  | 25% | 1 |
-  | 50% | 2 |
-  | 75% | 3 |
-  | Kill | +2 |
+  | under 25% | 0 |
+  | 25-44% | 1 |
+  | 45-64% | 2 |
+  | 65-84% | 3 |
+  | 85% or more | 4 |
+  | Kill | +1 |
 - **Boss signature ability ("Boss Slam").** Physical damage to every enemy within 1 hex of the
   boss, then a short stun on the same enemies. It's built from the existing `AREA_DAMAGE` and
   `AREA_STUN` effects.
@@ -66,7 +69,7 @@ is round 21 onwards.
   - The MatchState attribute `RoundKind` ("Creep", "Boss" or "PvP") drives a CREEP ROUND or BOSS
     ROUND tag and tint on the top label.
   - Each player's `LastResult` and `LastGold` show what they earned, for example
-    "Creeps: 3/3 killed, +3 gold" or "Boss: 62% damage dealt, +2 gold".
+    "Creeps: 3/3 killed, +2 gold" or "Boss: 62% damage dealt, +2 gold".
   - Creeps and bosses use their theme's look (name, color, size).
 
 ## Where the config lives
@@ -77,8 +80,8 @@ is round 21 onwards.
 | Which rounds are boss rounds | `PveConfig.bossRounds` ({ 8, 12, 16, 20 }) |
 | Preparation time per round | `PveConfig.preparationDurations` ([1]=0, [2]=15, [3]=15; other rounds use `MatchConfig.preparationDuration`, 30) |
 | Starting-unit rule | `PveConfig.startingUnits` (count 1, cost 1, cells (4,4), (3,4), (5,4)) |
-| Gold per creep | `PveConfig.goldPerCreep` (1) |
-| Boss reward steps and kill bonus | `PveConfig.bossRewardSteps`, `PveConfig.bossKillBonus` (2) |
+| Gold per creep round | `PveConfig.creepRoundGold` ([1]=1, [2]=2, [3]=2) |
+| Boss reward steps and kill bonus | `PveConfig.bossRewardSteps` (25/45/65/85% -> 1/2/3/4), `PveConfig.bossKillBonus` (1) |
 | HP loss for PvE rounds | `PveConfig.healthLoss` (Creep 0, Boss 0) |
 | Opponent names shown in combat | `PveConfig.opponentNames` |
 | Creep and boss stats, looks, lineups, boss per stage | `PveThemeConfig.<theme>` |
