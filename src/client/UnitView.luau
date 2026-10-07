@@ -1,6 +1,8 @@
 -- A placeholder unit: a block colored by origin with a dark visor marking its front, its name and star level,
 -- a health bar (with any shield shown as a white segment after the health), and a mana bar under
 -- it. Higher-star units are drawn slightly larger (RenderConfig.starSizeScale). Presentation only.
+-- A unit created with a form health pool (a mounted rider) also gets a pool bar stacked above the
+-- health bar, shown while its form has a pool, and its form's look (RenderConfig.formLooks).
 --
 -- In combat, every animation (gliding, turning, lunges, hit flashes, cast glows, floating numbers,
 -- the stun marker, the shield bubble and the death fade) is advanced by UnitView.update, called
@@ -43,6 +45,10 @@ export type UnitView = {
 	shieldFill: Frame,
 	manaFill: Frame,
 	stunMarker: TextLabel,
+	formBar: Frame?, -- the form health pool bar; nil for units created without a pool
+	formFill: Frame?,
+	maxFormHealth: number?,
+	formParts: { Part }, -- the current form's look (placeholder horse)
 
 	-- Animation state, in os.clock() seconds.
 	base: Vector3, -- part center without lunge or death offsets
@@ -75,6 +81,9 @@ export type Options = {
 	yaw: number?, -- initial facing in radians around the vertical axis (0 faces -Z)
 	healthColor: Color3?, -- RenderConfig.healthBarColor if nil
 	summon: boolean?, -- drawn smaller and see-through, labeled as a summon
+	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
+	maxFormHealth: number?,
+	formLook: any?, -- the starting form's RenderConfig.formLooks entry
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -206,12 +215,22 @@ function UnitView.new(
 	label.TextSize = 14
 	label.Parent = infoBoard
 
-	local healthBar = bar(infoBoard, 34, 8)
+	-- A unit with a form health pool gets the pool bar on top; the bars below move down to fit it.
+	local formBar, formFill = nil, nil
+	local barsOffset = 0
+	if options.maxFormHealth then
+		barsOffset = 6
+		infoBoard.Size = UDim2.fromOffset(90, 54 + barsOffset)
+		formBar = bar(infoBoard, 34, 5)
+		formFill = fill(formBar, RenderConfig.formHealthColor)
+	end
+
+	local healthBar = bar(infoBoard, 34 + barsOffset, 8)
 	local healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)
 	local shieldFill = fill(healthBar, RenderConfig.shieldColor)
 	shieldFill.Size = UDim2.fromScale(0, 1)
 
-	local manaBar = bar(infoBoard, 44, 4)
+	local manaBar = bar(infoBoard, 44 + barsOffset, 4)
 	local manaFill = fill(manaBar, RenderConfig.manaBarColor)
 	manaFill.Size = UDim2.fromScale(0, 1)
 
@@ -238,6 +257,10 @@ function UnitView.new(
 		shieldFill = shieldFill,
 		manaFill = manaFill,
 		stunMarker = stunMarker,
+		formBar = formBar,
+		formFill = formFill,
+		maxFormHealth = options.maxFormHealth,
+		formParts = {},
 
 		base = base,
 		moveFrom = base,
@@ -262,7 +285,50 @@ function UnitView.new(
 		baseTransparency = if options.summon then RenderConfig.summonTransparency else 0,
 	}
 	UnitView.setMana(view, options.mana or 0)
+	if options.formLook or options.maxFormHealth then
+		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth)
+	end
 	return view
+end
+
+-- Shows the form health pool. Hidden when `formHealth` is nil (the form has no pool).
+function UnitView.setFormHealth(view: UnitView, formHealth: number?)
+	if not view.formBar or not view.formFill then
+		return
+	end
+	view.formBar.Visible = formHealth ~= nil
+	if formHealth and view.maxFormHealth then
+		view.formFill.Size = UDim2.fromScale(math.clamp(formHealth / view.maxFormHealth, 0, 1), 1)
+	end
+end
+
+-- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for the plain block) and
+-- its health pool (nil if it has none).
+function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFormHealth: number?)
+	for _, piece in view.formParts do
+		piece:Destroy()
+	end
+	table.clear(view.formParts)
+	if look and look.mount and not view.dyingSince then
+		-- Placeholder horse: a long low body under the unit, sticking out front and back, and a head
+		-- at the front (-Z).
+		local size = view.part.Size
+		local bodySize = Vector3.new(size.X * 1.05, size.Y * 0.32, size.Z * 1.9)
+		local headSize = Vector3.new(size.X * 0.4, size.Y * 0.4, size.Z * 0.45)
+		local bottom = -size.Y / 2
+		local bodyOffset = CFrame.new(0, bottom + bodySize.Y / 2, 0)
+		local headOffset = CFrame.new(0, bottom + bodySize.Y + headSize.Y / 2 - 0.1, -(bodySize.Z - headSize.Z) / 2)
+		local body = decoration(view.part, bodySize, view.part.CFrame * bodyOffset, look.mount)
+		local head = decoration(view.part, headSize, view.part.CFrame * headOffset, look.mount)
+		for _, piece in { body, head } do
+			piece.Transparency = view.part.Transparency
+			table.insert(view.formParts, piece)
+		end
+	end
+	if maxFormHealth then
+		view.maxFormHealth = maxFormHealth
+	end
+	UnitView.setFormHealth(view, formHealth)
 end
 
 -- Where the body is heading right now (ignoring lunges), for a move that may be in progress.
@@ -541,6 +607,9 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	if part.Transparency ~= transparency then
 		part.Transparency = transparency
 		view.visor.Transparency = transparency
+		for _, piece in view.formParts do
+			piece.Transparency = transparency
+		end
 	end
 
 	-- Color: a hit flash wins over a cast glow.
