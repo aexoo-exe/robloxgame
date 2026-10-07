@@ -174,6 +174,84 @@ local threeStars = {
 -- Results by strategy group ("standard" or a rerolling policy's name).
 local groups = {}
 
+-- Support characters (class Support), every star level, PvP fights only: per fight they appeared
+-- in, healing and shielding given (trait shields excluded), casts and seconds alive.
+local supportStats = {}
+
+local function isSupportClass(unitType: string): boolean
+	return table.find(UnitConfig[unitType].classes, "Support") ~= nil
+end
+
+local function recordSupport(result)
+	local tps = result.ticksPerSecond
+	local fightSeconds = result.endTick / tps
+	local tracked = {} -- unit index -> unit type
+	for _, unit in result.units do
+		if isSupportClass(unit.unitType) then
+			tracked[unit.index] = unit.unitType
+			local entry = supportStats[unit.unitType]
+				or { fights = 0, heal = 0, shield = 0, casts = 0, aliveSeconds = 0, fightSeconds = 0 }
+			entry.fights += 1
+			entry.fightSeconds += fightSeconds
+			supportStats[unit.unitType] = entry
+		end
+	end
+	local deathTick = {}
+	for _, event in result.events do
+		local unitType = tracked[event.unit]
+		if unitType then
+			local entry = supportStats[unitType]
+			if event.kind == "Heal" then
+				entry.heal += event.amount
+			elseif event.kind == "Shield" and not event.source then
+				entry.shield += event.shield
+			elseif event.kind == "Cast" then
+				entry.casts += 1
+			elseif event.kind == "Death" then
+				deathTick[event.unit] = event.tick
+			end
+		end
+	end
+	for index, unitType in tracked do
+		supportStats[unitType].aliveSeconds += (deathTick[index] or result.endTick) / tps
+	end
+end
+
+-- Gold per player per match, summed over every player of every match: earned by source and spent
+-- by use. Spending is measured by wrapping the PlayerState actions the bots call (their behavior is
+-- unchanged); each action's gold change is booked to the acting player's ledger.
+local goldTotals = {
+	players = 0,
+	starting = 0,
+	base = 0,
+	interest = 0,
+	streak = 0,
+	win = 0,
+	pve = 0,
+	sales = 0,
+	units = 0,
+	rerolls = 0,
+	xp = 0,
+}
+local ledgers = setmetatable({}, { __mode = "k" }) -- PlayerState -> this match's ledger
+
+local function bookGold(action: string, key: string, sign: number)
+	local original = PlayerState[action]
+	PlayerState[action] = function(state, ...)
+		local before = state.gold
+		local accepted, reason = original(state, ...)
+		local ledger = ledgers[state]
+		if ledger then
+			ledger[key] += sign * (state.gold - before)
+		end
+		return accepted, reason
+	end
+end
+bookGold("buyUnit", "units", -1)
+bookGold("reroll", "rerolls", -1)
+bookGold("buyXp", "xp", -1)
+bookGold("sellUnit", "sales", 1)
+
 -- PvE rounds, by round number: fights, fights won, gold paid, and for boss rounds the summed share
 -- of boss health removed and kills. `goldByPlayer` sums each player's PvE gold per match.
 local pveRounds = {}
@@ -354,6 +432,18 @@ local function playMatch(matchIndex: number)
 	for i = 1, PLAYERS do
 		ids[i] = i
 		states[i] = PlayerState.new(matchIndex * 1000 + i, pool)
+		ledgers[states[i]] = {
+			starting = states[i].gold,
+			base = 0,
+			interest = 0,
+			streak = 0,
+			win = 0,
+			pve = 0,
+			sales = 0,
+			units = 0,
+			rerolls = 0,
+			xp = 0,
+		}
 		PlayerState.grantStartingUnits(states[i])
 		policies[i] = policyFor(i, matchIndex)
 		memories[i] = Bot.newMemory()
@@ -376,7 +466,14 @@ local function playMatch(matchIndex: number)
 		roundBoards[round] = boards
 		for _, id in Match.activeIds(match) do
 			if preparation > 0 then
-				PlayerState.startPreparation(states[id])
+				local income = PlayerState.startPreparation(states[id])
+				if income then
+					local ledger = ledgers[states[id]]
+					ledger.base += income.base
+					ledger.interest += income.interest
+					ledger.streak += income.streak
+					ledger.win += income.win
+				end
 				boards[id] = Bot.prepare(states[id], policies[id], memories[id])
 			else
 				-- No Preparation (round 1): the units already on the board fight.
@@ -419,6 +516,7 @@ local function playMatch(matchIndex: number)
 			fightSeconds[fight.a] = result.endTick / result.ticksPerSecond
 			if not fight.pve then
 				recordFight(result)
+				recordSupport(result)
 				Mechanics.record(result)
 				recordTimeoutData({ boards[fight.a], enemyBoard(fight, boards, match) }, result.timedOut)
 				stats.fights += 1
@@ -447,6 +545,7 @@ local function playMatch(matchIndex: number)
 			if reward then
 				PlayerState.recordPve(states[result.fight.a], reward.gold)
 				goldFromPve[result.fight.a] += reward.gold
+				ledgers[states[result.fight.a]].pve += reward.gold
 				recordPveFight(match.round, result.fight.pve, result.winner, reward, fightSeconds[result.fight.a])
 			end
 		end
@@ -496,6 +595,12 @@ local function playMatch(matchIndex: number)
 	for _, gold in goldFromPve do
 		pveGold.sum += gold
 		pveGold.players += 1
+	end
+	for _, state in states do
+		goldTotals.players += 1
+		for key, amount in ledgers[state] do
+			goldTotals[key] += amount
+		end
 	end
 	poolStats.dryRolls += pool.dryRolls
 	for cost = 1, 5 do
@@ -699,15 +804,19 @@ if timeouts.fights > 0 then
 	table.sort(names, function(a, b)
 		return ratio(a) > ratio(b)
 	end)
-	local line = {}
-	for i = 1, math.min(8, #names) do
-		local name = names[i]
-		table.insert(
-			line,
-			string.format("%s %.0f%% (x%.1f)", name, timeouts.units[name] / timeouts.fights * 100, ratio(name))
+	-- Every character seen in a timed-out fight, most over-represented first.
+	print("  characters in timed-out fights: share of those fights, x vs their share of all fights (count)")
+	for _, name in names do
+		print(
+			string.format(
+				"    %-18s %5.1f%%  x%.2f  (%d)",
+				name,
+				timeouts.units[name] / timeouts.fights * 100,
+				ratio(name),
+				timeouts.units[name]
+			)
 		)
 	end
-	print("  characters in timed-out fights (share of those fights, x vs all fights): " .. table.concat(line, ", "))
 	printTop("  trait sets of sides in timed-out fights", timeouts.traitSets, timeouts.fights * 2, 8)
 end
 print("Results by strategy: average placement, win rate, gold spent rerolling per bot per match")
@@ -857,6 +966,62 @@ for _, round in pveRoundNumbers do
 		)
 	end
 	print(line .. string.format("  [%d fights]", entry.fights))
+end
+
+-- Gold per player per match, by source and by use.
+local function perPlayer(key: string): number
+	return if goldTotals.players > 0 then goldTotals[key] / goldTotals.players else 0
+end
+local earned = perPlayer("base") + perPlayer("interest") + perPlayer("streak") + perPlayer("win") + perPlayer("pve")
+local spent = perPlayer("units") + perPlayer("rerolls") + perPlayer("xp")
+print(string.format("Gold per player per match (starting gold %.0f not included):", perPlayer("starting")))
+print(
+	string.format(
+		"  earned %.1f: base income %.1f, interest %.1f, streaks %.1f, win bonus %.1f, PvE %.1f",
+		earned,
+		perPlayer("base"),
+		perPlayer("interest"),
+		perPlayer("streak"),
+		perPlayer("win"),
+		perPlayer("pve")
+	)
+)
+print(
+	string.format(
+		"  spent %.1f: units %.1f, rerolls %.1f, XP %.1f; refunded by selling %.1f",
+		spent,
+		perPlayer("units"),
+		perPlayer("rerolls"),
+		perPlayer("xp"),
+		perPlayer("sales")
+	)
+)
+
+-- Support characters, all star levels, PvP fights.
+print("Support characters (class Support, all star levels, PvP fights), per fight they appeared in:")
+print("  healing given, shielding given (trait shields excluded), casts, seconds alive (share of the fight)")
+local supportNames = {}
+for name in supportStats do
+	table.insert(supportNames, name)
+end
+table.sort(supportNames, function(a, b)
+	return UnitConfig[a].cost < UnitConfig[b].cost or (UnitConfig[a].cost == UnitConfig[b].cost and a < b)
+end)
+for _, name in supportNames do
+	local entry = supportStats[name]
+	print(
+		string.format(
+			"  %-18s (%dc) heal %5.0f, shield %5.0f, %4.2f casts, %4.1fs alive (%.0f%%)  [%d fights]",
+			name,
+			UnitConfig[name].cost,
+			entry.heal / entry.fights,
+			entry.shield / entry.fights,
+			entry.casts / entry.fights,
+			entry.aliveSeconds / entry.fights,
+			entry.aliveSeconds / entry.fightSeconds * 100,
+			entry.fights
+		)
+	)
 end
 
 -- Boss calibration (see calibrateBoss): damage boards deal to a boss that cannot die.

@@ -85,7 +85,8 @@ table.insert(tests, {
 	run = function()
 		assert(PveThemeConfig.placeholder, "the placeholder theme exists")
 		local seenIds = {}
-		local statFields = { "health", "attackDamage", "armor", "magicResist", "attacksPerSecond", "range", "moveSpeed" }
+		local statFields =
+			{ "health", "attackDamage", "armor", "magicResist", "attacksPerSecond", "range", "moveSpeed" }
 		for themeId, theme in PveThemeConfig do
 			for id, unit in theme.units do
 				assert(UnitConfig[id] == nil, themeId .. ": " .. id .. " collides with a character id")
