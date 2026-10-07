@@ -107,13 +107,8 @@ local function play(playback)
 		local own = unit.side == localSide
 		local form = formOf(unit.unitType, unit.formIndex)
 		local look = lookOf(unit.unitType)
-		views[unit.index] = UnitView.new(
-			look.name,
-			unit.starLevel,
-			look.color,
-			toWorld(unit.column, unit.row),
-			Arena.folder,
-			{
+		views[unit.index] =
+			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), Arena.folder, {
 				sizeScale = look.scale,
 				maxHealth = unit.maxHealth,
 				mana = unit.mana,
@@ -126,8 +121,7 @@ local function play(playback)
 				formLook = formLook(form),
 				-- Creeps and bosses have no traits.
 				traits = if UnitConfig[unit.unitType] then TraitIcon.traitsOf(UnitConfig[unit.unitType]) else nil,
-			}
-		)
+			})
 		views[unit.index].part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
 	end
 

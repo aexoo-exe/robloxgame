@@ -203,11 +203,7 @@ table.insert(tests, {
 		})
 		local rider, boss = fight.units[1], fight.units[2]
 		expectEqual(rider.maxHealth, math.round(UnitConfig.spurshot.health * dial), "character health x dial")
-		expectEqual(
-			rider.maxFormHealth,
-			math.round(FormConfig.mount.horseHealth.spurshot * dial),
-			"horse pool x dial"
-		)
+		expectEqual(rider.maxFormHealth, math.round(FormConfig.mount.horseHealth.spurshot * dial), "horse pool x dial")
 		local bossType = PveThemeConfig.placeholder.units[Pve.enemyBoard("placeholder", 8)[1].unitType]
 		expectEqual(boss.maxHealth, bossType.health, "boss health is listed as final combat health")
 		for id, unit in PveThemeConfig.placeholder.units do
