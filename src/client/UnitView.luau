@@ -81,6 +81,7 @@ export type Options = {
 	yaw: number?, -- initial facing in radians around the vertical axis (0 faces -Z)
 	healthColor: Color3?, -- RenderConfig.healthBarColor if nil
 	summon: boolean?, -- drawn smaller and see-through, labeled as a summon
+	sizeScale: number?, -- extra size multiplier (PvE creeps and bosses use their theme look's scale)
 	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
 	maxFormHealth: number?,
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
@@ -157,6 +158,7 @@ function UnitView.new(
 	part.Size = RenderConfig.unitSize
 		* RenderConfig.starSizeScale[starLevel]
 		* (if options.summon then RenderConfig.summonScale else 1)
+		* (options.sizeScale or 1)
 	local base = partPosition(groundPosition, part)
 	part.CFrame = CFrame.new(base) * CFrame.Angles(0, yaw, 0)
 	part.Color = color

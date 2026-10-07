@@ -17,15 +17,22 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local Forms = require(Shared:WaitForChild("Forms"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
+local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
-local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
--- A character's skin color as a Color3.
-local function skinColor(unitType: string): Color3
-	local color = SkinConfig[unitType].color
-	return Color3.fromRGB(color[1], color[2], color[3])
+-- What players see of a unit type: name, body color and size. Characters come from SkinConfig;
+-- creeps and bosses from their theme's look (PveThemeConfig).
+local function lookOf(unitType: string): { name: string, color: Color3, scale: number }
+	local skin = SkinConfig[unitType]
+	local source = skin or Pve.pveUnitType(unitType).look
+	local color = source.color
+	return {
+		name = source.name,
+		color = Color3.fromRGB(color[1], color[2], color[3]),
+		scale = if skin then 1 else source.scale or 1,
+	}
 end
 
 -- Display name of an ability. Abilities are named by their character's internal id.
@@ -83,7 +90,7 @@ local function play(playback)
 
 	-- A unit's form data by index (nil for units without forms).
 	local function formOf(unitType: string, formIndex: number?)
-		local forms = UnitConfig[unitType].forms
+		local forms = Pve.unitType(unitType).forms
 		return if forms and formIndex then forms[formIndex] else nil
 	end
 	local function formLook(form)
@@ -95,13 +102,15 @@ local function play(playback)
 		unitsByIndex[unit.index] = unit
 		local own = unit.side == localSide
 		local form = formOf(unit.unitType, unit.formIndex)
+		local look = lookOf(unit.unitType)
 		views[unit.index] = UnitView.new(
-			SkinConfig[unit.unitType].name,
+			look.name,
 			unit.starLevel,
-			skinColor(unit.unitType),
+			look.color,
 			toWorld(unit.column, unit.row),
 			Arena.folder,
 			{
+				sizeScale = look.scale,
 				maxHealth = unit.maxHealth,
 				mana = unit.mana,
 				maxMana = unit.maxMana,
@@ -120,7 +129,7 @@ local function play(playback)
 	-- Move speed includes the starting form's change and is updated as Form events apply.
 	local info = {}
 	for _, unit in result.units do
-		local stats = UnitConfig[unit.unitType]
+		local stats = Pve.unitType(unit.unitType)
 		local form = formOf(unit.unitType, unit.formIndex)
 		info[unit.index] = {
 			side = unit.side,
@@ -141,7 +150,7 @@ local function play(playback)
 
 	local reading = CastReader.read(result.units, result.events, function(index, name)
 		local unit = unitsByIndex[index]
-		return if unit then Forms.abilityNamed(UnitConfig[unit.unitType], name) else nil
+		return if unit then Forms.abilityNamed(Pve.unitType(unit.unitType), name) else nil
 	end)
 
 	-- Pulses every field cell within the area's radius, spreading outward from its center.
@@ -248,7 +257,7 @@ local function play(playback)
 			local look = formLook(form)
 			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth)
 			UnitView.setHealth(view, event.health)
-			info[event.unit].moveSpeed = Forms.baseStat(UnitConfig[unit.unitType], form, "MoveSpeed", "moveSpeed")
+			info[event.unit].moveSpeed = Forms.baseStat(Pve.unitType(unit.unitType), form, "MoveSpeed", "moveSpeed")
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end
