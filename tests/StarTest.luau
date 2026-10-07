@@ -153,14 +153,15 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "stat scaling: health x1.16 x (1 / 1.8 / 3.24) and attack damage x1.5 / x2.25; nothing else",
+	name = "stat scaling: health x the health dial x (1 / 1.8 / 3.24) and attack damage x1.5 / x2.25; nothing else",
 	run = function()
 		local base = UnitConfig.cinder_arc -- 650 health, 57 attack damage
+		local dial = CombatConfig.globalHealthMultiplier
 		local two = StarLevel.scaleStats(base, 2)
 		local three = StarLevel.scaleStats(base, 3)
-		expectEqual(StarLevel.scaleStats(base, 1).health, 754, "1-star health (650 x 1.16)")
-		expectEqual(two.health, 1357, "2-star health (1357.2 rounded)")
-		expectEqual(three.health, 2443, "3-star health (2442.96 rounded)")
+		expectEqual(StarLevel.scaleStats(base, 1).health, math.round(650 * 1 * dial), "1-star health (650 x dial)")
+		expectEqual(two.health, math.round(650 * 1.8 * dial), "2-star health (650 x 1.8 x dial, rounded)")
+		expectEqual(three.health, math.round(650 * 3.24 * dial), "3-star health (650 x 3.24 x dial, rounded)")
 		expectEqual(two.attackDamage, 86, "2-star attack damage (85.5 rounded)")
 		expectEqual(three.attackDamage, 128, "3-star attack damage (128.25 rounded)")
 		for _, stat in
@@ -174,9 +175,10 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "every unit enters combat with 1.16x its base health; base data and player health are unchanged",
+	name = "every unit enters combat with the health dial x its base health; base data and player health are unchanged",
 	run = function()
-		expectEqual(CombatConfig.globalHealthMultiplier, 1.16, "global health multiplier")
+		local dial = CombatConfig.globalHealthMultiplier
+		assert(dial > 0, "global health multiplier")
 		local board = {}
 		local names = {}
 		for name in UnitConfig do
@@ -196,7 +198,7 @@ table.insert(tests, {
 			seed = 1,
 		})
 		for _, unit in battle.units do
-			local expected = math.round(UnitConfig[unit.unitType].health * 1.16)
+			local expected = math.round(UnitConfig[unit.unitType].health * 1 * dial)
 			expectEqual(unit.maxHealth, expected, unit.unitType .. " combat health")
 			expectEqual(unit.health, expected, unit.unitType .. " starting health")
 			expectEqual(
@@ -236,9 +238,10 @@ table.insert(tests, {
 			seed = 1,
 			critChance = 0, -- exact damage
 		})
-		expectEqual(result.units[1].maxHealth, 1357, "2-star max health (650 x 1.8 x 1.16)")
+		local dial = CombatConfig.globalHealthMultiplier
+		expectEqual(result.units[1].maxHealth, math.round(650 * 1.8 * dial), "2-star max health (650 x 1.8 x dial)")
 		expectEqual(result.units[1].starLevel, 2, "2-star summary")
-		expectEqual(result.units[2].maxHealth, 754, "1-star max health (star level omitted; 650 x 1.16)")
+		expectEqual(result.units[2].maxHealth, math.round(650 * 1 * dial), "1-star max health (star level omitted)")
 		-- 28 armor: 86 x 100/128 = 67.2 -> 67, and 57 x 100/128 = 44.5 -> 45.
 		for _, event in result.events do
 			if event.kind == "Attack" then

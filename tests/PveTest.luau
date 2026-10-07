@@ -191,7 +191,6 @@ table.insert(tests, {
 	name = "the roster health dial scales characters and rider horses, never creeps or bosses",
 	run = function()
 		local dial = CombatConfig.globalHealthMultiplier
-		expectEqual(dial, 1.16, "the dial's value is unchanged in tuning pass 1")
 		local placed = { { id = "r", unitType = "spurshot", column = 4, row = 4 } }
 		local fight = CombatSim.run({
 			boards = { placed, Pve.enemyBoard("placeholder", 8) },

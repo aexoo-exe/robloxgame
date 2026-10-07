@@ -20,8 +20,8 @@ return table.freeze({
 	-- StarLevel. Creeps and bosses (PveThemeConfig) list final health and are not scaled by it.
 	-- Summons follow it through their summoner's health. UnitConfig keeps the design docs' base
 	-- values. Player health and player damage are separate and unaffected.
-	-- docs/design/revamp-structure.md: 1.16. A 12% increase is 1.16 x 1.12 = 1.2992.
-	globalHealthMultiplier = 1.16,
+	-- docs/design/revamp-structure.md set 1.16; tuning pass 1B raised it 12% (1.16 x 1.12).
+	globalHealthMultiplier = 1.2992,
 
 	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.
 	critChance = 0.25, -- per basic attack; abilities cannot crit
