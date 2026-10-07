@@ -13,6 +13,7 @@ local process = require("@lune/process")
 
 local Bot = require("./Bot")
 local Mechanics = require("./Mechanics")
+local Battle = require("../src/shared/Battle")
 local Board = require("../src/shared/Board")
 local BoardConfig = require("../src/shared/BoardConfig")
 local CombatConfig = require("../src/shared/CombatConfig")
@@ -21,6 +22,7 @@ local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local Pve = require("../src/shared/Pve")
+local SeededRandom = require("../src/shared/SeededRandom")
 local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
@@ -177,14 +179,67 @@ local groups = {}
 local pveRounds = {}
 local pveGold = { sum = 0, players = 0 }
 
-local function recordPveFight(round: number, kind: string, winner: number?, reward)
-	local entry = pveRounds[round] or { kind = kind, fights = 0, won = 0, gold = 0, share = 0, kills = 0 }
+local function recordPveFight(round: number, kind: string, winner: number?, reward, seconds: number)
+	local entry = pveRounds[round]
+		or { kind = kind, fights = 0, won = 0, gold = 0, share = 0, kills = 0, killSeconds = 0 }
 	entry.fights += 1
 	entry.won += if winner == 1 then 1 else 0
 	entry.gold += reward.gold
 	entry.share += reward.share or 0
-	entry.kills += if reward.bossKilled then 1 else 0
+	if reward.bossKilled then
+		entry.kills += 1
+		entry.killSeconds += seconds
+	end
 	pveRounds[round] = entry
+end
+
+-- Boss calibration: each board that fights a boss also fights a copy of that boss that cannot die,
+-- until the board is wiped or the combat timer runs out. Per boss round: the damage each board
+-- dealt to the boss, the fight lengths, and the boss's combat health.
+-- The undying boss keeps its real max health (so it gains mana from hits exactly as in the real
+-- fight); its health is restored after every hit, by wrapping Battle.damage for these fights only.
+-- Seeds come from their own generator, so match results are unaffected.
+local bossCalibration = {}
+
+local function calibrateBoss(board, match, seed: number)
+	local original = Battle.damage
+	Battle.damage = function(battle, source, target, ...)
+		local final, manaGained = original(battle, source, target, ...)
+		if target.side == 2 and not target.summoned and not target.dead then
+			target.health = target.maxHealth
+		end
+		return final, manaGained
+	end
+	local ok, result = pcall(CombatSim.run, {
+		boards = { board, Pve.enemyBoard(match.theme, match.round) },
+		columns = BoardConfig.columns,
+		rows = BoardConfig.rows,
+		unitTypes = Pve.unitTypes(match.theme),
+		ticksPerSecond = CombatConfig.ticksPerSecond,
+		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
+		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
+		seed = seed,
+		startBonuses = if TRAITS_ON then { Traits.bonuses(board), {} } else nil,
+	})
+	Battle.damage = original
+	assert(ok, result)
+
+	local boss = nil
+	for _, unit in result.units do
+		if unit.side == 2 then
+			boss = unit
+		end
+	end
+	local dealt = 0
+	for _, event in result.events do
+		if (event.kind == "Attack" or event.kind == "Damage") and event.target == boss.index then
+			dealt += event.damage
+		end
+	end
+	local entry = bossCalibration[match.round] or { damages = {}, seconds = 0, bossHealth = boss.maxHealth }
+	table.insert(entry.damages, dealt)
+	entry.seconds += result.endTick / result.ticksPerSecond
+	bossCalibration[match.round] = entry
 end
 
 -- Trait use in each match's final five rounds: boards (one per player per round) with each
@@ -305,6 +360,7 @@ local function playMatch(matchIndex: number)
 		goldFromPve[i] = 0
 	end
 	local match = Match.new(ids, matchIndex)
+	local calibrationRng = SeededRandom.new(matchIndex * 7919 + 17) -- boss calibration fights only
 	local stats = { seconds = 0, fights = 0, timeouts = 0, longestFight = 0 }
 	local lastBoards = {}
 	local tierEmptied = {}
@@ -353,9 +409,14 @@ local function playMatch(matchIndex: number)
 
 		local fights = Match.startRound(match)
 		local results = {}
+		local fightSeconds = {} -- by player (side 1) id
 		local longestTicks = 0
 		for index, fight in fights do
 			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index, match)
+			if fight.pve == Pve.Kind.Boss then
+				calibrateBoss(boards[fight.a], match, SeededRandom.nextInt(calibrationRng, 2 ^ 31 - 2))
+			end
+			fightSeconds[fight.a] = result.endTick / result.ticksPerSecond
 			if not fight.pve then
 				recordFight(result)
 				Mechanics.record(result)
@@ -386,7 +447,7 @@ local function playMatch(matchIndex: number)
 			if reward then
 				PlayerState.recordPve(states[result.fight.a], reward.gold)
 				goldFromPve[result.fight.a] += reward.gold
-				recordPveFight(match.round, result.fight.pve, result.winner, reward)
+				recordPveFight(match.round, result.fight.pve, result.winner, reward, fightSeconds[result.fight.a])
 			end
 		end
 		for _, id in summary.eliminated do
@@ -789,10 +850,58 @@ for _, round in pveRoundNumbers do
 	)
 	if entry.kind == Pve.Kind.Boss then
 		line ..= string.format(
-			", boss health removed %.0f%% on average, killed %.1f%%",
+			", boss health removed %.0f%% on average, kill rate %.1f%%, average time to kill %s",
 			entry.share / entry.fights * 100,
-			entry.kills / entry.fights * 100
+			entry.kills / entry.fights * 100,
+			if entry.kills > 0 then string.format("%.1fs", entry.killSeconds / entry.kills) else "-"
 		)
 	end
 	print(line .. string.format("  [%d fights]", entry.fights))
+end
+
+-- Boss calibration (see calibrateBoss): damage boards deal to a boss that cannot die.
+local function percentile(sorted: { number }, p: number): number
+	if #sorted == 0 then
+		return 0
+	end
+	-- Nearest rank.
+	return sorted[math.clamp(math.ceil(p / 100 * #sorted), 1, #sorted)]
+end
+print("Boss calibration (each boss-round board against an undying copy of the boss, until wiped or 50s):")
+print("  damage dealt to the boss per board: average, median, 25th-75th percentile; average fight length;")
+print("  boss combat health (current) and the combat health at which the median board removes 60%")
+print(
+	string.format(
+		"  (combat health = PveThemeConfig health x %.2f, CombatConfig.globalHealthMultiplier)",
+		CombatConfig.globalHealthMultiplier
+	)
+)
+local calibrationRounds = {}
+for round in bossCalibration do
+	table.insert(calibrationRounds, round)
+end
+table.sort(calibrationRounds)
+for _, round in calibrationRounds do
+	local entry = bossCalibration[round]
+	local sorted = table.clone(entry.damages)
+	table.sort(sorted)
+	local sum = 0
+	for _, damage in sorted do
+		sum += damage
+	end
+	local median = percentile(sorted, 50)
+	print(
+		string.format(
+			"  round %2d: average %.0f, median %.0f, p25 %.0f, p75 %.0f; %.1fs average; boss health %d now, %.0f for 60%%  [%d boards]",
+			round,
+			sum / #sorted,
+			median,
+			percentile(sorted, 25),
+			percentile(sorted, 75),
+			entry.seconds / #sorted,
+			entry.bossHealth,
+			median / 0.6,
+			#sorted
+		)
+	)
 end

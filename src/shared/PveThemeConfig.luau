@@ -74,10 +74,12 @@ local themes = {
 			placeholder_creep_big = creep(380, 22, 15, 10, 0.55, 1, 0.8, BIG_CREEP_LOOK),
 
 			-- boss(HP, AD, armor, MR, attack speed, max mana, slam damage, slam stun seconds, look)
-			placeholder_boss_stage2 = boss(3500, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
-			placeholder_boss_stage3 = boss(6000, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
-			placeholder_boss_stage4 = boss(10000, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
-			placeholder_boss_stage5 = boss(15000, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
+			-- Interim health (tuning pass 1): x1.60 / x1.70 / x1.75 / x1.50 of 3500 / 6000 / 10000 /
+			-- 15000, until the sim's boss calibration report gives measured values.
+			placeholder_boss_stage2 = boss(5600, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
+			placeholder_boss_stage3 = boss(10200, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
+			placeholder_boss_stage4 = boss(17500, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
+			placeholder_boss_stage5 = boss(22500, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
 		},
 
 		-- Opening creep rounds, by round number. Every player fights the same lineup.
