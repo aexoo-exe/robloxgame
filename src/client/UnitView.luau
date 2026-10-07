@@ -1,6 +1,8 @@
 -- A placeholder unit: a block colored by origin with a dark visor marking its front, its name and star level,
 -- a health bar (with any shield shown as a white segment after the health), and a mana bar under
 -- it. Higher-star units are drawn slightly larger (RenderConfig.starSizeScale). Presentation only.
+-- Callers color the block by unit cost (RenderConfig.costColors) and pass its traits, whose
+-- symbols (TraitIconConfig) show in a row under the name.
 -- A unit created with a form health pool (a mounted rider) also gets a pool bar stacked above the
 -- health bar, shown while its form has a pool, and its form's look (RenderConfig.formLooks).
 --
@@ -13,6 +15,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
+
+local TraitIcon = require(script.Parent.TraitIcon)
 
 local UnitView = {}
 
@@ -85,6 +89,7 @@ export type Options = {
 	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
 	maxFormHealth: number?,
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
+	traits: { string }?, -- trait ids; their symbols show in a row under the name
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -217,15 +222,27 @@ function UnitView.new(
 	label.TextSize = 14
 	label.Parent = infoBoard
 
+	-- Trait symbols go in a row under the name; everything below moves down to fit it. Their names
+	-- show in the hover tooltip (UnitTooltip).
+	local top = 34
+	if options.traits and #options.traits > 0 then
+		local iconSize = RenderConfig.traitIconSize
+		local traitRow = TraitIcon.row(options.traits, iconSize)
+		traitRow.Position = UDim2.fromOffset(0, 33)
+		traitRow:FindFirstChildOfClass("UIListLayout").HorizontalAlignment = Enum.HorizontalAlignment.Center
+		traitRow.Parent = infoBoard
+		top += iconSize + 2
+	end
+
 	-- A unit with a form health pool gets the pool bar on top; the bars below move down to fit it.
 	local formBar, formFill = nil, nil
-	local barsOffset = 0
+	local barsOffset = top - 34
 	if options.maxFormHealth then
-		barsOffset = 6
-		infoBoard.Size = UDim2.fromOffset(90, 54 + barsOffset)
-		formBar = bar(infoBoard, 34, 5)
+		formBar = bar(infoBoard, top, 5)
 		formFill = fill(formBar, RenderConfig.formHealthColor)
+		barsOffset += 6
 	end
+	infoBoard.Size = UDim2.fromOffset(90, 54 + barsOffset)
 
 	local healthBar = bar(infoBoard, 34 + barsOffset, 8)
 	local healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)

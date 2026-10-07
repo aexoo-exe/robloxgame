@@ -21,17 +21,20 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
+local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
--- What players see of a unit type: name, body color and size. Characters come from SkinConfig;
--- creeps and bosses from their theme's look (PveThemeConfig).
+-- What players see of a unit type: name, body color and size. Characters use their SkinConfig name
+-- and their cost's color; creeps and bosses use their theme's look (PveThemeConfig).
 local function lookOf(unitType: string): { name: string, color: Color3, scale: number }
-	local skin = SkinConfig[unitType]
-	local source = skin or Pve.pveUnitType(unitType).look
-	local color = source.color
+	local character = UnitConfig[unitType]
+	if character then
+		return { name = SkinConfig[unitType].name, color = RenderConfig.costColors[character.cost], scale = 1 }
+	end
+	local look = Pve.pveUnitType(unitType).look
 	return {
-		name = source.name,
-		color = Color3.fromRGB(color[1], color[2], color[3]),
-		scale = if skin then 1 else source.scale or 1,
+		name = look.name,
+		color = Color3.fromRGB(look.color[1], look.color[2], look.color[3]),
+		scale = look.scale or 1,
 	}
 end
 
@@ -44,6 +47,7 @@ end
 local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
 local CombatEffects = require(script.Parent.CombatEffects)
+local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
@@ -120,8 +124,11 @@ local function play(playback)
 				formHealth = unit.formHealth,
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
+				-- Creeps and bosses have no traits.
+				traits = if UnitConfig[unit.unitType] then TraitIcon.traitsOf(UnitConfig[unit.unitType]) else nil,
 			}
 		)
+		views[unit.index].part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
 	end
 
 	-- Side, range and move speed of every unit, summons included. Summons appear only in Summon

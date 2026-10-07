@@ -17,19 +17,17 @@ return table.freeze({
 	ownCellColor = Color3.fromRGB(70, 95, 130),
 	enemyCellColor = Color3.fromRGB(120, 75, 75),
 	benchSlotColor = Color3.fromRGB(95, 95, 95),
-	-- Origin colors (placeholder), shown as the shop's origin stripe. Unit bodies use their skin
-	-- color from SkinConfig. Which side a unit is on shows in its health bar color.
-	originColors = table.freeze({
-		Hunters = Color3.fromRGB(214, 120, 52),
-		Corps = Color3.fromRGB(112, 152, 196),
-		Spirit = Color3.fromRGB(120, 200, 140),
-		Cursed = Color3.fromRGB(150, 70, 180),
-		Arcane = Color3.fromRGB(90, 110, 230),
-		Titans = Color3.fromRGB(150, 120, 95),
-		Shinobi = Color3.fromRGB(70, 170, 175),
-		Crew = Color3.fromRGB(232, 92, 92),
-		Heroes = Color3.fromRGB(240, 200, 70),
+	-- Colors by unit cost (1-5): shop card stripes and borders, and unit bodies on the board and in
+	-- combat. Traits show as symbols instead (TraitIconConfig). Which side a unit is on shows in its
+	-- health bar color.
+	costColors = table.freeze({
+		Color3.fromRGB(150, 150, 155), -- 1-cost gray
+		Color3.fromRGB(70, 190, 90), -- 2-cost green
+		Color3.fromRGB(60, 130, 230), -- 3-cost blue
+		Color3.fromRGB(165, 80, 220), -- 4-cost purple
+		Color3.fromRGB(235, 185, 50), -- 5-cost gold
 	}),
+	traitIconSize = 12, -- pixels, on unit info boards (shop cards and the tooltip use larger ones)
 	healthBarColor = Color3.fromRGB(80, 220, 100), -- the local player's units
 	enemyHealthBarColor = Color3.fromRGB(235, 70, 70),
 	shieldColor = Color3.fromRGB(235, 235, 235),
