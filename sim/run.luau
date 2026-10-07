@@ -1,19 +1,26 @@
 -- Headless match simulation: plays full 8-bot matches with the real pure modules (Match, Pairing,
 -- PlayerState, Shop, CombatSim) and reports pacing. No Roblox Studio needed.
 --   lune run sim/run.luau [matches=200] [players=8]
--- Match time is estimated from the configured phase timers: Preparation + Combat (the round's
--- longest fight + padding) + Results per round. Lobby and final-placement screens are excluded.
+-- Match time is estimated from the configured phase timers: Preparation (per round, see
+-- Pve.preparationDuration) + Combat (the round's longest fight + padding) + Results per round.
+-- Lobby and final-placement screens are excluded.
+-- PvE rounds (creeps and bosses) are played like the server plays them: starting units at match
+-- start, no Preparation in round 1, PvE rewards paid at Results. PvE fights are left out of the
+-- per-character, mechanics and timeout reports (those measure the roster against itself) and are
+-- reported in their own section.
 
 local process = require("@lune/process")
 
 local Bot = require("./Bot")
 local Mechanics = require("./Mechanics")
+local Board = require("../src/shared/Board")
 local BoardConfig = require("../src/shared/BoardConfig")
 local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
 local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
 local PlayerState = require("../src/shared/PlayerState")
+local Pve = require("../src/shared/Pve")
 local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
@@ -24,14 +31,23 @@ local PLAYERS = tonumber(process.args[2]) or 8
 -- "notraits" as the third argument runs the same matches with trait bonuses switched off.
 local TRAITS_ON = process.args[3] ~= "notraits"
 
-local function runFight(fight, boards, seed)
-	local sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
+-- The enemy side of a fight: another bot, a ghost, or the match theme's creeps or boss.
+local function enemyBoard(fight, boards, match)
+	if fight.pve then
+		return Pve.enemyBoard(match.theme, match.round)
+	end
+	return if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
+end
+
+local function runFight(fight, boards, seed, match)
+	local sideB = enemyBoard(fight, boards, match)
+	local bonusB = if fight.pve then {} else Traits.bonuses(sideB)
 	return CombatSim.run({
-		startBonuses = if TRAITS_ON then { Traits.bonuses(boards[fight.a]), Traits.bonuses(sideB) } else nil,
+		startBonuses = if TRAITS_ON then { Traits.bonuses(boards[fight.a]), bonusB } else nil,
 		boards = { boards[fight.a], sideB },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
-		unitTypes = UnitConfig,
+		unitTypes = if fight.pve then Pve.unitTypes(match.theme) else UnitConfig,
 		ticksPerSecond = CombatConfig.ticksPerSecond,
 		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
 		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
@@ -156,6 +172,21 @@ local threeStars = {
 -- Results by strategy group ("standard" or a rerolling policy's name).
 local groups = {}
 
+-- PvE rounds, by round number: fights, fights won, gold paid, and for boss rounds the summed share
+-- of boss health removed and kills. `goldByPlayer` sums each player's PvE gold per match.
+local pveRounds = {}
+local pveGold = { sum = 0, players = 0 }
+
+local function recordPveFight(round: number, kind: string, winner: number?, reward)
+	local entry = pveRounds[round] or { kind = kind, fights = 0, won = 0, gold = 0, share = 0, kills = 0 }
+	entry.fights += 1
+	entry.won += if winner == 1 then 1 else 0
+	entry.gold += reward.gold
+	entry.share += reward.share or 0
+	entry.kills += if reward.bossKilled then 1 else 0
+	pveRounds[round] = entry
+end
+
 -- Trait use in each match's final five rounds: boards (one per player per round) with each
 -- "Trait level" active, and the final placements of players who had it at least once.
 local traitUse = { boards = 0, active = {}, placementSum = {}, players = {} }
@@ -264,11 +295,14 @@ local function playMatch(matchIndex: number)
 	local policies = {}
 	local memories = {}
 	local pool = UnitPool.new()
+	local goldFromPve = {}
 	for i = 1, PLAYERS do
 		ids[i] = i
 		states[i] = PlayerState.new(matchIndex * 1000 + i, pool)
+		PlayerState.grantStartingUnits(states[i])
 		policies[i] = policyFor(i, matchIndex)
 		memories[i] = Bot.newMemory()
+		goldFromPve[i] = 0
 	end
 	local match = Match.new(ids, matchIndex)
 	local stats = { seconds = 0, fights = 0, timeouts = 0, longestFight = 0 }
@@ -281,10 +315,17 @@ local function playMatch(matchIndex: number)
 
 	while not match.finished do
 		local boards = {}
-		roundBoards[match.round + 1] = boards
+		local round = match.round + 1
+		local preparation = Pve.preparationDuration(round)
+		roundBoards[round] = boards
 		for _, id in Match.activeIds(match) do
-			PlayerState.startPreparation(states[id])
-			boards[id] = Bot.prepare(states[id], policies[id], memories[id])
+			if preparation > 0 then
+				PlayerState.startPreparation(states[id])
+				boards[id] = Bot.prepare(states[id], policies[id], memories[id])
+			else
+				-- No Preparation (round 1): the units already on the board fight.
+				boards[id] = Board.getPlacedUnits(states[id].board)
+			end
 			lastBoards[id] = boards[id]
 			for cost = 1, 5 do
 				if UnitPool.tierRemaining(pool, cost) == 0 then
@@ -314,25 +355,39 @@ local function playMatch(matchIndex: number)
 		local results = {}
 		local longestTicks = 0
 		for index, fight in fights do
-			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index)
-			recordFight(result)
-			Mechanics.record(result)
-			local sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
-			recordTimeoutData({ boards[fight.a], sideB }, result.timedOut)
-			longestTicks = math.max(longestTicks, result.endTick)
-			stats.fights += 1
-			if result.timedOut then
-				stats.timeouts += 1
+			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index, match)
+			if not fight.pve then
+				recordFight(result)
+				Mechanics.record(result)
+				recordTimeoutData({ boards[fight.a], enemyBoard(fight, boards, match) }, result.timedOut)
+				stats.fights += 1
+				if result.timedOut then
+					stats.timeouts += 1
+				end
 			end
-			table.insert(results, { fight = fight, winner = result.winner, survivors = result.survivors })
+			longestTicks = math.max(longestTicks, result.endTick)
+			table.insert(results, {
+				fight = fight,
+				winner = result.winner,
+				survivors = result.survivors,
+				healthPercent = result.healthPercent,
+			})
 		end
 		local combatSeconds = longestTicks / CombatConfig.ticksPerSecond
 		stats.longestFight = math.max(stats.longestFight, combatSeconds)
-		stats.seconds += MatchConfig.preparationDuration + combatSeconds + CombatConfig.endPadding + MatchConfig.resultsDuration
+		stats.seconds += preparation + combatSeconds + CombatConfig.endPadding + MatchConfig.resultsDuration
 
 		local summary = Match.applyResults(match, results)
 		for id, outcome in summary.outcomes do
 			PlayerState.recordCombat(states[id], outcome)
+		end
+		for _, result in results do
+			local reward = summary.pve[result.fight.a]
+			if reward then
+				PlayerState.recordPve(states[result.fight.a], reward.gold)
+				goldFromPve[result.fight.a] += reward.gold
+				recordPveFight(match.round, result.fight.pve, result.winner, reward)
+			end
 		end
 		for _, id in summary.eliminated do
 			recordFailedTargets(states[id], policies[id], memories[id])
@@ -376,6 +431,10 @@ local function playMatch(matchIndex: number)
 		group.wins += if player.placement == 1 then 1 else 0
 		group.rerollGold += memories[id].rerollGold
 		groups[name] = group
+	end
+	for _, gold in goldFromPve do
+		pveGold.sum += gold
+		pveGold.players += 1
 	end
 	poolStats.dryRolls += pool.dryRolls
 	for cost = 1, 5 do
@@ -435,7 +494,7 @@ end
 print("  " .. table.concat(levelLine, ", "))
 print(
 	string.format(
-		"Fights hitting the %ds cap: %d of %d (%.1f%%); longest round's combat %.1fs",
+		"PvP fights hitting the %ds cap: %d of %d (%.1f%%); longest round's combat %.1fs",
 		MatchConfig.combatMaxDuration,
 		totals.timeouts,
 		totals.fights,
@@ -705,3 +764,35 @@ for i = 1, math.min(5, #outliers) do
 end
 print(string.format("Outside the band: %d of %d. Worst: %s", #outliers, #names, table.concat(worst, ", ")))
 Mechanics.report()
+
+-- PvE rounds: per round, how often players won and the gold paid; for boss rounds the average share
+-- of boss health removed and the kill rate.
+print(
+	string.format(
+		"PvE rounds (theme fights; not in the character or timeout numbers above): %.1f PvE gold per player per match",
+		if pveGold.players > 0 then pveGold.sum / pveGold.players else 0
+	)
+)
+local pveRoundNumbers = {}
+for round in pveRounds do
+	table.insert(pveRoundNumbers, round)
+end
+table.sort(pveRoundNumbers)
+for _, round in pveRoundNumbers do
+	local entry = pveRounds[round]
+	local line = string.format(
+		"  round %2d %-5s won %5.1f%%, %.2f gold per fight",
+		round,
+		entry.kind,
+		entry.won / entry.fights * 100,
+		entry.gold / entry.fights
+	)
+	if entry.kind == Pve.Kind.Boss then
+		line ..= string.format(
+			", boss health removed %.0f%% on average, killed %.1f%%",
+			entry.share / entry.fights * 100,
+			entry.kills / entry.fights * 100
+		)
+	end
+	print(line .. string.format("  [%d fights]", entry.fights))
+end

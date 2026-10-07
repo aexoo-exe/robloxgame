@@ -16,6 +16,7 @@ local suites = {
 	{ name = "MatchRules", tests = require("./MatchRulesTest") },
 	{ name = "Pairing", tests = require("./PairingTest") },
 	{ name = "Match", tests = require("./MatchTest") },
+	{ name = "Pve", tests = require("./PveTest") },
 	{ name = "CombatMath", tests = require("./CombatMathTest") },
 	{ name = "Ability", tests = require("./AbilityTest") },
 	{ name = "CastReader", tests = require("./CastReaderTest") },

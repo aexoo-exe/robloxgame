@@ -1,9 +1,25 @@
 local Economy = require("../src/shared/Economy")
 local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
+local Pve = require("../src/shared/Pve")
 
 local function expectEqual(actual, expected, label)
 	assert(actual == expected, string.format("%s: expected %s, got %s", label, tostring(expected), tostring(actual)))
+end
+
+-- A match that has played its opening PvE rounds (every player wins them), so its next round is
+-- the first PvP round. PvE rounds use neither the pairing generator nor the pairing history, so
+-- that round pairs players exactly as round 1 did before PvE rounds existed. It is still stage 1.
+local function newPvpMatch(ids: { number }, seed: number)
+	local match = Match.new(ids, seed)
+	while Pve.isPve(match.round + 1) do
+		local results = {}
+		for _, fight in Match.startRound(match) do
+			table.insert(results, { fight = fight, winner = 1, survivors = { 1, 0 }, healthPercent = { 1, 0 } })
+		end
+		Match.applyResults(match, results)
+	end
+	return match
 end
 
 -- Results where `a` wins every fight, leaving `survivors` units alive.
@@ -29,7 +45,7 @@ local tests = {}
 table.insert(tests, {
 	name = "players start with 100 HP; losers take stage damage + surviving enemies; draws and wins cost nothing",
 	run = function()
-		local match = Match.new({ 1, 2, 3, 4 }, 1)
+		local match = newPvpMatch({ 1, 2, 3, 4 }, 1)
 		expectEqual(match.players[1].health, MatchConfig.startingHealth, "starting HP")
 		local fights = Match.startRound(match)
 		local results = {
@@ -38,7 +54,7 @@ table.insert(tests, {
 		}
 		local summary = Match.applyResults(match, results)
 		local loser = fights[1].b
-		expectEqual(match.players[loser].health, 100 - (2 + 3), "round 1 loss with 3 enemy survivors")
+		expectEqual(match.players[loser].health, 100 - (2 + 3), "stage 1 loss with 3 enemy survivors")
 		expectEqual(summary.damage[loser], 5, "reported damage")
 		expectEqual(summary.outcomes[fights[1].a], Economy.Outcome.Win, "winner outcome")
 		expectEqual(summary.outcomes[loser], Economy.Outcome.Loss, "loser outcome")
@@ -52,7 +68,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "ghost battles hurt only the real player; the ghost's source is unaffected",
 	run = function()
-		local match = Match.new({ 1, 2, 3 }, 2)
+		local match = newPvpMatch({ 1, 2, 3 }, 2)
 		local fights = Match.startRound(match)
 		local ghostFight
 		for _, fight in fights do
@@ -99,7 +115,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "simultaneous eliminations are placed by tie-break and the last player wins",
 	run = function()
-		local match = Match.new({ 1, 2, 3, 4 }, 3)
+		local match = newPvpMatch({ 1, 2, 3, 4 }, 3)
 		match.players[1].health = 3
 		match.players[2].health = 9
 		local fights = Match.startRound(match)
@@ -136,7 +152,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "if the last players are eliminated together, the best of them wins",
 	run = function()
-		local match = Match.new({ 1, 2 }, 4)
+		local match = newPvpMatch({ 1, 2 }, 4)
 		match.players[1].health = 1
 		match.players[2].health = 1
 		match.players[2].connected = false
@@ -155,7 +171,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "leavers: HP drops to 0 after 2 complete missed rounds; reconnecting in time resets it",
 	run = function()
-		local match = Match.new({ 1, 2, 3, 4 }, 5)
+		local match = newPvpMatch({ 1, 2, 3, 4 }, 5)
 		local function playDrawnRound()
 			local fights = Match.startRound(match)
 			local results = {}
@@ -165,7 +181,7 @@ table.insert(tests, {
 			return Match.applyResults(match, results)
 		end
 
-		-- Leaves during round 1: that round does not count.
+		-- Leaves during the first PvP round: that round does not count.
 		Match.startRound(match)
 		Match.setConnected(match, 4, false)
 		Match.applyResults(match, {})
@@ -194,7 +210,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "a disconnected player stays pairable and takes normal damage during the grace period",
 	run = function()
-		local match = Match.new({ 1, 2 }, 6)
+		local match = newPvpMatch({ 1, 2 }, 6)
 		Match.setConnected(match, 2, false)
 		local fights = Match.startRound(match)
 		assert(findFight(fights, 2), "disconnected player was not paired")
@@ -207,7 +223,7 @@ table.insert(tests, {
 table.insert(tests, {
 	name = "practice match: one player fights the scripted enemy and the match ends when they fall",
 	run = function()
-		local match = Match.new({ 7 }, 7)
+		local match = newPvpMatch({ 7 }, 7)
 		assert(match.practice, "single participant should be a practice match")
 		local fights = Match.startRound(match)
 		assert(#fights == 1 and fights[1].a == 7 and fights[1].b == nil and fights[1].ghostOf == nil, "practice fight")
