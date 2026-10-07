@@ -21,6 +21,7 @@ export type Fight = {
 	a: number,
 	b: number?,
 	ghostOf: number?,
+	pve: string?, -- set by Match for PvE rounds (Pve.Kind.Creep or Boss); Pairing never sets it
 }
 
 -- Per player: real opponents of the last 2 rounds (most recent first; 0 for a ghost battle) and

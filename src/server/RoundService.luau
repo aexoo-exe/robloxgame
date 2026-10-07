@@ -10,10 +10,15 @@
 --     PhaseEndsAt  number  workspace:GetServerTimeNow() when the phase ends (0 if untimed)
 --     Round        number  current round (0 before the first)
 --     Stage        number  stage of the current round
+--     RoundKind    string  "Creep", "Boss" or "PvP" (Pve.Kind) for the current round
 --     Winner       string  winner's name once the match is over, else ""
 --   MatchState.Players: one Folder per participant, named by UserId, with attributes
 --     UserId, DisplayName, Health, Placement (0 until placed), Eliminated, Connected,
---     Opponent (name during Combat, else ""), LastResult (text shown at Results)
+--     Opponent (name during Combat, else ""), LastResult (text shown at Results),
+--     LastGold (gold the round's PvE fight earned, shown at Results; 0 otherwise)
+--
+-- PvE rounds (Pve.roundKind) use the match's theme; round 1 has no Preparation, and every player
+-- starts with PveConfig.startingUnits on the board. PvE rewards are paid at Results.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +28,7 @@ local Match = require(ReplicatedStorage.Shared.Match)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local MatchRules = require(ReplicatedStorage.Shared.MatchRules)
 local Phase = require(ReplicatedStorage.Shared.Phase)
+local Pve = require(ReplicatedStorage.Shared.Pve)
 
 local CombatService = require(script.Parent.CombatService)
 local PlayerService = require(script.Parent.PlayerService)
@@ -109,15 +115,23 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	for userId in match.players do
 		setPlayerAttribute(userId, "Opponent", "")
 		setPlayerAttribute(userId, "LastResult", "")
+		setPlayerAttribute(userId, "LastGold", 0)
 	end
 
-	setPhase(Phase.Preparation, MatchConfig.preparationDuration)
-	PlayerService.beginPreparation()
-	task.wait(MatchConfig.preparationDuration)
+	-- Creep, boss or PvP (Pve.roundKind); PvE rounds can have their own Preparation time, and 0
+	-- skips Preparation (round 1: the starting unit is already on the board).
+	matchState:SetAttribute("RoundKind", Pve.roundKind(round))
+	local preparation = Pve.preparationDuration(round)
+	if preparation > 0 then
+		setPhase(Phase.Preparation, preparation)
+		PlayerService.beginPreparation()
+		task.wait(preparation)
+	end
 
 	-- Every fight is simulated instantly; the Combat phase lasts as long as the longest playback.
 	local fights = Match.startRound(match)
-	local combatDuration, results, opponents = CombatService.runRound(fights, PlayerService.lockBoards(), round, names)
+	local combatDuration, results, opponents =
+		CombatService.runRound(fights, PlayerService.lockBoards(), round, names, match.theme)
 	for userId, opponentName in opponents do
 		setPlayerAttribute(userId, "Opponent", opponentName)
 	end
@@ -128,6 +142,13 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	PlayerService.recordOutcomes(summary.outcomes)
 	for userId, outcome in summary.outcomes do
 		setPlayerAttribute(userId, "LastResult", resultText(outcome, summary.damage[userId]))
+	end
+	PlayerService.recordPve(summary.pve)
+	for userId, reward in summary.pve do
+		local damage = summary.damage[userId]
+		local text = Pve.resultText(reward) .. (if damage and damage > 0 then string.format(", -%d HP", damage) else "")
+		setPlayerAttribute(userId, "LastResult", text)
+		setPlayerAttribute(userId, "LastGold", reward.gold)
 	end
 	for _, userId in summary.eliminated do
 		PlayerService.eliminate(userId)
@@ -161,6 +182,7 @@ local function playMatch()
 		folder:SetAttribute("DisplayName", names[userId])
 		folder:SetAttribute("Opponent", "")
 		folder:SetAttribute("LastResult", "")
+		folder:SetAttribute("LastGold", 0)
 		folder.Parent = playersFolder
 	end
 	publishPlayers(match)
@@ -204,6 +226,7 @@ function RoundService.start()
 	matchState.Name = "MatchState"
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Stage", 1)
+	matchState:SetAttribute("RoundKind", Pve.Kind.PvP)
 	matchState:SetAttribute("Phase", Phase.Waiting)
 	matchState:SetAttribute("PhaseEndsAt", 0)
 	matchState:SetAttribute("Winner", "")
