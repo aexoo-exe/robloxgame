@@ -1,7 +1,7 @@
 -- Fight statistics for the engine v2 mechanics (docs/design/revamp-roster.md, measurement list):
 -- damage by source, healing and shielding, pulls, summons, COPY, stun uptime, single big hits
--- (overkill) and stacking buffs. Feed every fight result to Mechanics.record, then print
--- Mechanics.report(). Characters are named by internal id.
+-- (overkill), stacking buffs and forms (rider mounts). Feed every fight result to
+-- Mechanics.record, then print Mechanics.report(). Characters are named by internal id.
 
 local UnitConfig = require("../src/shared/UnitConfig")
 
@@ -19,6 +19,9 @@ local totals = {
 	stun = { stunnedSeconds = { 0, 0 } }, -- per side, unit-seconds spent stunned
 	burst = {}, -- unitType with a single TRUE hit ability -> { present, casts, overkillSum, overkills, kills }
 	stacks = {}, -- unitType with a stacking buff -> { present, reached = { fights per highest count 0-3 } }
+	-- unitType with forms -> { present, left (fights it left its starting form), leftSeconds (sum of
+	-- when), poolDamage (damage taken by form health pools), entered = { form name -> times } }
+	forms = {},
 }
 
 local function typeStats(unitType: string)
@@ -82,6 +85,18 @@ function Mechanics.record(result)
 		end
 	end
 
+	local pool = {} -- unit index (units with forms) -> current form health pool, or nil
+	local leftStart = {} -- unit index -> true once it left its starting form
+	for _, unit in result.units do
+		if unit.form then
+			local entry = totals.forms[unit.unitType]
+				or { present = 0, left = 0, leftSeconds = 0, poolDamage = 0, entered = {} }
+			entry.present += 1
+			totals.forms[unit.unitType] = entry
+			pool[unit.index] = unit.formHealth
+		end
+	end
+
 	local summonStart = {}
 	local pulled = {} -- unit index -> tick it was pulled
 	local stunIntervals = {} -- unit index -> { start, finish, total }
@@ -101,7 +116,10 @@ function Mechanics.record(result)
 		local kind = event.kind
 		if
 			copy
-			and not (event.tick == copy.tick and (event.unit == copy.unit or kind == "Death" or kind == "MaxHealth"))
+			and not (
+				event.tick == copy.tick
+				and (event.unit == copy.unit or kind == "Death" or kind == "MaxHealth" or kind == "Form")
+			)
 		then
 			copy = nil
 		end
@@ -152,8 +170,26 @@ function Mechanics.record(result)
 			end
 			health[event.target] = event.health
 			shield[event.target] = event.shield
+			local before = pool[event.target]
+			if before and event.formHealth then
+				totals.forms[units[event.target].unitType].poolDamage += before - event.formHealth
+				pool[event.target] = event.formHealth
+			end
+		elseif kind == "Form" then
+			local unitType = units[event.unit].unitType
+			local entry = totals.forms[unitType]
+			entry.entered[event.form] = (entry.entered[event.form] or 0) + 1
+			if not leftStart[event.unit] then
+				leftStart[event.unit] = true
+				entry.left += 1
+				entry.leftSeconds += event.tick / tps
+			end
+			pool[event.unit] = event.formHealth
 		elseif kind == "Heal" then
 			health[event.target] = event.health
+			if pool[event.target] and event.formHealth then
+				pool[event.target] = event.formHealth
+			end
 			local credited = creditedType(event.unit)
 			if credited then
 				typeStats(credited).heal += event.amount
@@ -401,6 +437,25 @@ function Mechanics.report()
 				"Stacking buff %s: highest stacks reached per fight %s  [%d fights]",
 				unitType,
 				table.concat(parts, ", "),
+				entry.present
+			)
+		)
+	end
+
+	for _, unitType in sortedKeys(totals.forms) do
+		local entry = totals.forms[unitType]
+		local entered = {}
+		for _, name in sortedKeys(entry.entered) do
+			table.insert(entered, string.format("%s %.2f", name, entry.entered[name] / entry.present))
+		end
+		print(
+			string.format(
+				"Forms %s: left its starting form in %s of fights (at %.1fs on average), form pool took %.0f damage per fight; form changes per fight: %s  [%d fights]",
+				unitType,
+				percent(entry.left, entry.present),
+				if entry.left > 0 then entry.leftSeconds / entry.left else 0,
+				entry.poolDamage / entry.present,
+				if #entered > 0 then table.concat(entered, ", ") else "none",
 				entry.present
 			)
 		)

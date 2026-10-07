@@ -33,8 +33,9 @@ local EVENT_FOR_EFFECT = {
 -- Effects that can produce any number of their event, so matching stays on them.
 local MANY_EVENTS = { AREA_DAMAGE = true, AREA_STUN = true, SUMMON = true, DAMAGE_OVER_TIME = true }
 
--- Events inside a cast that carry another unit's index rather than the caster's.
-local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true }
+-- Events inside a cast that carry another unit's index rather than the caster's (a hit can make
+-- its target change form).
+local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true, Form = true }
 
 export type Area = { column: number, row: number, radius: number }
 
@@ -50,9 +51,10 @@ local function valueAt(value: any, starLevel: number): number
 	return value
 end
 
--- `units` are the fight's starting units (CombatSim UnitSummary). `abilityOf(unitIndex)` returns
--- that unit's ability data (a UnitConfig ability) or nil; it is also asked for the target of a COPY.
-function CastReader.read(units: { any }, events: { any }, abilityOf: (number) -> any?): Reading
+-- `units` are the fight's starting units (CombatSim UnitSummary). `abilityOf(unitIndex, name)`
+-- returns that unit's ability data (a UnitConfig ability, or a form's ability) named `name` (from
+-- the Cast or Copy event), or nil; it is also asked for the target of a COPY.
+function CastReader.read(units: { any }, events: { any }, abilityOf: (number, string?) -> any?): Reading
 	local damageTypes = {}
 	local areas = {}
 
@@ -132,7 +134,8 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number) ->
 					-- The copied ability's events follow, as if the caster had cast it. A COPY inside it
 					-- is ignored by the engine, so it is dropped here too.
 					finish(cast)
-					local copied = newCast(cast.caster, cast.tick, cast.castIndex, abilityOf(event.target))
+					local copied =
+						newCast(cast.caster, cast.tick, cast.castIndex, abilityOf(event.target, event.ability))
 					for i = #copied.effects, 1, -1 do
 						if copied.effects[i].type == "COPY" then
 							table.remove(copied.effects, i)
@@ -179,7 +182,7 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number) ->
 			if cast then
 				finish(cast)
 			end
-			cast = newCast(event.unit, event.tick, index, abilityOf(event.unit))
+			cast = newCast(event.unit, event.tick, index, abilityOf(event.unit, event.ability))
 		elseif cast and event.unit == cast.caster then
 			cast = match(cast, index, event)
 		end

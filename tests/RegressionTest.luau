@@ -13,7 +13,8 @@ table.insert(tests, {
 		local mismatches = {}
 		for seed = 1, RegressionFights.count do
 			if RegressionFights.fingerprint(seed) ~= expected[seed] then
-				table.insert(mismatches, tostring(seed))
+				local note = if RegressionFights.hasForms(seed) then " (has forms)" else ""
+				table.insert(mismatches, tostring(seed) .. note)
 			end
 		end
 		assert(#mismatches == 0, "fights changed for seeds: " .. table.concat(mismatches, ", "))

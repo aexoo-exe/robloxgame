@@ -14,6 +14,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local Forms = require(Shared:WaitForChild("Forms"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
@@ -80,10 +81,20 @@ local function play(playback)
 		return playback.startsAt + tick / result.ticksPerSecond
 	end
 
+	-- A unit's form data by index (nil for units without forms).
+	local function formOf(unitType: string, formIndex: number?)
+		local forms = UnitConfig[unitType].forms
+		return if forms and formIndex then forms[formIndex] else nil
+	end
+	local function formLook(form)
+		return if form then RenderConfig.formLooks[form.name] else nil
+	end
+
 	local unitsByIndex = {}
 	for _, unit in result.units do
 		unitsByIndex[unit.index] = unit
 		local own = unit.side == localSide
+		local form = formOf(unit.unitType, unit.formIndex)
 		views[unit.index] = UnitView.new(
 			SkinConfig[unit.unitType].name,
 			unit.starLevel,
@@ -97,16 +108,25 @@ local function play(playback)
 				-- Both sides start facing each other; the local side is nearest the camera (+Z).
 				yaw = if own then 0 else math.pi,
 				healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
+				formHealth = unit.formHealth,
+				maxFormHealth = unit.maxFormHealth,
+				formLook = formLook(form),
 			}
 		)
 	end
 
 	-- Side, range and move speed of every unit, summons included. Summons appear only in Summon
 	-- events, so they are read up front: attack anticipation looks ahead of the applied events.
+	-- Move speed includes the starting form's change and is updated as Form events apply.
 	local info = {}
 	for _, unit in result.units do
 		local stats = UnitConfig[unit.unitType]
-		info[unit.index] = { side = unit.side, range = stats.range, moveSpeed = stats.moveSpeed }
+		local form = formOf(unit.unitType, unit.formIndex)
+		info[unit.index] = {
+			side = unit.side,
+			range = stats.range,
+			moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed"),
+		}
 	end
 	for _, event in result.events do
 		if event.kind == "Summon" and info[event.unit] then
@@ -119,9 +139,9 @@ local function play(playback)
 		end
 	end
 
-	local reading = CastReader.read(result.units, result.events, function(index)
+	local reading = CastReader.read(result.units, result.events, function(index, name)
 		local unit = unitsByIndex[index]
-		return if unit then UnitConfig[unit.unitType].ability else nil
+		return if unit then Forms.abilityNamed(UnitConfig[unit.unitType], name) else nil
 	end)
 
 	-- Pulses every field cell within the area's radius, spreading outward from its center.
@@ -163,6 +183,9 @@ local function play(playback)
 				UnitView.setHealth(targetView, event.health)
 				UnitView.setShield(targetView, event.shield)
 				UnitView.setMana(targetView, event.targetMana)
+				if event.formHealth then
+					UnitView.setFormHealth(targetView, event.formHealth)
+				end
 				if fresh and event.dot then
 					UnitView.dotNumber(targetView, event.damage, event.damageType)
 				elseif fresh then
@@ -180,6 +203,9 @@ local function play(playback)
 			end
 		elseif kind == "Heal" and targetView then
 			UnitView.setHealth(targetView, event.health)
+			if event.formHealth then
+				UnitView.setFormHealth(targetView, event.formHealth)
+			end
 			if fresh then
 				UnitView.healNumber(targetView, event.amount)
 			end
@@ -215,6 +241,20 @@ local function play(playback)
 			UnitView.dashTo(targetView, toWorld(event.column, event.row))
 		elseif kind == "Copy" and view and fresh then
 			UnitView.popText(view, "Copy: " .. abilityName(event.ability), RenderConfig.castTextColor)
+		elseif kind == "Form" and view then
+			-- The server decided the form change; this only shows it.
+			local unit = unitsByIndex[event.unit]
+			local form = formOf(unit.unitType, event.formIndex)
+			local look = formLook(form)
+			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth)
+			UnitView.setHealth(view, event.health)
+			info[event.unit].moveSpeed = Forms.baseStat(UnitConfig[unit.unitType], form, "MoveSpeed", "moveSpeed")
+			if event.cleansed then
+				UnitView.stun(view, 0)
+			end
+			if fresh then
+				UnitView.popText(view, if look then look.label else event.form, RenderConfig.formChangeTextColor)
+			end
 		elseif (kind == "Death" or kind == "SummonEnd") and view then
 			-- Deaths and expiring summons fade out.
 			UnitView.kill(view)

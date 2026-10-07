@@ -5,6 +5,7 @@ local Abilities = require("../src/shared/Abilities")
 local Battle = require("../src/shared/Battle")
 local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
+local Forms = require("../src/shared/Forms")
 local HexGrid = require("../src/shared/HexGrid")
 local UnitConfig = require("../src/shared/UnitConfig")
 
@@ -13,7 +14,9 @@ local function expectEqual(actual, expected, label)
 end
 
 -- Block 2: cost, HP (before the global multiplier), AD, armor, MR, attack speed, range, move,
--- starting mana, max mana. AP is 100 for everyone.
+-- starting mana, max mana. AP is 100 for everyone. Move is the speed a character starts the fight
+-- with: for the riders (spurshot, orbit_breaker) that is their base 1.0 plus the Mounted form's
+-- bonus (FormConfig.mount.mountedMoveSpeedBonus).
 local SPEC = {
 	flashline = { 1, 560, 63, 20, 20, 0.78, 1, 1.1, 20, 90 },
 	cinder_arc = { 1, 650, 57, 28, 25, 0.70, 1, 1.0, 30, 90 },
@@ -299,7 +302,11 @@ table.insert(tests, {
 			local spec = SPEC[id]
 			assert(spec, "unexpected unit " .. id)
 			for i, field in FIELDS do
-				expectEqual(unit[field], spec[i], id .. " " .. field)
+				local value = unit[field]
+				if field == "moveSpeed" and unit.forms then
+					value = Forms.baseStat(unit, unit.forms[1], "MoveSpeed", "moveSpeed")
+				end
+				expectEqual(value, spec[i], id .. " " .. field)
 			end
 			expectEqual(unit.abilityPower, 100, id .. " abilityPower")
 			expectEqual(unit.ability.name, id, id .. " ability name is its id")
@@ -333,6 +340,27 @@ table.insert(tests, {
 				string.format("%s:\n  data: %s\n  spec: %s", id, text, tostring(ABILITIES[id]))
 			)
 		end
+	end,
+})
+
+table.insert(tests, {
+	name = "only the two riders have forms, and every form list is valid",
+	run = function()
+		local withForms = {}
+		for id, unit in UnitConfig do
+			local ok, reason = Forms.validate(unit.forms)
+			assert(ok, id .. ": " .. tostring(reason))
+			if unit.forms then
+				withForms[id] = true
+				for _, form in unit.forms do
+					if form.ability then
+						local abilityOk, abilityReason = Abilities.validate(form.ability)
+						assert(abilityOk, id .. " form " .. form.name .. ": " .. tostring(abilityReason))
+					end
+				end
+			end
+		end
+		expectEqual(sortedKeys(withForms), "orbit_breaker,spurshot", "units with forms")
 	end,
 })
 

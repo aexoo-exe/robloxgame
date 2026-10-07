@@ -14,10 +14,15 @@
 --   startingMana, maxMana
 --   ability           data for the generic interpreter in Abilities.luau; per-star values are
 --                     { 1-star, 2-star, 3-star }
+--   forms             optional ordered list of forms (transformations); the unit starts each fight
+--                     in the first. See Forms.luau and docs/forms.md. Their numbers live in
+--                     FormConfig.
 --
 -- Abilities resolve every selector once, before any effect. Where Block 2 says a dash gives a
 -- "new CURRENT_TARGET", the dash sets the retarget flag and the cast's later effects name the
 -- dash's own selector, so they hit the same enemy.
+
+local FormConfig = if script then require(script.Parent.FormConfig) else require("./FormConfig")
 
 local function freezeAll(value)
 	if type(value) == "table" then
@@ -128,6 +133,36 @@ local function summon(count, duration, health, ad, resist, attackSpeed, range, m
 	}
 end
 
+-- Rider mounts: the rider starts each fight Mounted, on a horse with its own health pool that takes
+-- every hit, and drops to Dismounted when the horse's pool runs out. The mounted speed bonus is the
+-- riders' former extra move speed (Block 2 lists them at 1.2; their base is now 1.0). With
+-- FormConfig.mount.remountEnabled, Dismounted gets a takedown trigger back to Mounted.
+local function mountedForms(id: string)
+	local mount = FormConfig.mount
+	return {
+		{
+			name = "Mounted",
+			health = mount.horseHealth[id],
+			stats = {
+				MoveSpeed = { flat = mount.mountedMoveSpeedBonus },
+				AD = { flat = mount.mountedBonusDamage },
+			},
+			trigger = { type = "FORM_HEALTH_DEPLETED" },
+		},
+		{
+			name = "Dismounted",
+			trigger = if mount.remountEnabled
+				then {
+					type = "TAKEDOWN",
+					to = "Mounted",
+					healthPercent = mount.remountHorseHealthPercent,
+					maxUses = mount.remountsPerFight,
+				}
+				else nil,
+		},
+	}
+end
+
 -- 1-cost --------------------------------------------------------------------------------------
 
 add("flashline", unit(1, "Hunters", { "Blade", "Assassin" }, 560, 63, 20, 20, 0.78, 1, 1.1, 20, 90), {
@@ -143,10 +178,11 @@ add("wolfstep", unit(1, "Corps", { "Blade" }, 590, 62, 22, 20, 0.77, 1, 1.1, 20,
 	dash("HIGHEST_AD_ENEMY", 3, true),
 	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 135, 215, 345 }),
 })
-add("spurshot", unit(1, "Spirit", { "Marksman" }, 550, 64, 18, 18, 0.76, 3, 1.2, 20, 80), {
+add("spurshot", unit(1, "Spirit", { "Marksman" }, 550, 64, 18, 18, 0.76, 3, 1.0, 20, 80), {
 	damage("FARTHEST_ENEMY", "PHYSICAL", { 140, 225, 360 }),
 	buffPercent("SELF", "AttackSpeed", { 15, 25, 40 }, 4),
 })
+roster.spurshot.forms = mountedForms("spurshot")
 add("ripcord_frenzy", unit(1, "Cursed", { "Brawler" }, 700, 58, 28, 24, 0.72, 1, 1.0, 30, 90), {
 	buffPercent("SELF", "AttackSpeed", { 25, 40, 60 }, 5),
 	heal("SELF", { 80, 130, 210 }),
@@ -192,10 +228,11 @@ add("crimson_hunger", unit(2, "Cursed", { "Assassin" }, 720, 70, 26, 27, 0.82, 1
 	damage("CURRENT_TARGET", "PHYSICAL", { 220, 350, 560 }),
 	heal("SELF", { 90, 145, 230 }),
 })
-add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 68, 23, 25, 0.82, 3, 1.2, 20, 90), {
+add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 68, 23, 25, 0.82, 3, 1.0, 20, 90), {
 	damage("CURRENT_TARGET", "PHYSICAL", { 220, 350, 560 }),
 	stun("CURRENT_TARGET", { 1, 1.5, 2 }),
 })
+roster.orbit_breaker.forms = mountedForms("orbit_breaker")
 add("marsh_fortress", unit(2, "Shinobi", { "Guardian" }, 900, 52, 45, 42, 0.58, 1, 0.9, 40, 110), {
 	shield("SELF", { 280, 450, 720 }, 6),
 	area("SELF", 1, "PHYSICAL", { 85, 135, 215 }),

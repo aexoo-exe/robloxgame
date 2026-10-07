@@ -6,13 +6,18 @@ local StarConfig = if script then require(script.Parent.StarConfig) else require
 
 local StarLevel = {}
 
+-- Combat health for a listed health value at `starLevel`: times the star multiplier and
+-- CombatConfig.globalHealthMultiplier, rounded. Unit health and form health pools both use it.
+function StarLevel.scaleHealth(health: number, starLevel: number): number
+	return math.round(health * StarConfig.healthMultiplier[starLevel] * CombatConfig.globalHealthMultiplier)
+end
+
 -- Returns a copy of `stats` scaled for combat at `starLevel`: health by the star multiplier and
 -- CombatConfig.globalHealthMultiplier, attack damage by the star multiplier, each rounded to a
 -- whole number. Nothing else scales. This is the only place a unit's combat health is computed.
 function StarLevel.scaleStats(stats: { [string]: any }, starLevel: number): { [string]: any }
 	local scaled = table.clone(stats)
-	scaled.health =
-		math.round(stats.health * StarConfig.healthMultiplier[starLevel] * CombatConfig.globalHealthMultiplier)
+	scaled.health = StarLevel.scaleHealth(stats.health, starLevel)
 	scaled.attackDamage = math.round(stats.attackDamage * StarConfig.attackDamageMultiplier[starLevel])
 	return scaled
 end

@@ -43,9 +43,9 @@ local function recordedFight(seed: number)
 
 	local trueTypes = {}
 	local original = Battle.damage
-	Battle.damage = function(battle, source, target, raw, damageType, kind, crit, manaCap)
+	Battle.damage = function(battle, source, target, raw, damageType, kind, crit, manaCap, overTime)
 		local before = #battle.events
-		local final, manaGained = original(battle, source, target, raw, damageType, kind, crit, manaCap)
+		local final, manaGained = original(battle, source, target, raw, damageType, kind, crit, manaCap, overTime)
 		if #battle.events > before then
 			trueTypes[before + 1] = damageType
 		end
@@ -232,6 +232,28 @@ table.insert(tests, {
 		local area = reading.areas[1] and reading.areas[1][1]
 		assert(area and area.column == 3 and area.row == 5, "the copied area is centered on the punched unit")
 		expectEqual(reading.damageTypes[5], "MAGIC", "damage-over-time tick")
+	end,
+})
+
+table.insert(tests, {
+	name = "a hit that changes its target's form (a dismount) does not end the cast's reading",
+	run = function()
+		local units = {
+			{ index = 1, side = 1, column = 3, row = 4, starLevel = 1 },
+			{ index = 2, side = 2, column = 3, row = 5, starLevel = 1, form = "Mounted", formIndex = 1 },
+			{ index = 3, side = 2, column = 4, row = 5, starLevel = 1 },
+		}
+		local events = {
+			{ tick = 9, kind = "Cast", unit = 1, ability = "flare_kick" },
+			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 180, health = 700, shield = 0, formHealth = 0 },
+			{ tick = 9, kind = "Form", unit = 2, form = "Dismounted", formIndex = 2, health = 700 },
+			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 80, health = 500, shield = 0 },
+		}
+		local reading = CastReader.read(units, events, function()
+			return UnitConfig.flare_kick.ability
+		end)
+		expectEqual(reading.damageTypes[2], "PHYSICAL", "the punch")
+		expectEqual(reading.damageTypes[4], "MAGIC", "the area after the dismount")
 	end,
 })
 

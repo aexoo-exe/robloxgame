@@ -75,6 +75,15 @@ return table.freeze({
 	summonTransparency = 0.45, -- and see-through
 	areaStunColor = Color3.fromRGB(255, 230, 60), -- AREA_STUN pulse
 	dotNumberSize = 13, -- damage-over-time ticks
+	-- Forms (transformations). A form's own health pool (a rider's horse) is a second bar stacked
+	-- above the health bar. Looks are keyed by form name: `label` floats up when the unit enters the
+	-- form, and `mount` adds a placeholder horse (a block body and head under the unit).
+	formHealthColor = Color3.fromRGB(230, 160, 60),
+	formChangeTextColor = Color3.fromRGB(255, 210, 120),
+	formLooks = table.freeze({
+		Mounted = table.freeze({ label = "Mounted", mount = Color3.fromRGB(125, 85, 50) }),
+		Dismounted = table.freeze({ label = "Dismounted!" }),
+	}),
 	deathFadeDuration = 0.5,
 	deathSinkDistance = 1.2,
 
