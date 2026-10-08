@@ -10,6 +10,7 @@ local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local UITheme = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UITheme"))
 
@@ -19,11 +20,18 @@ local COLORS = UITheme.colors
 local FONTS = UITheme.fonts
 local MOTION = UITheme.motion
 
--- The UIScale that fits the reference layout into a screen area of `size` pixels.
+-- True on touch devices without a mouse (phones, tablets, Studio's device emulator).
+function UI.isTouch(): boolean
+	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+end
+
+-- The UIScale that fits the reference layout into a screen area of `size` pixels, with the
+-- device's settings (UITheme.scale.desktop or .touch).
 function UI.scaleFor(size: Vector2): number
 	local reference = UITheme.scale.reference
-	local fit = math.min(size.X / reference.X, size.Y / reference.Y)
-	return math.clamp(fit, UITheme.scale.min, UITheme.scale.max)
+	local device = if UI.isTouch() then UITheme.scale.touch else UITheme.scale.desktop
+	local fit = math.min(size.X / reference.X, size.Y / reference.Y) * device.multiplier
+	return math.clamp(fit, device.min, device.max)
 end
 
 -- How much of each screen edge (in screen pixels) the HUD covers, from UITheme.boardInsets at the

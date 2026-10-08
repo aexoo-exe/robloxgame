@@ -286,6 +286,7 @@ local function onClick(screenPosition: Vector2)
 		return
 	end
 	if not selectedId then
+		inspect(nil) -- a tap elsewhere closes the unit info panel
 		return
 	end
 

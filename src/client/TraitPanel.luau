@@ -21,8 +21,8 @@ local TraitPanel = {}
 local COLORS = UITheme.colors
 local FONTS = UITheme.fonts
 local SIZES = UITheme.sizes
-local ICON = 22
-local BREAKPOINT_AREA = 44 -- reserved on each row's right for breakpoint pips
+local ICON = SIZES.traitRow - 6
+local BREAKPOINT_AREA = 30 -- reserved on each row's right for breakpoint pips
 
 -- Different characters per trait among the placed units: trait -> count.
 local function boardCounts(units: { any }): { [string]: number }
@@ -46,7 +46,7 @@ end
 
 function TraitPanel.start()
 	local _, root = UI.screen("TraitPanel", 3)
-	local panel = UI.panel(root, UDim2.fromOffset(SIZES.sidePanelWidth - 20, 0), false)
+	local panel = UI.panel(root, UDim2.fromOffset(SIZES.traitPanelWidth, 0), false)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.Position = UDim2.fromOffset(SIZES.margin, SIZES.topBarHeight + 14)
 	UI.padding(panel, 6)
@@ -88,15 +88,15 @@ function TraitPanel.start()
 			icon.AnchorPoint = Vector2.new(0, 0.5)
 			icon.Position = UDim2.new(0, 4, 0.5, 0)
 
-			local count = UI.text(row, tostring(counts[trait]), SIZES.textLarge, FONTS.number, COLORS.gold)
+			local count = UI.text(row, tostring(counts[trait]), SIZES.text, FONTS.number, COLORS.gold)
 			count.AnchorPoint = Vector2.new(0, 0.5)
-			count.Position = UDim2.new(0, ICON + 10, 0.5, 0)
+			count.Position = UDim2.new(0, ICON + 8, 0.5, 0)
 
 			local name = UI.text(row, TraitIcon.name(trait), SIZES.textSmall, FONTS.body)
 			name.AutomaticSize = Enum.AutomaticSize.None
 			name.AnchorPoint = Vector2.new(0, 0.5)
-			name.Position = UDim2.new(0, ICON + 34, 0.5, 0)
-			name.Size = UDim2.new(1, -(ICON + 38 + BREAKPOINT_AREA), 0, SIZES.textSmall + 4)
+			name.Position = UDim2.new(0, ICON + 26, 0.5, 0)
+			name.Size = UDim2.new(1, -(ICON + 30 + BREAKPOINT_AREA), 0, SIZES.textSmall + 4)
 			name.TextXAlignment = Enum.TextXAlignment.Left
 			name.TextTruncate = Enum.TextTruncate.AtEnd
 

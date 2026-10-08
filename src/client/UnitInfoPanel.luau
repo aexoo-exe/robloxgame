@@ -1,7 +1,9 @@
--- The unit info panel: opens when a unit is selected or tapped (BoardController.onInspect) and
--- shows its name, cost, star level, traits with names, combat stats at its star level, its ability
--- and three item slots (reserved: items do not exist yet). For the player's own units it has a
--- Sell button showing the sell value. The close button deselects. Presentation only.
+-- The unit info panel, on the right edge (over the player list while open): opens when a unit is
+-- selected or tapped (BoardController.onInspect) and shows its name, cost, star level, traits with
+-- names, combat stats at its star level (two columns of icon and number), its ability and three
+-- item slots (reserved: items do not exist yet). For the player's own units it has a Sell button
+-- showing the sell value. It closes when the unit is deselected, when you tap elsewhere, or with
+-- its close button. Presentation only.
 --
 -- There is no ability description text in the game data, so the ability shows its display name
 -- (SkinConfig) and mana cost only.
@@ -31,7 +33,10 @@ local FONTS = UITheme.fonts
 local SIZES = UITheme.sizes
 local ICONS = UITheme.icons
 local ITEM_SLOTS = 3
-local ITEM_SIZE = 44
+local ITEM_SIZE = 34
+local CLOSE_SIZE = 30
+local STAT_ROW = 20 -- height of a stat cell
+local STAT_GAP = 3
 
 -- Whether the inspected unit can be sold now: any of the player's units during Preparation; only
 -- bench units during Combat and Results, while the board is locked.
@@ -110,14 +115,16 @@ function UnitInfoPanel.start()
 	local requestSellUnit = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestSellUnit)
 
 	local _, root = UI.screen("UnitInfoPanel", 6)
+	-- On the right edge, over the player list while open.
 	local panel = UI.panel(root, UDim2.fromOffset(SIZES.infoPanelWidth, 0), false)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
-	panel.Position = UDim2.fromOffset(SIZES.margin, SIZES.topBarHeight + 14)
+	panel.AnchorPoint = Vector2.new(1, 0)
+	panel.Position = UDim2.new(1, -SIZES.margin, 0, SIZES.topBarHeight + 14)
 	panel.Visible = false
 
 	-- The cost color, as a band behind the header.
 	local band = Instance.new("Frame")
-	band.Size = UDim2.new(1, 0, 0, 8)
+	band.Size = UDim2.new(1, 0, 0, 6)
 	band.BorderSizePixel = 0
 	local bandCorner = Instance.new("UICorner")
 	bandCorner.CornerRadius = UDim.new(0, UITheme.corner)
@@ -128,14 +135,14 @@ function UnitInfoPanel.start()
 	content.BackgroundTransparency = 1
 	content.Size = UDim2.fromScale(1, 0)
 	content.AutomaticSize = Enum.AutomaticSize.Y
-	UI.padding(content, 10)
-	UI.list(content, 8)
+	UI.padding(content, 8)
+	UI.list(content, 5)
 	content.Parent = panel
 
-	local close = UI.button(panel, COLORS.sell, UDim2.fromOffset(34, 34))
+	local close = UI.button(panel, COLORS.sell, UDim2.fromOffset(CLOSE_SIZE, CLOSE_SIZE))
 	close.AnchorPoint = Vector2.new(1, 0)
-	close.Position = UDim2.new(1, 6, 0, -6)
-	local closeGlyph = UI.glyph(close, ICONS.close, SIZES.text)
+	close.Position = UDim2.new(1, -4, 0, 4)
+	local closeGlyph = UI.glyph(close, ICONS.close, SIZES.textSmall + 1)
 	closeGlyph.AnchorPoint = Vector2.new(0.5, 0.5)
 	closeGlyph.Position = UDim2.fromScale(0.5, 0.5)
 	close.Activated:Connect(function()
@@ -144,17 +151,17 @@ function UnitInfoPanel.start()
 	end)
 
 	-- Header: name, then stars and price.
-	local name = UI.text(content, "", SIZES.textLarge, FONTS.display)
+	local name = UI.text(content, "", SIZES.text + 4, FONTS.display)
 	name.LayoutOrder = 1
 	name.AutomaticSize = Enum.AutomaticSize.None
-	name.Size = UDim2.new(1, -30, 0, SIZES.textLarge + 4)
+	name.Size = UDim2.new(1, -(CLOSE_SIZE + 4), 0, SIZES.text + 6)
 	name.TextXAlignment = Enum.TextXAlignment.Left
 	name.TextScaled = true
-	local subtitle = UI.row(content, 12)
+	local subtitle = UI.row(content, 10)
 	subtitle.LayoutOrder = 2
-	local stars = UI.text(subtitle, "", SIZES.textLarge, FONTS.body)
+	local stars = UI.text(subtitle, "", SIZES.text, FONTS.body)
 	stars.LayoutOrder = 1
-	local price, priceLabel = UI.price(subtitle, 0, 18)
+	local price, priceLabel = UI.price(subtitle, 0, 14)
 	price.LayoutOrder = 2
 
 	local traits = Instance.new("Frame")
@@ -167,23 +174,24 @@ function UnitInfoPanel.start()
 	traitsLayout.Wraps = true
 	traits.Parent = content
 
-	-- Stats: two columns of icon and number.
+	-- Stats: two columns of icon and number, sized to fit their rows exactly.
+	local rows = math.ceil(#STATS / 2)
 	local grid = Instance.new("Frame")
 	grid.LayoutOrder = 4
 	grid.BackgroundTransparency = 1
-	grid.Size = UDim2.new(1, 0, 0, 4 * 30)
+	grid.Size = UDim2.new(1, 0, 0, rows * (STAT_ROW + STAT_GAP) - STAT_GAP)
 	local gridLayout = Instance.new("UIGridLayout")
-	gridLayout.CellSize = UDim2.new(0.5, -4, 0, 26)
-	gridLayout.CellPadding = UDim2.fromOffset(8, 4)
+	gridLayout.CellSize = UDim2.new(0.5, -3, 0, STAT_ROW)
+	gridLayout.CellPadding = UDim2.fromOffset(6, STAT_GAP)
 	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	gridLayout.Parent = grid
 	grid.Parent = content
 	local statLabels = {}
 	for order, stat in STATS do
-		local cell = UI.row(grid, 6, UDim2.fromScale(0, 0))
+		local cell = UI.row(grid, 4, UDim2.fromScale(0, 0))
 		cell.LayoutOrder = order
-		UI.glyph(cell, stat.icon, SIZES.text).LayoutOrder = 1
-		local value = UI.text(cell, "", SIZES.text + 2, FONTS.number)
+		UI.glyph(cell, stat.icon, SIZES.textSmall + 1).LayoutOrder = 1
+		local value = UI.text(cell, "", SIZES.text, FONTS.number)
 		value.LayoutOrder = 2
 		statLabels[order] = value
 	end
@@ -191,7 +199,7 @@ function UnitInfoPanel.start()
 	-- Ability: its name and mana cost.
 	local ability = Instance.new("Frame")
 	ability.LayoutOrder = 5
-	ability.Size = UDim2.new(1, 0, 0, 40)
+	ability.Size = UDim2.new(1, 0, 0, 28)
 	ability.BackgroundColor3 = COLORS.panelLight
 	ability.BorderSizePixel = 0
 	local abilityCorner = Instance.new("UICorner")
@@ -201,19 +209,23 @@ function UnitInfoPanel.start()
 	abilityStroke.Color = COLORS.goldDark
 	abilityStroke.Thickness = 2
 	abilityStroke.Parent = ability
-	local abilityName = UI.text(ability, "", SIZES.text, FONTS.body, COLORS.gold)
+	local abilityName = UI.text(ability, "", SIZES.textSmall + 1, FONTS.body, COLORS.gold)
+	abilityName.AutomaticSize = Enum.AutomaticSize.None
 	abilityName.AnchorPoint = Vector2.new(0, 0.5)
-	abilityName.Position = UDim2.new(0, 10, 0.5, 0)
+	abilityName.Position = UDim2.new(0, 8, 0.5, 0)
+	abilityName.Size = UDim2.new(1, -60, 0, SIZES.textSmall + 4)
+	abilityName.TextXAlignment = Enum.TextXAlignment.Left
+	abilityName.TextTruncate = Enum.TextTruncate.AtEnd
 	local abilityMana = UI.row(ability, 2)
 	abilityMana.AnchorPoint = Vector2.new(1, 0.5)
 	abilityMana.Position = UDim2.new(1, -8, 0.5, 0)
 	UI.glyph(abilityMana, ICONS.mana, SIZES.textSmall).LayoutOrder = 1
-	local abilityManaLabel = UI.text(abilityMana, "", SIZES.text, FONTS.number, COLORS.xp)
+	local abilityManaLabel = UI.text(abilityMana, "", SIZES.textSmall + 1, FONTS.number, COLORS.xp)
 	abilityManaLabel.LayoutOrder = 2
 	ability.Parent = content
 
 	-- Item slots: reserved for items, empty for now.
-	local items = UI.row(content, 8)
+	local items = UI.row(content, 6)
 	items.LayoutOrder = 6
 	for slot = 1, ITEM_SLOTS do
 		local itemSlot = Instance.new("Frame")
@@ -234,13 +246,13 @@ function UnitInfoPanel.start()
 	end
 
 	-- Sell (the player's own units).
-	local sell = UI.button(content, COLORS.sell, UDim2.new(1, 0, 0, 48))
+	local sell = UI.button(content, COLORS.sell, UDim2.new(1, 0, 0, 36))
 	sell.LayoutOrder = 7
 	local sellRow = UI.row(sell, 8)
 	sellRow.AnchorPoint = Vector2.new(0.5, 0.5)
 	sellRow.Position = UDim2.fromScale(0.5, 0.5)
-	UI.text(sellRow, "SELL", SIZES.textLarge, FONTS.display).LayoutOrder = 1
-	local sellPrice, sellPriceLabel = UI.price(sellRow, 0, 18)
+	UI.text(sellRow, "SELL", SIZES.text + 2, FONTS.display).LayoutOrder = 1
+	local sellPrice, sellPriceLabel = UI.price(sellRow, 0, 15)
 	sellPrice.LayoutOrder = 2
 
 	local current: BoardController.Inspected? = nil
@@ -268,7 +280,7 @@ function UnitInfoPanel.start()
 
 		clear(traits)
 		for order, traitId in TraitIcon.traitsOf(unit) do
-			TraitIcon.labeled(traitId, 22, SIZES.textSmall + 1, traits).LayoutOrder = order
+			TraitIcon.labeled(traitId, 18, SIZES.textSmall, traits).LayoutOrder = order
 		end
 		for order, stat in STATS do
 			statLabels[order].Text = stat.value(unit, star)

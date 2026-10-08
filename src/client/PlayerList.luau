@@ -19,7 +19,7 @@ local COLORS = UITheme.colors
 local FONTS = UITheme.fonts
 local SIZES = UITheme.sizes
 local REFRESH_SECONDS = 0.25
-local AVATAR = 30
+local AVATAR = SIZES.playerRow - 8
 
 type Entry = {
 	userId: number,
@@ -116,14 +116,14 @@ local function createRow(parent: Instance, order: number): Row
 
 	local name = UI.text(frame, "", SIZES.textSmall, FONTS.body)
 	name.AutomaticSize = Enum.AutomaticSize.None
-	name.Position = UDim2.fromOffset(AVATAR + 10, 3)
-	name.Size = UDim2.new(1, -(AVATAR + 50), 0, 16)
+	name.Position = UDim2.fromOffset(AVATAR + 9, 1)
+	name.Size = UDim2.new(1, -(AVATAR + 44), 0, SIZES.textSmall + 2)
 	name.TextXAlignment = Enum.TextXAlignment.Left
 	name.TextTruncate = Enum.TextTruncate.AtEnd
 
-	local healthBar = UI.bar(frame, UDim2.new(1, -(AVATAR + 52), 0, 10), COLORS.health)
-	healthBar.frame.Position = UDim2.new(0, AVATAR + 10, 1, -15)
-	local healthLabel = UI.text(frame, "", SIZES.text, FONTS.number)
+	local healthBar = UI.bar(frame, UDim2.new(1, -(AVATAR + 46), 0, 8), COLORS.health)
+	healthBar.frame.Position = UDim2.new(0, AVATAR + 9, 1, -12)
+	local healthLabel = UI.text(frame, "", SIZES.text - 1, FONTS.number)
 	healthLabel.AnchorPoint = Vector2.new(1, 0.5)
 	healthLabel.Position = UDim2.new(1, -6, 0.5, 0)
 
@@ -153,7 +153,7 @@ function PlayerList.start()
 	local localUserId = Players.LocalPlayer.UserId
 
 	local _, root = UI.screen("PlayerList", 3)
-	local panel = UI.panel(root, UDim2.fromOffset(SIZES.sidePanelWidth, 0), false)
+	local panel = UI.panel(root, UDim2.fromOffset(SIZES.playerListWidth, 0), false)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.AnchorPoint = Vector2.new(1, 0)
 	panel.Position = UDim2.new(1, -SIZES.margin, 0, SIZES.topBarHeight + 14)

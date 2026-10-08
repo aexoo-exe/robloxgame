@@ -21,9 +21,15 @@ local function freezeAll(value)
 end
 
 return freezeAll({
-	-- The reference layout is designed for this size; screens smaller or larger scale it by the
-	-- smaller of width / reference.X and height / reference.Y, kept within min and max.
-	scale = { reference = Vector2.new(1100, 560), min = 0.5, max = 1.7 },
+	-- HUD scale. The reference layout is designed for `reference`; a screen scales it by the smaller
+	-- of width / reference.X and height / reference.Y, times the device's `multiplier`, kept within
+	-- its min and max. Touch devices (touch screen, no mouse) use `touch`; everything else uses
+	-- `desktop`. Raise a multiplier to make that device's HUD bigger, lower it to make it smaller.
+	scale = {
+		reference = Vector2.new(1100, 560),
+		desktop = { multiplier = 0.72, min = 0.5, max = 1.1 },
+		touch = { multiplier = 1.1, min = 0.55, max = 1.3 },
+	},
 
 	fonts = {
 		display = Enum.Font.LuckiestGuy, -- titles, big numbers, button labels
@@ -114,23 +120,26 @@ return freezeAll({
 	-- Sizes in reference pixels.
 	sizes = {
 		margin = 10,
-		topBarHeight = 52,
-		shopCard = Vector2.new(124, 96),
-		shopButton = Vector2.new(112, 96),
-		shopStrip = 34, -- the stats row above the shop cards
-		sidePanelWidth = 200,
-		playerRow = 40,
-		traitRow = 30,
-		infoPanelWidth = 300,
+		topBarHeight = 44,
+		shopCard = Vector2.new(108, 70),
+		shopButton = Vector2.new(88, 70),
+		shopStrip = 26, -- the stats row above the shop cards
+		playerListWidth = 160,
+		traitPanelWidth = 150,
+		playerRow = 32,
+		traitRow = 24,
+		infoPanelWidth = 230,
 		textSmall = 13,
 		text = 16,
 		textLarge = 22,
 		textHuge = 40,
 	},
 
-	-- Space the HUD covers, in reference pixels, that the camera keeps the board and bench out of
-	-- (Arena fits the camera into the rest of the screen). Side panels may overlap the board's edge.
-	boardInsets = { top = 64, bottom = 150, left = 110, right = 120 },
+	-- Space the HUD covers along each edge, in reference pixels, that the camera keeps the board and
+	-- bench out of (Arena fits the camera into the rest of the screen): the top bar, the shop, and
+	-- the full width of the trait panel (left) and player list (right), so no panel covers the
+	-- board. The unit info panel (on the right, wider than the player list) may overlap while open.
+	boardInsets = { top = 58, bottom = 134, left = 168, right = 178 },
 
 	-- Feel: button bounce, number count-ups, pops and celebrations (seconds).
 	motion = {

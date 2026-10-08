@@ -37,7 +37,7 @@ local ShopPanel = {}
 local COLORS = UITheme.colors
 local FONTS = UITheme.fonts
 local SIZES = UITheme.sizes
-local TRAIT_ICON = 22
+local TRAIT_ICON = 18
 local TRAIT_NAME_SECONDS = 1.5
 
 -- Phases in which the server accepts shop requests.
@@ -92,8 +92,8 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 
 	local name = UI.text(button, "", SIZES.text, FONTS.body)
 	name.AutomaticSize = Enum.AutomaticSize.None
-	name.Position = UDim2.fromOffset(6, 14)
-	name.Size = UDim2.new(1, -12, 0, 36)
+	name.Position = UDim2.fromOffset(6, 12)
+	name.Size = UDim2.new(1, -12, 0, 28)
 	name.TextWrapped = true
 	name.TextScaled = true
 	name.TextXAlignment = Enum.TextXAlignment.Left
@@ -107,7 +107,7 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 	traits.AnchorPoint = Vector2.new(0, 1)
 	traits.Position = UDim2.new(0, 6, 1, -6)
 
-	local price, priceLabel = UI.price(button, 0, 16)
+	local price, priceLabel = UI.price(button, 0, 14)
 	price.AnchorPoint = Vector2.new(1, 1)
 	price.Position = UDim2.new(1, -6, 1, -6)
 
@@ -240,8 +240,8 @@ local function actionButton(parent: Instance, order: number, color: Color3, labe
 	column.BackgroundTransparency = 1
 	column.Size = UDim2.fromScale(1, 1)
 	UI.list(column, 4, Enum.HorizontalAlignment.Center).VerticalAlignment = Enum.VerticalAlignment.Center
-	UI.text(column, label, SIZES.textLarge, FONTS.display).LayoutOrder = 1
-	local price = UI.price(column, cost, 18)
+	UI.text(column, label, SIZES.text + 2, FONTS.display).LayoutOrder = 1
+	local price = UI.price(column, cost, 16)
 	price.LayoutOrder = 2
 	column.Parent = button
 	return button
@@ -287,15 +287,15 @@ function ShopPanel.start()
 	badgeStroke.Color = COLORS.outline
 	badgeStroke.Thickness = 2
 	badgeStroke.Parent = levelBadge
-	local levelLabel = UI.text(levelBadge, "", SIZES.textLarge, FONTS.display)
+	local levelLabel = UI.text(levelBadge, "", SIZES.text + 4, FONTS.display)
 	levelLabel.AutomaticSize = Enum.AutomaticSize.None
 	levelLabel.Size = UDim2.fromScale(1, 1)
 	levelBadge.Parent = levelRow
 	local xpColumn = Instance.new("Frame")
 	xpColumn.LayoutOrder = 2
 	xpColumn.BackgroundTransparency = 1
-	xpColumn.Size = UDim2.fromOffset(120, SIZES.shopStrip)
-	local xpBar = UI.bar(xpColumn, UDim2.new(1, 0, 0, 12), COLORS.xp)
+	xpColumn.Size = UDim2.fromOffset(100, SIZES.shopStrip)
+	local xpBar = UI.bar(xpColumn, UDim2.new(1, 0, 0, 8), COLORS.xp)
 	xpBar.frame.AnchorPoint = Vector2.new(0, 1)
 	xpBar.frame.Position = UDim2.fromScale(0, 1)
 	local xpLabel = UI.text(xpColumn, "", SIZES.textSmall, FONTS.number, COLORS.textDim)
@@ -303,15 +303,15 @@ function ShopPanel.start()
 
 	local goldRow = UI.row(strip, 6)
 	goldRow.LayoutOrder = 2
-	UI.coin(goldRow, 28).LayoutOrder = 1
-	local goldLabel = UI.text(goldRow, "0", SIZES.textHuge - 8, FONTS.number, COLORS.gold)
+	UI.coin(goldRow, 22).LayoutOrder = 1
+	local goldLabel = UI.text(goldRow, "0", SIZES.textLarge + 2, FONTS.number, COLORS.gold)
 	goldLabel.LayoutOrder = 2
 
 	local streakRow = UI.row(strip, 4)
 	streakRow.LayoutOrder = 3
-	local streakIcon = UI.glyph(streakRow, UITheme.icons.winStreak, SIZES.textLarge)
+	local streakIcon = UI.glyph(streakRow, UITheme.icons.winStreak, SIZES.text + 2)
 	streakIcon.LayoutOrder = 1
-	local streakLabel = UI.text(streakRow, "", SIZES.textLarge, FONTS.number)
+	local streakLabel = UI.text(streakRow, "", SIZES.text + 2, FONTS.number)
 	streakLabel.LayoutOrder = 2
 
 	-- Buy XP, the cards, Reroll.
