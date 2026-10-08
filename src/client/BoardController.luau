@@ -24,7 +24,6 @@ local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
 local CharacterLook = require(script.Parent.CharacterLook)
-local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
 local BoardController = {}
@@ -111,11 +110,12 @@ local function render()
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
-			traits = TraitIcon.traitsOf(stats),
 			look = look.figure,
 		})
 		view.part:SetAttribute("UnitId", unit.id)
-		view.part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
+		-- For the hover tooltip and the unit info panel.
+		view.part:SetAttribute("UnitType", unit.unitType)
+		view.part:SetAttribute("StarLevel", unit.starLevel)
 		views[unit.id] = view
 	end
 end

@@ -1,18 +1,21 @@
 -- A unit on the field or bench: a figure (Figure: a placeholder humanoid with its class prop and a
--- cost ring, or a finished model), its name and star level, its trait symbols, a health bar (with
--- any shield shown as a white segment after the health) and a mana bar. Higher-star units are drawn
--- slightly larger (RenderConfig.starSizeScale). Presentation only.
+-- cost ring, or a finished model) and, just above its head, a compact overhead display narrower
+-- than a tile (RenderConfig.overhead): star pips, a horse bar for mounted riders, a health bar (any
+-- shield shows as a white segment after the health) and a thin mana bar. Nothing else floats above
+-- a unit; names and traits are in the unit info panel and the hover tooltip. Higher-star units are
+-- drawn larger (RenderConfig.starSizeScale). Presentation only.
 -- Callers pass the body color and the figure look (CharacterLook). The unit's `part` is an
--- invisible box of the old unit size: it takes clicks and hovers (callers set UnitId and UnitType
--- attributes on it), carries the info board, and is what projectiles fly to.
--- A unit created with a form health pool (a mounted rider) also gets a pool bar stacked above the
--- health bar, shown while its form has a pool, and its form's look (RenderConfig.formLooks; a
--- `mount` color adds a placeholder horse).
+-- invisible box of the unit size: it takes clicks and hovers (callers set UnitId, UnitType and
+-- StarLevel attributes on it), carries the overhead display, and is what projectiles fly to.
+-- A unit created with a form health pool (a mounted rider) shows the pool bar while its form has a
+-- pool, and its form's look (RenderConfig.formLooks; a `mount` color adds a placeholder horse).
 --
 -- Every animation (idle, walking, gliding, turning, attacks, casts, hit flashes and recoils,
--- floating numbers, the stun marker, the shield bubble and the defeat fall) is advanced by
+-- floating numbers, the stun ring, the shield bubble and the defeat fall) is advanced by
 -- UnitView.update, called once per frame. Nothing is scheduled with task.delay or TweenService, so
 -- destroying a view removes everything it shows.
+-- Times come from the view's clock (os.clock by default). Combat playback passes a clock that runs
+-- in fight time, so every animation follows the playback speed.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,14 +24,15 @@ local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local Figure = require(script.Parent.Figure)
-local TraitIcon = require(script.Parent.TraitIcon)
 
 local UnitView = {}
 
--- Pixel layout of the floating text board, which is centered on the same point as the info board.
-local FLOAT_BOARD_SIZE = Vector2.new(220, 220)
-local FLOAT_START_Y = 55 -- top of a new number, just above the info board
-local CAST_TEXT_START_Y = 25
+-- Pixel layout of the floating text board, which is centered on the unit's chest. Numbers start
+-- beside the body; callouts start above the head.
+local FLOAT_BOARD_SIZE = Vector2.new(240, 240)
+local NUMBER_START_Y = 100
+local CALLOUT_START_Y = 20
+local OVERHEAD = RenderConfig.overhead
 
 local ANIMATION = FigureConfig.animation
 local TAU = 2 * math.pi
@@ -58,12 +62,13 @@ export type UnitView = {
 	healthFill: Frame,
 	shieldFill: Frame,
 	manaFill: Frame,
-	stunMarker: TextLabel,
+	stunRing: Part?, -- created on the first stun
 	formBar: Frame?, -- the form health pool bar; nil for units created without a pool
 	formFill: Frame?,
 	maxFormHealth: number?,
+	clock: () -> number,
 
-	-- Animation state, in os.clock() seconds.
+	-- Animation state, in seconds of the view's clock.
 	base: Vector3, -- hitbox center without lunge or death offsets
 	moveFrom: Vector3,
 	moveTo: Vector3,
@@ -107,7 +112,8 @@ export type Options = {
 	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
 	maxFormHealth: number?,
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
-	traits: { string }?, -- trait ids; their symbols show in a row under the name
+	starPips: boolean?, -- show star pips (default true; creeps, bosses and summons pass false)
+	clock: (() -> number)?, -- time source for every animation (default os.clock)
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -126,14 +132,52 @@ local function wrapAngle(angle: number): number
 	return (angle + math.pi) % (2 * math.pi) - math.pi
 end
 
-local function bar(parent: Instance, y: number, height: number): Frame
+-- A bar across the overhead display, from `top` with `height` (both fractions of its height).
+local function bar(parent: Instance, top: number, height: number): Frame
 	local frame = Instance.new("Frame")
-	frame.Position = UDim2.fromOffset(0, y)
-	frame.Size = UDim2.new(1, 0, 0, height)
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)
+	frame.Position = UDim2.fromScale(0, top)
+	frame.Size = UDim2.fromScale(1, height)
+	frame.BackgroundColor3 = OVERHEAD.barBackground
 	frame.BorderSizePixel = 0
 	frame.Parent = parent
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = OVERHEAD.barBackground
+	stroke.Thickness = 1
+	stroke.Parent = frame
 	return frame
+end
+
+-- Star pips: one small diamond per star, centered, in the star level's color.
+local function starPips(parent: Instance, starLevel: number, height: number)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.fromScale(1, height)
+	row.BackgroundTransparency = 1
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Padding = UDim.new(0.04, 0)
+	layout.Parent = row
+	for _ = 1, starLevel do
+		local holder = Instance.new("Frame")
+		holder.Size = UDim2.fromScale(0.75, 0.75)
+		holder.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		holder.BackgroundTransparency = 1
+		holder.Parent = row
+		local pip = Instance.new("Frame")
+		pip.AnchorPoint = Vector2.new(0.5, 0.5)
+		pip.Position = UDim2.fromScale(0.5, 0.5)
+		pip.Size = UDim2.fromScale(0.72, 0.72)
+		pip.Rotation = 45
+		pip.BackgroundColor3 = OVERHEAD.starColors[starLevel]
+		pip.BorderSizePixel = 0
+		pip.Parent = holder
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = OVERHEAD.barBackground
+		stroke.Thickness = 1
+		stroke.Parent = pip
+	end
+	row.Parent = parent
 end
 
 local function fill(parent: Instance, color: Color3): Frame
@@ -191,68 +235,55 @@ function UnitView.new(
 	trail.Enabled = false
 	trail.Parent = part
 
+	-- The overhead display, sized in studs so it scales with the view and stays narrower than a
+	-- tile. Rows from the top (heights in studs): star pips, the horse bar (riders), health, mana.
+	local pips = options.starPips ~= false
+	local rows = {}
+	if pips then
+		table.insert(rows, { kind = "pips", height = OVERHEAD.pipHeight })
+	end
+	if options.maxFormHealth then
+		table.insert(rows, { kind = "form", height = OVERHEAD.formBarHeight })
+	end
+	table.insert(rows, { kind = "health", height = OVERHEAD.healthBarHeight })
+	table.insert(rows, { kind = "mana", height = OVERHEAD.manaBarHeight })
+	local boardHeight = 0
+	for _, row in rows do
+		boardHeight += row.height + OVERHEAD.gap
+	end
+
 	local infoBoard = Instance.new("BillboardGui")
-	infoBoard.Size = UDim2.fromOffset(90, 54)
-	infoBoard.StudsOffset = Vector3.new(0, size.Y / 2 + 1.5, 0)
+	infoBoard.Size = UDim2.fromScale(OVERHEAD.width, boardHeight)
+	infoBoard.StudsOffset = Vector3.new(0, size.Y / 2 + OVERHEAD.aboveHead + boardHeight / 2, 0)
 	infoBoard.AlwaysOnTop = true
 	infoBoard.Parent = part
 
-	local stunMarker = Instance.new("TextLabel")
-	stunMarker.Size = UDim2.new(1, 0, 0, 14)
-	stunMarker.BackgroundTransparency = 1
-	stunMarker.Text = "STUNNED"
-	stunMarker.TextColor3 = RenderConfig.stunMarkerColor
-	stunMarker.TextStrokeTransparency = 0
-	stunMarker.Font = Enum.Font.GothamBlack
-	stunMarker.TextSize = 12
-	stunMarker.Visible = false
-	stunMarker.Parent = infoBoard
-
-	local label = Instance.new("TextLabel")
-	label.Position = UDim2.fromOffset(0, 14)
-	label.Size = UDim2.new(1, 0, 0, 18)
-	label.BackgroundTransparency = 1
-	label.Text = if options.summon then "summon" else name .. " " .. string.rep(RenderConfig.starSymbol, starLevel)
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.TextStrokeTransparency = 0
-	label.Font = Enum.Font.GothamBold
-	label.TextSize = 14
-	label.Parent = infoBoard
-
-	-- Trait symbols go in a row under the name; everything below moves down to fit it. Their names
-	-- show in the hover tooltip (UnitTooltip).
-	local top = 34
-	if options.traits and #options.traits > 0 then
-		local iconSize = RenderConfig.traitIconSize
-		local traitRow = TraitIcon.row(options.traits, iconSize)
-		traitRow.Position = UDim2.fromOffset(0, 33)
-		traitRow:FindFirstChildOfClass("UIListLayout").HorizontalAlignment = Enum.HorizontalAlignment.Center
-		traitRow.Parent = infoBoard
-		top += iconSize + 2
+	local formBar, formFill, healthFill, shieldFill, manaFill = nil, nil, nil, nil, nil
+	local top = 0
+	for _, row in rows do
+		local height = row.height / boardHeight
+		if row.kind == "pips" then
+			starPips(infoBoard, starLevel, height)
+		elseif row.kind == "form" then
+			formBar = bar(infoBoard, top, height)
+			formFill = fill(formBar :: Frame, RenderConfig.formHealthColor)
+		elseif row.kind == "health" then
+			local healthBar = bar(infoBoard, top, height)
+			healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)
+			shieldFill = fill(healthBar, RenderConfig.shieldColor)
+			shieldFill.Size = UDim2.fromScale(0, 1)
+		else
+			local manaBar = bar(infoBoard, top, height)
+			manaFill = fill(manaBar, RenderConfig.manaBarColor)
+			manaFill.Size = UDim2.fromScale(0, 1)
+		end
+		top += (row.height + OVERHEAD.gap) / boardHeight
 	end
 
-	-- A unit with a form health pool gets the pool bar on top; the bars below move down to fit it.
-	local formBar, formFill = nil, nil
-	local barsOffset = top - 34
-	if options.maxFormHealth then
-		formBar = bar(infoBoard, top, 5)
-		formFill = fill(formBar, RenderConfig.formHealthColor)
-		barsOffset += 6
-	end
-	infoBoard.Size = UDim2.fromOffset(90, 54 + barsOffset)
-
-	local healthBar = bar(infoBoard, 34 + barsOffset, 8)
-	local healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)
-	local shieldFill = fill(healthBar, RenderConfig.shieldColor)
-	shieldFill.Size = UDim2.fromScale(0, 1)
-
-	local manaBar = bar(infoBoard, 44 + barsOffset, 4)
-	local manaFill = fill(manaBar, RenderConfig.manaBarColor)
-	manaFill.Size = UDim2.fromScale(0, 1)
-
+	-- Floating numbers and callouts, in pixels so they stay readable on small screens.
 	local floatBoard = Instance.new("BillboardGui")
 	floatBoard.Size = UDim2.fromOffset(FLOAT_BOARD_SIZE.X, FLOAT_BOARD_SIZE.Y)
-	floatBoard.StudsOffset = infoBoard.StudsOffset
+	floatBoard.StudsOffset = Vector3.new(0, size.Y * 0.1, 0)
 	floatBoard.AlwaysOnTop = true
 	floatBoard.Parent = part
 
@@ -279,13 +310,14 @@ function UnitView.new(
 		maxMana = options.maxMana,
 		health = options.maxHealth or 1,
 		shield = 0,
-		healthFill = healthFill,
-		shieldFill = shieldFill,
-		manaFill = manaFill,
-		stunMarker = stunMarker,
+		healthFill = healthFill :: Frame,
+		shieldFill = shieldFill :: Frame,
+		manaFill = manaFill :: Frame,
+		stunRing = nil,
 		formBar = formBar,
 		formFill = formFill,
 		maxFormHealth = options.maxFormHealth,
+		clock = options.clock or os.clock,
 
 		base = base,
 		moveFrom = base,
@@ -321,7 +353,7 @@ function UnitView.new(
 	if options.formLook or options.maxFormHealth then
 		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth)
 	end
-	UnitView.update(view, os.clock(), 0)
+	UnitView.update(view, view.clock(), 0)
 	return view
 end
 
@@ -361,7 +393,7 @@ local function currentBase(view: UnitView, now: number): Vector3
 end
 
 local function startMove(view: UnitView, groundPosition: Vector3, duration: number, isDash: boolean)
-	local now = os.clock()
+	local now = view.clock()
 	view.moveFrom = currentBase(view, now)
 	view.moveTo = partPosition(groundPosition, view.part)
 	view.moveStart = now
@@ -377,14 +409,14 @@ function UnitView.moveTo(view: UnitView, groundPosition: Vector3, duration: numb
 	else
 		local goal = partPosition(groundPosition, view.part)
 		view.moveFrom, view.moveTo, view.moveDuration, view.base = goal, goal, 0, goal
-		UnitView.update(view, os.clock(), 0)
+		UnitView.update(view, view.clock(), 0)
 	end
 end
 
 -- A fast slide with a short trail.
 function UnitView.dashTo(view: UnitView, groundPosition: Vector3)
 	startMove(view, groundPosition, RenderConfig.dashDuration, true)
-	view.trailUntil = os.clock() + RenderConfig.dashDuration
+	view.trailUntil = view.clock() + RenderConfig.dashDuration
 end
 
 -- Turns toward `target` whenever the unit is not moving.
@@ -399,7 +431,7 @@ local function nextAttackArm(view: UnitView)
 end
 
 -- A melee attack: a small lunge toward `target` and back with a swing of the attacking arm,
--- starting at `startAt` (os.clock(); now if omitted). It peaks halfway through
+-- starting at `startAt` (view.clock(); now if omitted). It peaks halfway through
 -- RenderConfig.lungeDuration.
 function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
 	local direction = target.part.Position - view.part.Position
@@ -409,14 +441,14 @@ function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
 	end
 	nextAttackArm(view)
 	view.lungeDirection = direction.Unit
-	view.lungeStart = startAt or os.clock()
+	view.lungeStart = startAt or view.clock()
 	view.faceTarget = target
 end
 
--- A ranged attack: faces `target` and recoils, starting at `startAt` (os.clock(); now if omitted).
+-- A ranged attack: faces `target` and recoils, starting at `startAt` (view.clock(); now if omitted).
 function UnitView.shoot(view: UnitView, target: UnitView, startAt: number?)
 	nextAttackArm(view)
-	view.shootStart = startAt or os.clock()
+	view.shootStart = startAt or view.clock()
 	view.faceTarget = target
 end
 
@@ -463,9 +495,25 @@ function UnitView.setMana(view: UnitView, mana: number)
 	view.manaFill.Size = UDim2.fromScale(fraction, 1)
 end
 
--- Shows the stun marker for `seconds`. A newer stun replaces the timer of an older one.
+-- Shows the stun ring around the head for `seconds`. A newer stun replaces the timer of an older one.
 function UnitView.stun(view: UnitView, seconds: number)
-	view.stunUntil = os.clock() + seconds
+	if seconds > 0 and not view.stunRing then
+		local ring = Instance.new("Part")
+		ring.Anchored = true
+		ring.CanCollide = false
+		ring.CanQuery = false
+		ring.CanTouch = false
+		ring.CastShadow = false
+		ring.Shape = Enum.PartType.Cylinder
+		local diameter = view.figure.height * 0.32
+		ring.Size = Vector3.new(0.08, diameter, diameter)
+		ring.Color = RenderConfig.stunMarkerColor
+		ring.Material = Enum.Material.Neon
+		ring.Transparency = 1
+		ring.Parent = view.part
+		view.stunRing = ring
+	end
+	view.stunUntil = view.clock() + seconds
 end
 
 local function addFloater(
@@ -487,37 +535,38 @@ local function addFloater(
 	local label = Instance.new("TextLabel")
 	label.AnchorPoint = Vector2.new(0.5, 0)
 	label.Position = UDim2.new(0.5, x, 0, startY)
-	label.Size = UDim2.fromOffset(FLOAT_BOARD_SIZE.X, size + 6)
+	label.Size = UDim2.fromOffset(FLOAT_BOARD_SIZE.X / 2, size + 6)
 	label.BackgroundTransparency = 1
 	label.Text = text
 	label.TextColor3 = color
 	label.TextStrokeTransparency = 0
-	label.Font = Enum.Font.GothamBlack
+	label.TextStrokeColor3 = Color3.new(0, 0, 0)
+	label.Font = RenderConfig.floatingTextFont
 	label.TextSize = size
 	label.Parent = view.floatBoard
 	table.insert(view.floaters, {
 		label = label,
-		born = os.clock(),
+		born = view.clock(),
 		duration = duration,
 		startY = startY,
 		rise = rise,
 	})
 end
 
--- A number that floats up and fades. Successive numbers on one unit take turns in a few lanes.
+-- A number that starts beside the body, rises and fades quickly. Successive numbers on one unit
+-- take turns in lanes on alternating sides, with a little jitter, so they do not stack.
 local function floatNumber(view: UnitView, text: string, color: Color3, size: number)
 	local lanes = RenderConfig.damageNumberLanes
 	local lane = view.floaterCount % #lanes + 1
 	view.floaterCount += 1
-	-- Alternate lanes also start a little higher, so neighbors do not line up.
-	local startY = FLOAT_START_Y - (lane % 2) * 10
+	local jitter = RenderConfig.damageNumberJitter
 	addFloater(
 		view,
 		text,
 		color,
 		size,
-		lanes[lane],
-		startY,
+		lanes[lane] + math.random(-jitter, jitter),
+		NUMBER_START_Y + math.random(-jitter, jitter),
 		RenderConfig.damageNumberDuration,
 		RenderConfig.damageNumberRise
 	)
@@ -529,11 +578,11 @@ local DAMAGE_COLORS = {
 	TRUE = "trueDamageColor",
 }
 
--- `damageType` is a CombatMath.DamageType value; crits are drawn larger.
+-- `damageType` is a CombatMath.DamageType value; crits are a little larger, in their own color.
 function UnitView.damageNumber(view: UnitView, amount: number, damageType: string?, crit: boolean?)
 	local color = RenderConfig[DAMAGE_COLORS[damageType or "PHYSICAL"] or "physicalDamageColor"]
 	if crit then
-		floatNumber(view, amount .. "!", color, RenderConfig.critNumberSize)
+		floatNumber(view, amount .. "!", RenderConfig.critNumberColor, RenderConfig.critNumberSize)
 	else
 		floatNumber(view, tostring(amount), color, RenderConfig.damageNumberSize)
 	end
@@ -555,31 +604,31 @@ function UnitView.setMaxHealth(view: UnitView, maxHealth: number, health: number
 	UnitView.setHealth(view, health)
 end
 
--- Floats `text` up from above the unit and fades it out (ability names, buffs).
-function UnitView.popText(view: UnitView, text: string, color: Color3)
+-- A callout for a big moment (a boss ability, a dismount): `text` floats up from above the unit
+-- and fades. Callers decide what counts as big (CombatPlayback).
+function UnitView.callout(view: UnitView, text: string, color: Color3)
 	addFloater(
 		view,
 		text,
 		color,
-		RenderConfig.floatTextSize,
+		RenderConfig.calloutTextSize,
 		0,
-		CAST_TEXT_START_Y,
-		RenderConfig.popTextDuration,
+		CALLOUT_START_Y,
+		RenderConfig.calloutDuration,
 		RenderConfig.damageNumberRise / 2
 	)
 end
 
--- Shows the ability name above the caster, makes it glow briefly and throws its arms up.
-function UnitView.cast(view: UnitView, abilityName: string)
-	local now = os.clock()
+-- A cast: the unit glows briefly and throws its arms up. Ability names are not announced.
+function UnitView.cast(view: UnitView)
+	local now = view.clock()
 	view.glowUntil = now + RenderConfig.castGlowDuration
 	view.castStart = now
-	UnitView.popText(view, abilityName, RenderConfig.castTextColor)
 end
 
 -- Briefly flashes the unit and knocks it back to show it was hit; crits flash in a different color.
 function UnitView.flash(view: UnitView, crit: boolean?)
-	local now = os.clock()
+	local now = view.clock()
 	view.flashUntil = now + RenderConfig.hitFlashDuration
 	view.flashColor = if crit then RenderConfig.critFlashColor else RenderConfig.hitFlashColor
 	view.hitStart = now
@@ -591,7 +640,7 @@ function UnitView.kill(view: UnitView)
 	if view.dyingSince then
 		return
 	end
-	view.dyingSince = os.clock()
+	view.dyingSince = view.clock()
 	view.infoBoard.Enabled = false
 	view.trail.Enabled = false
 	view.faceTarget = nil
@@ -685,7 +734,7 @@ local function updatePose(view: UnitView, now: number, moving: boolean)
 	end
 end
 
--- Advances every animation to `now` (os.clock()); `dt` is the frame time. Returns false once a
+-- Advances every animation to `now` (view.clock()); `dt` is the frame time. Returns false once a
 -- dying view has finished fading and has no floating text left, when it should be destroyed.
 function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local part = view.part
@@ -750,9 +799,17 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		view.shownColor, view.shownMaterial = color, material
 	end
 
+	-- Stunned: a tilted halo wobbles just above the head.
 	local stunned = now < view.stunUntil and not view.dyingSince
-	if view.stunMarker.Visible ~= stunned then
-		view.stunMarker.Visible = stunned
+	local ring = view.stunRing
+	if ring then
+		ring.Transparency = if stunned then 0.2 else 1
+		if stunned then
+			ring.CFrame = root
+				* CFrame.new(0, view.figure.height * 1.03, 0)
+				* CFrame.Angles(0, now * 4, 0)
+				* CFrame.Angles(0.25, 0, math.pi / 2)
+		end
 	end
 	local trailing = now < view.trailUntil and not view.dyingSince
 	if view.trail.Enabled ~= trailing then
@@ -784,7 +841,7 @@ end
 
 function UnitView.setSelected(view: UnitView, selected: boolean)
 	view.selected = selected
-	UnitView.update(view, os.clock(), 0)
+	UnitView.update(view, view.clock(), 0)
 end
 
 function UnitView.destroy(view: UnitView)

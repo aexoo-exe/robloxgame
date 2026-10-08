@@ -33,7 +33,6 @@ local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
 local CharacterLook = require(script.Parent.CharacterLook)
 local CombatEffects = require(script.Parent.CombatEffects)
-local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
@@ -93,6 +92,7 @@ local function play(playback)
 		local own = unit.side == localSide
 		local form = formOf(unit.unitType, unit.formIndex)
 		local look = CharacterLook.of(unit.unitType)
+		local character = UnitConfig[unit.unitType] ~= nil
 		views[unit.index] =
 			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), Arena.folder, {
 				sizeScale = look.scale,
@@ -106,10 +106,18 @@ local function play(playback)
 				formHealth = unit.formHealth,
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
-				-- Creeps and bosses have no traits.
-				traits = if UnitConfig[unit.unitType] then TraitIcon.traitsOf(UnitConfig[unit.unitType]) else nil,
+				starPips = character, -- creeps and bosses have no star level to show
 			})
-		views[unit.index].part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
+		-- For the hover tooltip and the unit info panel.
+		views[unit.index].part:SetAttribute("UnitType", unit.unitType)
+		views[unit.index].part:SetAttribute("StarLevel", unit.starLevel)
+	end
+
+	-- Boss abilities get a callout; ordinary casts only glow.
+	local function isBoss(unitIndex: number): boolean
+		local unit = unitsByIndex[unitIndex]
+		local pve = if unit then Pve.pveUnitType(unit.unitType) else nil
+		return pve ~= nil and pve.kind == "boss"
 	end
 
 	-- Side, range and move speed of every unit, summons included. Summons appear only in Summon
@@ -193,7 +201,10 @@ local function play(playback)
 		elseif kind == "Cast" and view then
 			UnitView.setMana(view, 0)
 			if fresh then
-				UnitView.cast(view, abilityName(event.ability))
+				UnitView.cast(view)
+				if isBoss(event.unit) then
+					UnitView.callout(view, abilityName(event.ability), RenderConfig.bossCastTextColor)
+				end
 				for _, area in reading.areas[index] or {} do
 					pulseArea(area)
 				end
@@ -208,18 +219,10 @@ local function play(playback)
 			end
 		elseif kind == "Shield" and targetView then
 			UnitView.setShield(targetView, event.shield)
-			-- Combat-start shields from a trait name it (e.g. "Warden").
-			if event.source and fresh then
-				UnitView.popText(targetView, event.source, RenderConfig.shieldBubbleColor)
-			end
 		elseif kind == "ShieldEnd" and view then
 			UnitView.setShield(view, 0)
 		elseif kind == "Stun" and targetView then
 			UnitView.stun(targetView, event.duration)
-		elseif kind == "Buff" and targetView and fresh then
-			local amount = if event.percent ~= 0 then event.percent .. "%" else tostring(event.flat)
-			local stacks = if event.stacks and event.stacks > 1 then " x" .. event.stacks else ""
-			UnitView.popText(targetView, "+" .. amount .. " " .. event.stat .. stacks, RenderConfig.castTextColor)
 		elseif kind == "MaxHealth" and view then
 			UnitView.setMaxHealth(view, event.maxHealth, event.health)
 		elseif kind == "AreaStun" and fresh then
@@ -233,12 +236,11 @@ local function play(playback)
 					healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
 					summon = true,
 					look = CharacterLook.summon,
+					starPips = false,
 				})
 		elseif kind == "Pull" and targetView then
 			-- The pulled unit slides to its new cell, like a dash.
 			UnitView.dashTo(targetView, toWorld(event.column, event.row))
-		elseif kind == "Copy" and view and fresh then
-			UnitView.popText(view, "Copy: " .. abilityName(event.ability), RenderConfig.castTextColor)
 		elseif kind == "Form" and view then
 			-- The server decided the form change; this only shows it.
 			local unit = unitsByIndex[event.unit]
@@ -250,8 +252,9 @@ local function play(playback)
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end
+			-- A form change mid-fight (a dismount, a remount) is a big moment: it gets a callout.
 			if fresh then
-				UnitView.popText(view, if look then look.label else event.form, RenderConfig.formChangeTextColor)
+				UnitView.callout(view, if look then look.label else event.form, RenderConfig.formChangeTextColor)
 			end
 		elseif (kind == "Death" or kind == "SummonEnd") and view then
 			-- Deaths and expiring summons fade out.
