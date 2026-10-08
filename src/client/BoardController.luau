@@ -1,5 +1,7 @@
--- Shows the local player's own board and bench outside of combat, and turns input into placement
--- requests. A unit can be moved two ways:
+-- Shows the local player's own board and bench, and turns input into placement requests. During
+-- Combat and Results the fight owns the field and the board is locked (PlayerState): only the
+-- bench is shown, and bench units can be rearranged, inspected and sold; the field shows as an
+-- invalid place. A unit can be moved two ways:
 --   * Drag it (mouse or touch) onto a cell in your half, a bench slot, or another unit (to swap the
 --     two). While dragging, every place it may go is tinted, and the place under the pointer is
 --     highlighted green (valid) or red (invalid: the enemy half, or an empty cell when the board
@@ -46,8 +48,9 @@ local unitsChangedCallbacks: { ({ any }) -> () } = {}
 local playerLevel: number? = nil -- the board's unit cap, from PlayerStateUpdated
 local requestSellUnit: RemoteEvent
 
--- A unit being inspected: its type, star level and, for the player's own units, its id.
-export type Inspected = { unitType: string, starLevel: number, unitId: string? }
+-- A unit being inspected: its type, star level and, for the player's own units, its id and whether
+-- it is on the bench.
+export type Inspected = { unitType: string, starLevel: number, unitId: string?, onBench: boolean? }
 local inspectCallbacks: { (Inspected?) -> () } = {}
 local upgradeCallbacks: { (any) -> () } = {}
 local dragCallbacks: { (string?, boolean) -> () } = {}
@@ -62,6 +65,21 @@ local revertAt: number? = nil
 
 local function currentPhase(): string?
 	return matchState:GetAttribute("Phase")
+end
+
+-- Phases in which the player can act on their units: Preparation (board and bench) and the locked
+-- phases, Combat and Results (bench only).
+local function isLocked(): boolean
+	local phase = currentPhase()
+	return phase == Phase.Combat or phase == Phase.Results
+end
+
+local function canAct(): boolean
+	return currentPhase() == Phase.Preparation or isLocked()
+end
+
+local function infoOf(unit): Inspected
+	return { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id, onBench = unit.slot ~= nil }
 end
 
 local function unitById(unitId: string)
@@ -103,7 +121,7 @@ local function selectUnit(unitId: string?)
 		UnitView.setSelected(views[selectedId], true)
 	end
 	local unit = if selectedId then unitById(selectedId) else nil
-	inspect(if unit then { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id } else nil)
+	inspect(if unit then infoOf(unit) else nil)
 end
 
 -- After a new snapshot: keeps inspecting one of the player's units if it still exists (with its
@@ -117,7 +135,7 @@ local function refreshInspect()
 	if unit and views[unit.id] then
 		selectUnit(unit.id) -- keeps the selection glow on the redrawn view
 	else
-		inspect(if unit then { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id } else nil)
+		inspect(if unit then infoOf(unit) else nil)
 	end
 end
 
@@ -163,13 +181,17 @@ local function render()
 	table.clear(views)
 	selectedId = nil
 
-	-- The combat playback owns the field during Combat and Results.
+	-- The combat playback owns the field during Combat and Results; only the bench shows then.
 	local phase = currentPhase()
-	if phase ~= Phase.Waiting and phase ~= Phase.Preparation then
+	local locked = isLocked()
+	if phase ~= Phase.Waiting and phase ~= Phase.Preparation and not locked then
 		return
 	end
 
 	for _, unit in units do
+		if locked and not unit.slot then
+			continue
+		end
 		local stats = UnitConfig[unit.unitType]
 		local look = CharacterLook.of(unit.unitType)
 		local view = UnitView.new(look.name, unit.starLevel, look.color, positionOf(placeOf(unit)), Arena.folder, {
@@ -188,8 +210,9 @@ end
 
 -- The place under a screen position for the unit `unitId`, and whether it may go there: a cell in
 -- the local player's half, a bench slot, or another unit's place (a swap). A bench unit may not
--- move onto an empty cell when the board already holds as many units as the player's level (the
--- server enforces this too). Returns nil when the pointer is over no place.
+-- move onto an empty cell when the board already holds as many units as the player's level, and
+-- while the board is locked only bench slots and bench units are valid (the server enforces both).
+-- Returns nil when the pointer is over no place.
 local function placementAt(screenPosition: Vector2, unitId: string): (Arena.Target?, boolean)
 	local hit = Arena.raycast(screenPosition)
 	if not hit then
@@ -199,7 +222,7 @@ local function placementAt(screenPosition: Vector2, unitId: string): (Arena.Targ
 	local otherId = part:GetAttribute("UnitId")
 	if otherId then
 		local other = if otherId ~= unitId then unitById(otherId) else nil
-		return if other then placeOf(other) else nil, other ~= nil
+		return if other then placeOf(other) else nil, other ~= nil and (other.slot ~= nil or not isLocked())
 	end
 	local slot = part:GetAttribute("Slot")
 	if slot then
@@ -210,7 +233,7 @@ local function placementAt(screenPosition: Vector2, unitId: string): (Arena.Targ
 		return nil, false
 	end
 	local target = { column = column, row = row }
-	if row > BoardConfig.rows then
+	if row > BoardConfig.rows or isLocked() then
 		return target, false
 	end
 	local placed = 0
@@ -230,7 +253,7 @@ local function placementAt(screenPosition: Vector2, unitId: string): (Arena.Targ
 end
 
 local function onClick(screenPosition: Vector2)
-	if currentPhase() ~= Phase.Preparation then
+	if not canAct() then
 		return
 	end
 	local hit = Arena.raycast(screenPosition)
@@ -241,6 +264,13 @@ local function onClick(screenPosition: Vector2)
 
 	local part = hit.Instance
 	local unitId = part:GetAttribute("UnitId")
+	local unitType = part:GetAttribute("UnitType")
+	if not unitId and unitType and UnitConfig[unitType] then
+		-- A fighting unit: inspect it.
+		selectUnit(nil)
+		inspect({ unitType = unitType, starLevel = part:GetAttribute("StarLevel") or 1 })
+		return
+	end
 	if unitId and (selectedId == nil or unitId == selectedId) then
 		selectUnit(if unitId == selectedId then nil else unitId)
 		return
@@ -263,7 +293,7 @@ local function onClick(screenPosition: Vector2)
 	local column, row = part:GetAttribute("Column"), part:GetAttribute("Row")
 	if slot then
 		requestMoveUnit:FireServer(selectedId, { slot = slot })
-	elseif column and row and row <= BoardConfig.rows then
+	elseif column and row and row <= BoardConfig.rows and not isLocked() then
 		requestMoveUnit:FireServer(selectedId, { column = column, row = row })
 	end
 	selectUnit(nil)
@@ -278,7 +308,7 @@ local function startDrag()
 	dragging = true
 	selectUnit(press.unitId)
 	view.part.CanQuery = false -- so the pointer finds the place under the unit, not the unit
-	Arena.setDropZones(true)
+	Arena.setDropZones(true, isLocked())
 	setDragState(press.unitId, false)
 end
 
@@ -348,7 +378,7 @@ local function onFrame(now: number, dt: number)
 		else
 			Arena.setHighlight(placementAt(pointer, press.unitId))
 		end
-	elseif selectedId and UserInputService.MouseEnabled and currentPhase() == Phase.Preparation then
+	elseif selectedId and UserInputService.MouseEnabled and canAct() then
 		local mouse = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
 		Arena.setHighlight(placementAt(mouse, selectedId))
 	else
@@ -443,8 +473,8 @@ function BoardController.start()
 			return
 		end
 		local position = Vector2.new(input.Position.X, input.Position.Y)
-		if currentPhase() ~= Phase.Preparation then
-			-- Outside Preparation a tap only inspects the unit under it (a fighting unit included).
+		if not canAct() then
+			-- Outside a round a tap only inspects the unit under it.
 			local hit = Arena.raycast(position)
 			local unitType = if hit then hit.Instance:GetAttribute("UnitType") else nil
 			if unitType and UnitConfig[unitType] then

@@ -36,11 +36,12 @@ local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Include
 
 -- Clickable tile tops and bench slots by key, with the colors placement feedback paints over.
-type Tile = { parts: { BasePart }, color: Color3, material: Enum.Material, dropZone: boolean }
+type Tile = { parts: { BasePart }, color: Color3, material: Enum.Material, dropZone: boolean, bench: boolean }
 local tiles: { [string]: Tile } = {}
 local highlightKey: string? = nil
 local highlightValid = false
 local dropZonesShown = false
+local dropZonesBenchOnly = false
 local localSkin = BoardSkinConfig.default
 
 -- Top-center of a field cell in view coordinates.
@@ -144,8 +145,14 @@ local function hexagon(
 	return parts
 end
 
-local function registerTile(key: string, parts: { BasePart }, dropZone: boolean)
-	tiles[key] = { parts = parts, color = parts[1].Color, material = parts[1].Material, dropZone = dropZone }
+local function registerTile(key: string, parts: { BasePart }, dropZone: boolean, bench: boolean)
+	tiles[key] = {
+		parts = parts,
+		color = parts[1].Color,
+		material = parts[1].Material,
+		dropZone = dropZone,
+		bench = bench,
+	}
 end
 
 local function tileKey(target: Target): string
@@ -187,7 +194,7 @@ local function createHexCell(parent: Instance, column: number, row: number, skin
 		part:SetAttribute("Column", column)
 		part:SetAttribute("Row", row)
 	end
-	registerTile(tileKey({ column = column, row = row }), top, own)
+	registerTile(tileKey({ column = column, row = row }), top, own, false)
 	model.Parent = parent
 end
 
@@ -222,7 +229,7 @@ local function createBench(parent: Instance, skin)
 		part.Name = "BenchSlot_" .. slot
 		part.CanQuery = true
 		part:SetAttribute("Slot", slot)
-		registerTile(tileKey({ slot = slot }), { part }, true)
+		registerTile(tileKey({ slot = slot }), { part }, true, true)
 	end
 	folder.Parent = parent
 end
@@ -371,7 +378,7 @@ local function paint(key: string)
 	if key == highlightKey then
 		color = if highlightValid then highlight.valid else highlight.invalid
 		materialValue = material(highlight.material)
-	elseif dropZonesShown and tile.dropZone then
+	elseif dropZonesShown and tile.dropZone and (tile.bench or not dropZonesBenchOnly) then
 		color = tile.color:Lerp(highlight.dropZone, highlight.dropZoneBlend)
 	end
 	for _, part in tile.parts do
@@ -396,12 +403,15 @@ function Arena.setHighlight(target: Target?, valid: boolean?)
 	end
 end
 
--- Tints every place a unit may be put (the local player's half and the bench) while dragging.
-function Arena.setDropZones(shown: boolean)
-	if shown == dropZonesShown then
+-- Tints every place a unit may be put while dragging: the local player's half and the bench, or
+-- only the bench with `benchOnly` (while the board is locked during combat).
+function Arena.setDropZones(shown: boolean, benchOnly: boolean?)
+	local only = shown and benchOnly == true
+	if shown == dropZonesShown and only == dropZonesBenchOnly then
 		return
 	end
 	dropZonesShown = shown
+	dropZonesBenchOnly = only
 	for key, tile in tiles do
 		if tile.dropZone then
 			paint(key)

@@ -141,6 +141,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	end
 	setPhase(Phase.Combat, combatDuration)
 	task.wait(combatDuration)
+	PlayerService.endCombat()
 
 	local summary = Match.applyResults(match, results)
 	PlayerService.recordOutcomes(summary.outcomes)
@@ -215,6 +216,7 @@ local function playMatch()
 	while not match.finished do
 		playRound(match, names)
 	end
+	PlayerService.closeRequests()
 
 	local winner = if match.winner then names[match.winner] else ""
 	matchState:SetAttribute("Winner", winner)

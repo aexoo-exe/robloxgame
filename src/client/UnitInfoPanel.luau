@@ -33,8 +33,17 @@ local ICONS = UITheme.icons
 local ITEM_SLOTS = 3
 local ITEM_SIZE = 44
 
--- Phases in which the player's units can be sold.
-local SELL_PHASES = { [Phase.Preparation] = true }
+-- Whether the inspected unit can be sold now: any of the player's units during Preparation; only
+-- bench units during Combat and Results, while the board is locked.
+local function canSell(info: BoardController.Inspected?, phase: string?): boolean
+	if not info or not info.unitId then
+		return false
+	end
+	if phase == Phase.Preparation then
+		return true
+	end
+	return (phase == Phase.Combat or phase == Phase.Results) and info.onBench == true
+end
 
 -- Stats shown in the grid: icon, and the value for a unit type at a star level.
 local STATS = {
@@ -236,7 +245,7 @@ function UnitInfoPanel.start()
 
 	local current: BoardController.Inspected? = nil
 	sell.Activated:Connect(function()
-		if current and current.unitId and SELL_PHASES[matchState:GetAttribute("Phase")] then
+		if current and canSell(current, matchState:GetAttribute("Phase")) then
 			requestSellUnit:FireServer(current.unitId)
 		end
 	end)
@@ -269,7 +278,7 @@ function UnitInfoPanel.start()
 
 		sell.Visible = info.unitId ~= nil
 		sellPriceLabel.Text = tostring(PlayerState.sellValue(info.unitType, star))
-		UI.setEnabled(sell, SELL_PHASES[matchState:GetAttribute("Phase")] == true)
+		UI.setEnabled(sell, canSell(info, matchState:GetAttribute("Phase")))
 
 		if not panel.Visible then
 			panel.Visible = true

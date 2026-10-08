@@ -190,4 +190,169 @@ table.insert(tests, {
 	end,
 })
 
+-- Shop during combat (PlayerState.startCombat / endCombat / startPreparation).
+
+-- Buys `unitType` through shop slot 1 and returns the new unit's id.
+local function buy(state, unitType: string): string
+	local id = tostring(state.nextUnitId)
+	state.shop[1] = unitType
+	local bought, reason = PlayerState.buyUnit(state, 1)
+	assert(bought, "buying " .. unitType .. " refused: " .. tostring(reason))
+	return id
+end
+
+-- Unit names other than `except`, sorted, for filling the bench without merges.
+local function otherUnits(except: string): { string }
+	local names = {}
+	for name in UnitConfig do
+		if name ~= except then
+			table.insert(names, name)
+		end
+	end
+	table.sort(names)
+	return names
+end
+
+table.insert(tests, {
+	name = "during combat the shop stays open: buying goes to the bench, rerolling and buying XP work",
+	run = function()
+		local state = newPlayer(100)
+		PlayerState.startCombat(state)
+		local id = buy(state, "spurshot")
+		local unit = state.board.units[id]
+		assert(unit and unit.slot ~= nil, "bought unit is not on the bench")
+		expectEqual(state.gold, 99, "gold after buying during combat")
+		assert(PlayerState.reroll(state), "reroll refused during combat")
+		assert(PlayerState.buyXp(state), "buy XP refused during combat")
+	end,
+})
+
+table.insert(tests, {
+	name = "during combat the board is locked; bench units can be rearranged and sold",
+	run = function()
+		local state = newPlayer(100)
+		local onBoard = buy(state, "cinder_arc")
+		local benchA = buy(state, "spurshot")
+		local benchB = buy(state, "flare_kick")
+		assert(PlayerState.moveUnit(state, onBoard, { column = 1, row = 1 }), "placing before combat refused")
+		PlayerState.startCombat(state)
+
+		local moved, reason = PlayerState.moveUnit(state, onBoard, { slot = 5 })
+		assert(not moved and reason == PlayerState.Refusal.BoardLocked, "a board unit moved during combat")
+		moved, reason = PlayerState.moveUnit(state, benchA, { column = 2, row = 1 })
+		assert(not moved and reason == PlayerState.Refusal.BoardLocked, "a bench unit moved onto the board")
+		moved, reason = PlayerState.moveUnit(state, benchA, onBoard)
+		assert(not moved, "a malformed target was accepted")
+
+		assert(PlayerState.moveUnit(state, benchA, { slot = 6 }), "bench to bench refused")
+		expectEqual(state.board.units[benchA].slot, 6, "bench unit's new slot")
+		local benchBSlot = state.board.units[benchB].slot
+		assert(PlayerState.moveUnit(state, benchA, { slot = benchBSlot }), "bench swap refused")
+		expectEqual(state.board.units[benchB].slot, 6, "swapped bench unit's slot")
+
+		local sold, sellReason = PlayerState.sellUnit(state, onBoard)
+		assert(not sold and sellReason == PlayerState.Refusal.BoardLocked, "a board unit was sold during combat")
+		local goldBefore = state.gold
+		assert(PlayerState.sellUnit(state, benchB), "selling a bench unit refused")
+		expectEqual(state.gold, goldBefore + UnitConfig.flare_kick.cost, "gold after selling a bench unit")
+
+		-- Still locked at Results; unlocked at the next Preparation.
+		PlayerState.endCombat(state)
+		moved = PlayerState.moveUnit(state, benchA, { column = 2, row = 1 })
+		assert(not moved, "a bench unit moved onto the board before Preparation")
+		PlayerState.startPreparation(state)
+		assert(PlayerState.moveUnit(state, benchA, { column = 2, row = 1 }), "placing refused at Preparation")
+		assert(PlayerState.sellUnit(state, onBoard), "selling a board unit refused at Preparation")
+	end,
+})
+
+table.insert(tests, {
+	name = "during combat bench copies merge at once; a merge with a board copy waits until combat ends",
+	run = function()
+		local state = newPlayer(100)
+		local onBoard = buy(state, "cinder_arc")
+		assert(PlayerState.moveUnit(state, onBoard, { column = 1, row = 1 }))
+		PlayerState.startCombat(state)
+
+		-- Two more copies on the bench: with the board copy that makes three, but it must wait.
+		buy(state, "cinder_arc")
+		buy(state, "cinder_arc")
+		local copies = 0
+		for _, unit in state.board.units do
+			if unit.unitType == "cinder_arc" then
+				copies += 1
+				expectEqual(unit.starLevel, 1, "cinder_arc star level during combat")
+			end
+		end
+		expectEqual(copies, 3, "cinder_arc copies kept apart during combat")
+
+		-- Three copies on the bench merge at once.
+		local first = buy(state, "spurshot")
+		buy(state, "spurshot")
+		buy(state, "spurshot")
+		local merged = state.board.units[first]
+		assert(merged and merged.starLevel == 2 and merged.slot ~= nil, "bench copies did not merge during combat")
+
+		-- When the fight ends the waiting merge happens, keeping the board copy's place.
+		PlayerState.endCombat(state)
+		local upgraded = state.board.units[onBoard]
+		assert(upgraded and upgraded.starLevel == 2, "the waiting merge did not happen when combat ended")
+		assert(upgraded.column == 1 and upgraded.row == 1, "the merged unit left its board cell")
+	end,
+})
+
+table.insert(tests, {
+	name = "during combat a full bench refuses a purchase unless it completes a bench-only merge",
+	run = function()
+		local state = newPlayer(200)
+		local onBoard = buy(state, "cinder_arc")
+		assert(PlayerState.moveUnit(state, onBoard, { column = 1, row = 1 }))
+		buy(state, "cinder_arc") -- one bench copy
+		local fillers = otherUnits("cinder_arc")
+		for i = 1, BoardConfig.benchSlots - 1 do
+			buy(state, fillers[i])
+		end
+		assert(not Board.hasBenchSpace(state.board), "test setup: the bench is not full")
+		PlayerState.startCombat(state)
+
+		-- Board copy + bench copy + this one would merge in Preparation, but not during combat.
+		state.shop[1] = "cinder_arc"
+		local bought, reason = PlayerState.buyUnit(state, 1)
+		assert(not bought and reason == PlayerState.Refusal.BenchFull, "a full bench took a board-merge copy")
+
+		-- With two copies on the full bench, the third merges there and needs no slot.
+		local other = newPlayer(200)
+		local firstCopy = buy(other, "cinder_arc")
+		buy(other, "cinder_arc")
+		for i = 1, BoardConfig.benchSlots - 2 do
+			buy(other, fillers[i])
+		end
+		assert(not Board.hasBenchSpace(other.board), "test setup: the bench is not full")
+		PlayerState.startCombat(other)
+		other.shop[1] = "cinder_arc"
+		assert(PlayerState.buyUnit(other, 1), "a full bench refused a copy that completes a bench merge")
+		expectEqual(other.board.units[firstCopy].starLevel, 2, "bench merge on a full bench")
+	end,
+})
+
+table.insert(tests, {
+	name = "a higher unit cap from leveling during combat applies from the next Preparation",
+	run = function()
+		local state = newPlayer(100)
+		local first = buy(state, "cinder_arc")
+		local second = buy(state, "spurshot")
+		local third = buy(state, "flare_kick")
+		assert(PlayerState.moveUnit(state, first, { column = 1, row = 1 }))
+		assert(PlayerState.moveUnit(state, second, { column = 2, row = 1 }))
+		PlayerState.startCombat(state)
+		assert(PlayerState.buyXp(state), "buy XP refused during combat")
+		expectEqual(state.level, 3, "level after buying XP during combat")
+		assert(not PlayerState.moveUnit(state, third, { column = 3, row = 1 }), "placed a third unit during combat")
+		PlayerState.endCombat(state)
+		PlayerState.startPreparation(state)
+		assert(PlayerState.moveUnit(state, third, { column = 3, row = 1 }), "third unit refused at Preparation")
+		expectEqual(Board.countPlaced(state.board), 3, "placed units at the new cap")
+	end,
+})
+
 return tests

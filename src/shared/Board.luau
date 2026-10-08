@@ -155,11 +155,17 @@ function Board.addUnit(board: Board, id: string, unitType: string, allowUnplaced
 	return false
 end
 
--- True if adding one more 1-star `unitType` would complete a merge.
-function Board.completesMerge(board: Board, unitType: string): boolean
+-- True if a unit is not placed on the board (on the bench, or an unplaced copy about to merge).
+local function offBoard(unit: BoardUnit): boolean
+	return unit.column == nil
+end
+
+-- True if adding one more 1-star `unitType` would complete a merge. With `benchOnly`, only copies
+-- off the board count (see Board.mergeUnits).
+function Board.completesMerge(board: Board, unitType: string, benchOnly: boolean?): boolean
 	local copies = 0
 	for _, unit in board.units do
-		if unit.unitType == unitType and unit.starLevel == 1 then
+		if unit.unitType == unitType and unit.starLevel == 1 and (not benchOnly or offBoard(unit)) then
 			copies += 1
 		end
 	end
@@ -181,12 +187,13 @@ local function mergePriority(a: BoardUnit, b: BoardUnit): boolean
 	return a.id < b.id
 end
 
--- Performs one merge if any set of identical copies exists. Returns a copy of the upgraded unit.
-local function mergeOnce(board: Board): BoardUnit?
+-- Performs one merge if any set of identical copies exists (off the board only, with `benchOnly`).
+-- Returns a copy of the upgraded unit.
+local function mergeOnce(board: Board, benchOnly: boolean?): BoardUnit?
 	local groups: { [string]: { BoardUnit } } = {}
 	local keys = {}
 	for _, unit in board.units do
-		if unit.starLevel < StarConfig.maxStarLevel then
+		if unit.starLevel < StarConfig.maxStarLevel and (not benchOnly or offBoard(unit)) then
 			local key = unit.unitType .. "#" .. unit.starLevel
 			if not groups[key] then
 				groups[key] = {}
@@ -216,10 +223,12 @@ end
 -- together) into one unit of the next star level, repeating so merges can chain. The upgraded unit
 -- keeps the place of a board copy if there is one, otherwise of the first bench copy. Returns the
 -- upgraded units in the order the merges happened.
-function Board.mergeUnits(board: Board): { BoardUnit }
+-- With `benchOnly`, only copies off the board merge (sets that need a board copy wait), as during
+-- combat, when the board is locked.
+function Board.mergeUnits(board: Board, benchOnly: boolean?): { BoardUnit }
 	local merges = {}
 	while true do
-		local merged = mergeOnce(board)
+		local merged = mergeOnce(board, benchOnly)
 		if not merged then
 			return merges
 		end

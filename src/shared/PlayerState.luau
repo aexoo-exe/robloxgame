@@ -7,6 +7,14 @@
 -- Shops draw from the match's shared UnitPool: shown copies are held out of it, unbought ones go
 -- back on reroll or refresh, selling returns every copy the unit contains, and releaseAll returns
 -- everything when the player is eliminated.
+--
+-- Combat (PlayerState.startCombat .. endCombat .. startPreparation): the shop stays open (buying,
+-- rerolling, buying XP), but the board is locked from the start of combat until the next
+-- Preparation: units on the board cannot move or be sold, and nothing can move onto the board.
+-- Bench units can be rearranged and sold. Bought units go to the bench (a full bench refuses, as
+-- always). While the fight runs, copies on the bench merge at once, but a merge that needs a board
+-- copy waits until the fight ends (endCombat). A higher unit cap from leveling only matters once
+-- the board unlocks at the next Preparation.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Board = if script then require(script.Parent.Board) else require("./Board")
@@ -29,6 +37,7 @@ PlayerState.Refusal = table.freeze({
 	BenchFull = "Bench is full",
 	BoardFull = "Board is full",
 	MaxLevel = "Already at max level",
+	BoardLocked = "Board is locked during combat",
 })
 
 export type PlayerState = {
@@ -43,6 +52,8 @@ export type PlayerState = {
 	rng: SeededRandom.SeededRandom,
 	nextUnitId: number,
 	pool: UnitPool.Pool, -- the match's shared pool
+	boardLocked: boolean, -- from the start of combat until the next Preparation
+	holdBoardMerges: boolean, -- while a fight runs: merges needing a board copy wait
 }
 
 -- What the owning client is shown.
@@ -76,14 +87,35 @@ function PlayerState.new(seed: number, pool: UnitPool.Pool?): PlayerState
 		rng = SeededRandom.new(seed),
 		nextUnitId = 1,
 		pool = pool or UnitPool.new(),
+		boardLocked = false,
+		holdBoardMerges = false,
 	}
 	refreshShop(state)
 	return state
 end
 
--- Called at the start of every Preparation. If the player fought since the last one, pays round
--- income and the automatic XP. Always rolls a fresh shop. Returns the income paid, if any.
+-- Combat starts: the board locks and merges needing a board copy wait.
+function PlayerState.startCombat(state: PlayerState)
+	state.boardLocked = true
+	state.holdBoardMerges = true
+end
+
+-- The fight is over: waiting merges happen now. The board stays locked until the next Preparation.
+-- Returns the merges (Board.mergeUnits).
+function PlayerState.endCombat(state: PlayerState): { Board.BoardUnit }
+	state.holdBoardMerges = false
+	return Board.mergeUnits(state.board)
+end
+
+-- Called at the start of every Preparation. Unlocks the board (finishing any waiting merge). If
+-- the player fought since the last one, pays round income and the automatic XP. Always rolls a
+-- fresh shop. Returns the income paid, if any.
 function PlayerState.startPreparation(state: PlayerState): Economy.Income?
+	if state.boardLocked or state.holdBoardMerges then
+		state.boardLocked = false
+		state.holdBoardMerges = false
+		Board.mergeUnits(state.board)
+	end
 	local income = nil
 	if state.foughtSincePreparation then
 		income = Economy.roundIncome(state.gold, state.streak, state.lastOutcome == Economy.Outcome.Win)
@@ -147,7 +179,7 @@ end
 
 -- Buys the unit in a shop slot onto the bench, then merges any completed set of copies. Refused if
 -- the slot is empty or invalid, the player cannot afford it, or the bench is full (unless this copy
--- completes a merge, which needs no bench slot).
+-- completes a merge, which needs no bench slot). While a fight runs, only bench copies merge.
 function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, string?)
 	local unitType = if type(slotIndex) == "number" then state.shop[slotIndex] else nil
 	if type(unitType) ~= "string" then
@@ -157,11 +189,11 @@ function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, stri
 		return false, PlayerState.Refusal.NotEnoughGold
 	end
 	local benchFull = not Board.hasBenchSpace(state.board)
-	if benchFull and not Board.completesMerge(state.board, unitType) then
+	if benchFull and not Board.completesMerge(state.board, unitType, state.holdBoardMerges) then
 		return false, PlayerState.Refusal.BenchFull
 	end
 	Board.addUnit(state.board, tostring(state.nextUnitId), unitType, benchFull)
-	Board.mergeUnits(state.board)
+	Board.mergeUnits(state.board, state.holdBoardMerges)
 	state.nextUnitId += 1
 	state.gold -= UnitConfig[unitType].cost
 	state.shop[slotIndex] = false
@@ -169,8 +201,16 @@ function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, stri
 end
 
 -- Sells one of the player's units from the board or bench for the total gold spent on it:
--- its cost times the copies it contains (1, 3 or 9). Those copies go back to the pool.
-function PlayerState.sellUnit(state: PlayerState, unitId: any): boolean
+-- its cost times the copies it contains (1, 3 or 9). Those copies go back to the pool. While the
+-- board is locked, only bench units can be sold.
+function PlayerState.sellUnit(state: PlayerState, unitId: any): (boolean, string?)
+	local owned = if type(unitId) == "string" then state.board.units[unitId] else nil
+	if not owned then
+		return false
+	end
+	if state.boardLocked and owned.column then
+		return false, PlayerState.Refusal.BoardLocked
+	end
 	local unit = Board.removeUnit(state.board, unitId)
 	if not unit then
 		return false
@@ -216,8 +256,18 @@ function PlayerState.buyXp(state: PlayerState): (boolean, string?)
 	return true
 end
 
--- Moves or swaps a unit. The number of units on the board is capped at the player's level.
+-- Moves or swaps a unit. The number of units on the board is capped at the player's level. While
+-- the board is locked, only bench units move, and only to bench slots.
 function PlayerState.moveUnit(state: PlayerState, unitId: any, target: any): (boolean, string?)
+	if state.boardLocked then
+		local unit = if type(unitId) == "string" then state.board.units[unitId] else nil
+		if not unit then
+			return false
+		end
+		if not unit.slot or type(target) ~= "table" or target.slot == nil then
+			return false, PlayerState.Refusal.BoardLocked
+		end
+	end
 	local moved, reason = Board.moveUnit(state.board, unitId, target, state.level)
 	if reason == Board.CapReached then
 		return false, PlayerState.Refusal.BoardFull

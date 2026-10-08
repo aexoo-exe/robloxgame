@@ -7,8 +7,8 @@
 --   * while a unit is dragged, the shop turns into a sell zone showing the unit's sell value
 --     (BoardController.setSellZone)
 -- Buttons only send requests; everything shown comes from the server's PlayerStateUpdated and
--- BoardUpdated. Buying, rerolling and buying XP are open whenever the server takes requests
--- (Preparation only, until the shop opens during combat).
+-- BoardUpdated. The shop is open in every round phase, Combat and Results included (bought units
+-- go to the bench); cards fade only when they cannot be bought (no gold, or outside a round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -36,7 +36,7 @@ local TRAIT_ICON = 22
 local TRAIT_NAME_SECONDS = 1.5
 
 -- Phases in which the server accepts shop requests.
-local SHOP_PHASES = { [Phase.Preparation] = true }
+local SHOP_PHASES = { [Phase.Preparation] = true, [Phase.Combat] = true, [Phase.Results] = true }
 
 type Card = {
 	button: TextButton,
