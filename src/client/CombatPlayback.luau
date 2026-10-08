@@ -302,8 +302,8 @@ local function play(playback)
 		if isRanged(event.unit) then
 			local own = info[event.unit].side == localSide
 			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
-			CombatEffects.projectile(attacker, target, now + landsIn, color)
 			UnitView.shoot(attacker, target)
+			CombatEffects.projectile(attacker, target, now + landsIn, color, UnitView.launchPoint(attacker))
 		else
 			UnitView.lunge(attacker, target, now + landsIn - RenderConfig.lungeDuration / 2)
 		end

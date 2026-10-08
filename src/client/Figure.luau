@@ -20,6 +20,8 @@ export type Look = {
 	classLook: any?, -- a FigureConfig.classes entry
 	ringColor: Color3?, -- cost ring under the unit
 	model: string?, -- SkinConfig `model`: a Model in ReplicatedStorage.CharacterModels
+	bulk: number?, -- extra width (FigureConfig.characters)
+	attackPose: string?, -- "recoil" or "point" for ranged attacks (FigureConfig.characters)
 }
 
 -- One frame's posture. Angles are in radians; arms and legs are raised forward from hanging.
@@ -210,6 +212,12 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	for key, value in proportions do
 		body[key] = value * height
 	end
+	-- Bulk widens the torso and limbs, and the head a little.
+	local bulk = look.bulk or 1
+	for _, key in { "torsoWidth", "torsoDepth", "armWidth", "legWidth", "legSpacing" } do
+		body[key] *= bulk
+	end
+	body.headSize *= 1 + (bulk - 1) * 0.4
 	local classLook = look.classLook
 	local figure: Figure = {
 		height = height,
@@ -337,6 +345,20 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 			piece.part.Transparency = 1 - (1 - piece.transparency) * (1 - transparency)
 		end
 	end
+end
+
+-- Where the tip of an arm raised `armAngle` radians forward would be, `beyond` studs past the end
+-- of the arm, in the figure's posture at its last placement. `side` 1 is the left arm, 2 the
+-- right. nil for finished models (no arm to point with) or before the first placement.
+function Figure.armTip(figure: Figure, side: number, armAngle: number, beyond: number): Vector3?
+	local hips = figure.anchors.hips
+	if figure.isModel or not hips then
+		return nil
+	end
+	local b = figure.body
+	local shoulderX = (b.torsoWidth + b.armWidth) / 2 * (if side == 1 then -1 else 1)
+	local shoulder = hips * CFrame.new(shoulderX, b.torsoHeight - b.armWidth / 2, 0)
+	return (shoulder * CFrame.Angles(armAngle, 0, 0) * CFrame.new(0, -(b.armLength + beyond), 0)).Position
 end
 
 -- Places every piece: the hitbox at `hitboxCFrame`, the figure standing on `root` in `pose`.

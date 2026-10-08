@@ -1,6 +1,7 @@
 -- What players see of a unit type: its name, body color, size multiplier and figure look (Figure).
 -- Characters: their SkinConfig name, color and optional model, their first class's prop
--- (FigureConfig.classes) and a ring in their cost's color (RenderConfig.costColors). Creeps and
+-- (FigureConfig.classes) unless their FigureConfig.characters override changes the prop, size,
+-- bulk or attack pose, and a ring in their cost's color (RenderConfig.costColors). Creeps and
 -- bosses: their theme's look (PveThemeConfig), drawn as hunched figures with no prop or ring.
 -- Presentation only.
 
@@ -30,6 +31,29 @@ end
 
 local cache: { [string]: CharacterLook } = {}
 
+-- A character's prop and arm look: its first class's, changed by its FigureConfig.characters
+-- override (prop, arms, attackHand) if it has one.
+local function classLookOf(character, override): any
+	local classLook = FigureConfig.classes[character.classes[1]]
+	if not override then
+		return classLook
+	end
+	local prop = override.prop
+	if prop == false then
+		classLook = { hand = "right", arms = { 0, 0 }, parts = {} }
+	elseif type(prop) == "string" then
+		classLook = FigureConfig.classes[prop]
+	elseif type(prop) == "table" then
+		classLook = prop
+	end
+	if override.arms or override.attackHand then
+		classLook = table.clone(classLook)
+		classLook.arms = override.arms or classLook.arms
+		classLook.hand = override.attackHand or classLook.hand
+	end
+	return classLook
+end
+
 function CharacterLook.of(unitType: string): CharacterLook
 	local cached = cache[unitType]
 	if cached then
@@ -39,15 +63,18 @@ function CharacterLook.of(unitType: string): CharacterLook
 	local character = UnitConfig[unitType]
 	if character then
 		local skin = SkinConfig[unitType]
+		local override = FigureConfig.characters[unitType]
 		look = {
 			name = skin.name,
 			color = rgb(skin.color),
-			scale = 1,
+			scale = if override and override.scale then override.scale else 1,
 			figure = {
 				style = "roster",
-				classLook = FigureConfig.classes[character.classes[1]],
+				classLook = classLookOf(character, override),
 				ringColor = RenderConfig.costColors[character.cost],
 				model = skin.model,
+				bulk = if override then override.bulk else nil,
+				attackPose = if override then override.attackPose else nil,
 			},
 		}
 	else

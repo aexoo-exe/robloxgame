@@ -18,6 +18,15 @@ local function part(shape: string, size: Vector3, at: Vector3, turn: Vector3?, c
 	})
 end
 
+-- Shared look of the giants (see `characters`).
+local GIANT = table.freeze({
+	prop = false,
+	arms = table.freeze({ 14, 14 }),
+	attackHand = "right",
+	scale = 1.15,
+	bulk = 1.3,
+})
+
 local STEEL = Color3.fromRGB(205, 210, 220)
 local DARK_STEEL = Color3.fromRGB(120, 125, 140)
 local GOLD = Color3.fromRGB(225, 180, 60)
@@ -152,6 +161,34 @@ return table.freeze({
 		}),
 	}),
 
+	-- Per-character overrides of the class look, by unit id (UnitConfig key). Fields left out keep
+	-- the class look:
+	--   prop        false: no prop (empty hands); a class name ("Blade"): that class's prop; or a
+	--               table shaped like a `classes` entry ({ hand, arms, parts })
+	--   arms        resting arm angles { left, right } in degrees
+	--   attackHand  "left" or "right": the arm that attacks when there is no prop to decide it
+	--   scale       size multiplier (height, width and click box), on top of the star level
+	--   bulk        extra width for the torso, limbs and head (1 = class proportions)
+	--   attackPose  ranged attacks only: "recoil" (default: the arm kicks up) or "point" (the arm
+	--               extends and points at the target; the projectile leaves from the fingertip)
+	-- A finished model for a character goes in its SkinConfig entry instead (`model`).
+	characters = table.freeze({
+		-- Shoots from his fingers: empty hands, pointing to attack.
+		spurshot = table.freeze({
+			prop = false,
+			arms = table.freeze({ 8, 8 }),
+			attackHand = "right",
+			attackPose = "point",
+		}),
+		-- The giants (the Titans-origin characters): no prop; tanky because they are massive.
+		-- Scale 1.15 x bulk 1.3 keeps a 1-star inside its tile and a 3-star (x1.3 more) about a
+		-- tile wide; bosses (PveThemeConfig scale 1.6) stay the largest.
+		iron_rush = GIANT,
+		titanheart = GIANT,
+		skyboulder = GIANT,
+		boiling_crown = GIANT,
+	}),
+
 	-- Placeholder horse under a mounted rider (RenderConfig.formLooks `mount` gives its color). It
 	-- faces the rider's front (-Z); the rider sits on its back with legs astride.
 	horse = table.freeze({
@@ -188,6 +225,9 @@ return table.freeze({
 		shootDuration = 0.3, -- ranged attack recoil
 		shootArm = 25,
 		shootLean = -8,
+		pointDuration = 0.45, -- ranged attack that points (attackPose "point")
+		pointArm = 88, -- the pointing arm, raised forward to about level
+		fingertip = 0.06, -- fraction of height past the end of the arm, where projectiles start
 		castDuration = 0.5,
 		castArms = 150, -- both arms thrown up
 		hitDuration = 0.2,

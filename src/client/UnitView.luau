@@ -82,6 +82,7 @@ export type UnitView = {
 	shootStart: number?,
 	attackArm: number, -- 1 left, 2 right
 	alternateArms: boolean, -- attacks switch arms (classes with a prop in each hand)
+	attackPose: string, -- ranged attacks: "recoil" or "point" (FigureConfig.characters)
 	castStart: number?,
 	hitStart: number?,
 	flashUntil: number,
@@ -332,6 +333,7 @@ function UnitView.new(
 		shootStart = nil,
 		attackArm = if hand == "left" then 1 else 2,
 		alternateArms = hand == "both",
+		attackPose = look.attackPose or "recoil",
 		castStart = nil,
 		hitStart = nil,
 		flashUntil = 0,
@@ -445,11 +447,29 @@ function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
 	view.faceTarget = target
 end
 
--- A ranged attack: faces `target` and recoils, starting at `startAt` (view.clock(); now if omitted).
+-- A ranged attack: faces `target` and recoils (or points, with attack pose "point"), starting at
+-- `startAt` (view.clock(); now if omitted).
 function UnitView.shoot(view: UnitView, target: UnitView, startAt: number?)
 	nextAttackArm(view)
 	view.shootStart = startAt or view.clock()
 	view.faceTarget = target
+end
+
+-- Where a ranged attack's projectile starts: the pointing fingertip for attack pose "point", else
+-- the middle of the unit.
+function UnitView.launchPoint(view: UnitView): Vector3
+	if view.attackPose == "point" then
+		local tip = Figure.armTip(
+			view.figure,
+			view.attackArm,
+			rad(ANIMATION.pointArm),
+			ANIMATION.fingertip * view.figure.height
+		)
+		if tip then
+			return tip
+		end
+	end
+	return view.part.Position
 end
 
 local function redrawHealth(view: UnitView)
@@ -687,13 +707,19 @@ local function updatePose(view: UnitView, now: number, moving: boolean)
 		pose.stride = rad(ANIMATION.horseLegSwing) * step
 	end
 
-	-- Attacks: the attacking arm swings with a melee lunge, or kicks up with a ranged shot.
+	-- Attacks: the attacking arm swings with a melee lunge, or kicks up with a ranged shot, or (attack
+	-- pose "point") snaps up to point at the target, holds, and drops back.
 	local armRaise, attackLean = 0, 0
 	local lunge = progressOf(view.lungeStart, RenderConfig.lungeDuration, now)
-	local shot = progressOf(view.shootStart, ANIMATION.shootDuration, now)
+	local pointing = view.attackPose == "point"
+	local shot = progressOf(view.shootStart, if pointing then ANIMATION.pointDuration else ANIMATION.shootDuration, now)
 	if lunge then
 		local swing = math.sin(math.pi * lunge)
 		armRaise, attackLean = rad(ANIMATION.attackArm) * swing, rad(ANIMATION.attackLean) * swing
+	elseif shot and pointing then
+		local reach = math.min(1, shot * 6, (1 - shot) * 3)
+		local current = if view.attackArm == 1 then pose.leftArm else pose.rightArm
+		armRaise = (rad(ANIMATION.pointArm) - current) * reach
 	elseif shot then
 		local recoil = math.sin(math.pi * shot)
 		armRaise, attackLean = rad(ANIMATION.shootArm) * recoil, rad(ANIMATION.shootLean) * recoil

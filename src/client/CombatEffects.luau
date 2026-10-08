@@ -72,15 +72,17 @@ local function targetPosition(projectile: Projectile): Vector3
 	return projectile.lastTargetPosition
 end
 
--- Fires a projectile from `from` that reaches `target` at `arrivesAt` (on the effects' clock).
-function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number, color: Color3)
+-- Fires a projectile from `from` (or from `start`, e.g. a fingertip) that reaches `target` at
+-- `arrivesAt` (on the effects' clock).
+function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number, color: Color3, start: Vector3?)
+	local origin = start or from.part.Position
 	local part = effectPart(color)
 	part.Shape = Enum.PartType.Ball
 	part.Size = Vector3.one * RenderConfig.projectileSize
-	part.Position = from.part.Position
+	part.Position = origin
 	table.insert(projectiles, {
 		part = part,
-		from = from.part.Position,
+		from = origin,
 		target = target,
 		lastTargetPosition = target.part.Position,
 		launchedAt = clock(),

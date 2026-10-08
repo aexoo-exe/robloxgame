@@ -205,6 +205,7 @@ local function render()
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
 			look = look.figure,
+			sizeScale = look.scale,
 			formLook = if form then RenderConfig.formLooks[form.name] else nil,
 			formHealth = formPool,
 			maxFormHealth = formPool,
