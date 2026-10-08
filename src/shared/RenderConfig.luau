@@ -54,13 +54,6 @@ return table.freeze({
 	healTextColor = Color3.fromRGB(110, 255, 140),
 	hitFlashColor = Color3.fromRGB(255, 255, 255),
 	hitFlashDuration = 0.08, -- seconds
-	refusalNoticeDuration = 2, -- seconds a "request refused" message stays on screen
-
-	-- Trait panel rows: active traits are highlighted, partial ones are dim.
-	traitActiveColor = Color3.fromRGB(205, 160, 50),
-	traitActiveTextColor = Color3.fromRGB(20, 20, 20),
-	traitInactiveColor = Color3.fromRGB(45, 45, 55),
-	traitInactiveTextColor = Color3.fromRGB(170, 170, 180),
 
 	-- Combat playback. Durations are in seconds; none of them change fight timing, which comes
 	-- from the server's event list.
@@ -98,10 +91,8 @@ return table.freeze({
 	}),
 	-- Callouts (text over a unit) are kept for big moments: form changes and boss abilities.
 	bossCastTextColor = Color3.fromRGB(255, 120, 90),
-	-- PvE rounds: tint of the top phase label. Creep and boss bodies, names and sizes come from
-	-- their theme's looks (PveThemeConfig).
-	creepRoundColor = Color3.fromRGB(35, 80, 40),
-	bossRoundColor = Color3.fromRGB(100, 25, 25),
+	-- PvE creep and boss bodies, names and sizes come from their theme's looks (PveThemeConfig); the
+	-- top bar's round tracker colors come from UITheme.roundKinds.
 	deathFadeDuration = 0.5,
 	deathSinkDistance = 1.2,
 

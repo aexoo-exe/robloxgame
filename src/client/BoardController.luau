@@ -7,9 +7,14 @@
 --   * Click it to select it, then click a cell, a bench slot or another unit. Click the selected
 --     unit again to deselect it. With a mouse, the place under the pointer is highlighted the same
 --     way while a unit is selected.
+-- Dropping a dragged unit on the shop (BoardController.setSellZone) sells it.
 -- The client never changes board state itself; it only asks the server and redraws when the server
 -- sends BoardUpdated. A dropped unit waits where it was dropped; if the server sends nothing back
 -- (a refused request), the board is redrawn from the last snapshot shortly after.
+--
+-- Selecting a unit, or tapping any unit during a fight, inspects it: callbacks registered with
+-- BoardController.onInspect get its type and star level (the unit info panel listens). Units
+-- whose star level went up since the last snapshot are reported to BoardController.onUpgrade.
 
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,6 +44,15 @@ local views: { [string]: UnitView.UnitView } = {}
 local selectedId: string? = nil
 local unitsChangedCallbacks: { ({ any }) -> () } = {}
 local playerLevel: number? = nil -- the board's unit cap, from PlayerStateUpdated
+local requestSellUnit: RemoteEvent
+
+-- A unit being inspected: its type, star level and, for the player's own units, its id.
+export type Inspected = { unitType: string, starLevel: number, unitId: string? }
+local inspectCallbacks: { (Inspected?) -> () } = {}
+local upgradeCallbacks: { (any) -> () } = {}
+local dragCallbacks: { (string?, boolean) -> () } = {}
+local sellZone: GuiObject? = nil
+local overSellZone = false
 
 -- A press on a unit: it becomes a drag once the pointer moves far enough, otherwise a click.
 local press: { unitId: string, start: Vector2, input: InputObject }? = nil
@@ -71,6 +85,15 @@ local function samePlace(a: Arena.Target, b: Arena.Target): boolean
 	return a.slot == b.slot and a.column == b.column and a.row == b.row
 end
 
+local inspected: Inspected? = nil
+
+local function inspect(info: Inspected?)
+	inspected = info
+	for _, callback in inspectCallbacks do
+		callback(info)
+	end
+end
+
 local function selectUnit(unitId: string?)
 	if selectedId and views[selectedId] then
 		UnitView.setSelected(views[selectedId], false)
@@ -79,13 +102,56 @@ local function selectUnit(unitId: string?)
 	if selectedId then
 		UnitView.setSelected(views[selectedId], true)
 	end
+	local unit = if selectedId then unitById(selectedId) else nil
+	inspect(if unit then { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id } else nil)
+end
+
+-- After a new snapshot: keeps inspecting one of the player's units if it still exists (with its
+-- new star level), and closes the inspection otherwise. Fighting units stay inspected.
+local function refreshInspect()
+	local current = inspected
+	if not current or not current.unitId then
+		return
+	end
+	local unit = unitById(current.unitId)
+	if unit and views[unit.id] then
+		selectUnit(unit.id) -- keeps the selection glow on the redrawn view
+	else
+		inspect(if unit then { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id } else nil)
+	end
+end
+
+local function setDragState(unitId: string?, overZone: boolean)
+	for _, callback in dragCallbacks do
+		callback(unitId, overZone)
+	end
 end
 
 local function cancelDrag()
+	local wasDragging = dragging
 	press = nil
 	dragging = false
+	overSellZone = false
 	Arena.setDropZones(false)
 	Arena.setHighlight(nil)
+	if wasDragging then
+		setDragState(nil, false)
+	end
+end
+
+-- True if a screen position (InputObject.Position, the same space as GUI AbsolutePosition) is over
+-- the sell zone.
+local function isOverSellZone(screenPosition: Vector2): boolean
+	local zone = sellZone
+	if not zone or not zone.Visible then
+		return false
+	end
+	local topLeft = zone.AbsolutePosition
+	local bottomRight = topLeft + zone.AbsoluteSize
+	return screenPosition.X >= topLeft.X
+		and screenPosition.X <= bottomRight.X
+		and screenPosition.Y >= topLeft.Y
+		and screenPosition.Y <= bottomRight.Y
 end
 
 local function render()
@@ -213,14 +279,17 @@ local function startDrag()
 	selectUnit(press.unitId)
 	view.part.CanQuery = false -- so the pointer finds the place under the unit, not the unit
 	Arena.setDropZones(true)
+	setDragState(press.unitId, false)
 end
 
--- Ends a drag at `screenPosition`: asks the server to move the unit if the place is valid, and
--- leaves the unit there until it answers; otherwise puts the unit back.
+-- Ends a drag at `screenPosition`: sells the unit if it was dropped on the sell zone, asks the
+-- server to move it if the place is valid and leaves it there until the server answers, and
+-- otherwise puts it back.
 local function drop(screenPosition: Vector2)
 	local unitId = (press :: any).unitId
 	local view = views[unitId]
 	local target, valid = placementAt(screenPosition, unitId)
+	local selling = isOverSellZone(screenPosition)
 	cancelDrag()
 	selectUnit(nil)
 	local unit = unitById(unitId)
@@ -229,7 +298,11 @@ local function drop(screenPosition: Vector2)
 	end
 	view.part.CanQuery = true
 	local from = placeOf(unit)
-	if target and valid and not samePlace(target, from) then
+	if selling then
+		requestSellUnit:FireServer(unitId)
+		UnitView.moveTo(view, positionOf(from))
+		revertAt = os.clock() + REVERT_AFTER
+	elseif target and valid and not samePlace(target, from) then
 		requestMoveUnit:FireServer(unitId, target)
 		UnitView.moveTo(view, positionOf(target))
 		revertAt = os.clock() + REVERT_AFTER
@@ -265,7 +338,16 @@ local function onFrame(now: number, dt: number)
 		if view and ground then
 			UnitView.moveTo(view, ground + Vector3.new(0, DRAG_LIFT, 0))
 		end
-		Arena.setHighlight(placementAt(pointer, press.unitId))
+		local overZone = isOverSellZone(pointer)
+		if overZone ~= overSellZone then
+			overSellZone = overZone
+			setDragState(press.unitId, overZone)
+		end
+		if overZone then
+			Arena.setHighlight(nil)
+		else
+			Arena.setHighlight(placementAt(pointer, press.unitId))
+		end
 	elseif selectedId and UserInputService.MouseEnabled and currentPhase() == Phase.Preparation then
 		local mouse = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
 		Arena.setHighlight(placementAt(mouse, selectedId))
@@ -284,6 +366,39 @@ function BoardController.getSelectedUnitId(): string?
 	return selectedId
 end
 
+-- Calls `callback(info)` when a unit is selected or tapped (nil when nothing is inspected).
+function BoardController.onInspect(callback: (Inspected?) -> ())
+	table.insert(inspectCallbacks, callback)
+end
+
+-- Stops inspecting: deselects the selected unit (the unit info panel's close button).
+function BoardController.clearInspect()
+	selectUnit(nil)
+end
+
+-- Calls `callback(unit)` for each unit whose star level went up in a new snapshot, after the board
+-- has been redrawn.
+function BoardController.onUpgrade(callback: (any) -> ())
+	table.insert(upgradeCallbacks, callback)
+end
+
+-- Calls `callback(unitId, overSellZone)` when a drag starts, moves over or off the sell zone, and
+-- ends (unitId nil).
+function BoardController.onDragChanged(callback: (string?, boolean) -> ())
+	table.insert(dragCallbacks, callback)
+end
+
+-- Dropping a dragged unit on `zone` (a GUI object, e.g. the shop) sells it.
+function BoardController.setSellZone(zone: GuiObject)
+	sellZone = zone
+end
+
+-- Where a unit of the player's board or bench stands right now, if it is shown.
+function BoardController.unitPosition(unitId: string): Vector3?
+	local view = views[unitId]
+	return if view then view.part.Position else nil
+end
+
 -- Calls `callback(units)` with the latest snapshot whenever the server sends BoardUpdated.
 function BoardController.onUnitsChanged(callback: ({ any }) -> ())
 	table.insert(unitsChangedCallbacks, callback)
@@ -294,24 +409,51 @@ function BoardController.start()
 	matchState = ReplicatedStorage:WaitForChild("MatchState")
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 	requestMoveUnit = remotes:WaitForChild(RemoteNames.RequestMoveUnit)
+	requestSellUnit = remotes:WaitForChild(RemoteNames.RequestSellUnit)
 
 	remotes:WaitForChild(RemoteNames.BoardUpdated).OnClientEvent:Connect(function(newUnits)
+		local previous = {}
+		for _, unit in units do
+			previous[unit.id] = unit.starLevel
+		end
 		units = newUnits
 		render()
+		refreshInspect()
 		for _, callback in unitsChangedCallbacks do
 			callback(units)
+		end
+		for _, unit in units do
+			if previous[unit.id] and unit.starLevel > previous[unit.id] then
+				for _, callback in upgradeCallbacks do
+					callback(unit)
+				end
+			end
 		end
 	end)
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(view)
 		playerLevel = view.level
 	end)
-	matchState:GetAttributeChangedSignal("Phase"):Connect(render)
+	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
+		render()
+		refreshInspect()
+	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or not isPress(input) or currentPhase() ~= Phase.Preparation then
+		if gameProcessed or not isPress(input) then
 			return
 		end
 		local position = Vector2.new(input.Position.X, input.Position.Y)
+		if currentPhase() ~= Phase.Preparation then
+			-- Outside Preparation a tap only inspects the unit under it (a fighting unit included).
+			local hit = Arena.raycast(position)
+			local unitType = if hit then hit.Instance:GetAttribute("UnitType") else nil
+			if unitType and UnitConfig[unitType] then
+				inspect({ unitType = unitType, starLevel = hit.Instance:GetAttribute("StarLevel") or 1 })
+			else
+				inspect(nil)
+			end
+			return
+		end
 		pointer = position
 		-- A press on a unit (with nothing else selected) may become a drag; decide on release.
 		local hit = Arena.raycast(position)

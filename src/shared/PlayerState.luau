@@ -51,6 +51,7 @@ export type View = {
 	level: number,
 	xp: number,
 	xpToNextLevel: number, -- 0 at the maximum level
+	streak: number, -- positive: consecutive wins; negative: consecutive losses
 	shop: { string | false },
 }
 
@@ -230,6 +231,7 @@ function PlayerState.getView(state: PlayerState): View
 		level = state.level,
 		xp = state.xp,
 		xpToNextLevel = Economy.xpToNextLevel(state.level) or 0,
+		streak = state.streak,
 		shop = table.clone(state.shop),
 	}
 end

@@ -409,17 +409,97 @@ function Arena.setDropZones(shown: boolean)
 	end
 end
 
--- Keeps the camera fixed on the arena. Re-applied every frame so the default camera scripts
--- cannot take it back (for example when the character respawns).
-local function lockCamera()
-	local focus = RenderConfig.arenaCenter
-	local cameraCFrame = CFrame.lookAt(focus + RenderConfig.cameraOffset, focus)
-	RunService:BindToRenderStep("ArenaCamera", Enum.RenderPriority.Camera.Value + 1, function()
-		local camera = workspace.CurrentCamera
-		if camera.CameraType ~= Enum.CameraType.Scriptable then
-			camera.CameraType = Enum.CameraType.Scriptable
+-- Camera framing. The camera looks along RenderConfig.cameraOffset; its distance and sideways
+-- shift are fitted so the field and bench (with standing units) fill the part of the screen the
+-- HUD leaves free (Arena.setViewInsets), on any screen shape.
+local focus = RenderConfig.arenaCenter
+local cameraCFrame = CFrame.lookAt(focus + RenderConfig.cameraOffset, focus)
+local viewInsets = { top = 0, bottom = 0, left = 0, right = 0 } -- pixels from each screen edge
+
+-- Points that must stay in view: the corners of the field and the bench ends, at the tile surface
+-- and at a standing unit's head height.
+local function framePoints(): { Vector3 }
+	local corners = {
+		Arena.cellPosition(1, 1),
+		Arena.cellPosition(BoardConfig.columns, 1),
+		Arena.cellPosition(1, FIELD_ROWS),
+		Arena.cellPosition(BoardConfig.columns, FIELD_ROWS),
+		Arena.benchPosition(1),
+		Arena.benchPosition(BoardConfig.benchSlots),
+	}
+	local reach = RenderConfig.hexRadius
+	local head = Vector3.new(0, RenderConfig.unitSize.Y + 1, 0)
+	local points = {}
+	for _, corner in corners do
+		for _, offset in { Vector3.new(-reach, 0, -reach), Vector3.new(reach, 0, reach) } do
+			table.insert(points, corner + offset)
+			table.insert(points, corner + offset + head)
 		end
-		camera.CFrame = cameraCFrame
+	end
+	return points
+end
+
+local function fitCamera()
+	local camera = workspace.CurrentCamera
+	local viewport = camera.ViewportSize
+	if viewport.X <= 0 or viewport.Y <= 0 then
+		return
+	end
+	local tanY = math.tan(math.rad(camera.FieldOfView) / 2)
+	local tanX = tanY * viewport.X / viewport.Y
+	-- The free area in normalized screen coordinates (-1 to 1, up is positive).
+	local left = -1 + 2 * viewInsets.left / viewport.X
+	local right = 1 - 2 * viewInsets.right / viewport.X
+	local top = 1 - 2 * viewInsets.top / viewport.Y
+	local bottom = -1 + 2 * viewInsets.bottom / viewport.Y
+	if right - left < 0.2 or top - bottom < 0.2 then
+		return
+	end
+
+	local points = framePoints()
+	local direction = RenderConfig.cameraOffset.Unit
+	local distance = RenderConfig.cameraOffset.Magnitude
+	local shiftX, shiftY = 0, 0
+	local fitted = cameraCFrame
+	-- Projection is close to linear in 1 / distance, so a few rounds of zooming and re-centering
+	-- settle the framing.
+	for _ = 1, 8 do
+		local look = CFrame.lookAt(focus + direction * distance, focus)
+		fitted = look + look.RightVector * shiftX + look.UpVector * shiftY
+		local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
+		for _, point in points do
+			local relative = fitted:PointToObjectSpace(point)
+			local depth = math.max(-relative.Z, 0.1)
+			local x, y = relative.X / (depth * tanX), relative.Y / (depth * tanY)
+			minX, maxX = math.min(minX, x), math.max(maxX, x)
+			minY, maxY = math.min(minY, y), math.max(maxY, y)
+		end
+		local zoom = math.max((maxX - minX) / (right - left), (maxY - minY) / (top - bottom))
+		shiftX += ((minX + maxX) / 2 - (left + right) / 2) * distance * tanX
+		shiftY += ((minY + maxY) / 2 - (top + bottom) / 2) * distance * tanY
+		distance = math.clamp(distance * zoom, 20, 250)
+	end
+	cameraCFrame = fitted
+end
+
+-- Tells the arena how much of each screen edge (pixels) the HUD covers, and refits the camera.
+function Arena.setViewInsets(insets: { top: number, bottom: number, left: number, right: number })
+	viewInsets = insets
+	fitCamera()
+end
+
+-- Keeps the camera on the arena. Re-applied every frame so the default camera scripts cannot take
+-- it back (for example when the character respawns).
+local function lockCamera()
+	local camera = workspace.CurrentCamera
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(fitCamera)
+	fitCamera()
+	RunService:BindToRenderStep("ArenaCamera", Enum.RenderPriority.Camera.Value + 1, function()
+		local current = workspace.CurrentCamera
+		if current.CameraType ~= Enum.CameraType.Scriptable then
+			current.CameraType = Enum.CameraType.Scriptable
+		end
+		current.CFrame = cameraCFrame
 	end)
 end
 

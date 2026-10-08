@@ -11,6 +11,7 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
+local UITheme = require(Shared:WaitForChild("UITheme"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
@@ -28,14 +29,17 @@ function UnitTooltip.start()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "UnitTooltip"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 10
+	screenGui.DisplayOrder = 11
 
 	local frame = Instance.new("Frame")
 	frame.AutomaticSize = Enum.AutomaticSize.XY
-	frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-	frame.BackgroundTransparency = 0.15
+	frame.BackgroundColor3 = UITheme.colors.panel
+	frame.BackgroundTransparency = UITheme.colors.panelTransparency
 	frame.Visible = false
 	frame.Parent = screenGui
+	local frameCorner = Instance.new("UICorner")
+	frameCorner.CornerRadius = UDim.new(0, 8)
+	frameCorner.Parent = frame
 	local padding = Instance.new("UIPadding")
 	padding.PaddingTop = UDim.new(0, 6)
 	padding.PaddingBottom = UDim.new(0, 6)
@@ -69,8 +73,8 @@ function UnitTooltip.start()
 		title.RichText = true
 		local name = SkinConfig[unitType].name
 		title.Text = string.format('%s  <font color="#%s">%d-cost</font>', name, costColor:ToHex(), unit.cost)
-		title.TextColor3 = Color3.new(1, 1, 1)
-		title.Font = Enum.Font.GothamBold
+		title.TextColor3 = UITheme.colors.text
+		title.Font = UITheme.fonts.body
 		title.TextSize = 14
 		title.Parent = frame
 		for order, traitId in TraitIcon.traitsOf(unit) do
