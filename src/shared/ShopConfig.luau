@@ -2,8 +2,8 @@
 -- A unit's price is its UnitConfig cost; selling refunds that full cost.
 return table.freeze({
 	slots = 5,
-	-- EXPERIMENTAL: 1 gold (was 2), pending human playtests; may be too generous for players.
-	rerollCost = 1,
+	-- Economy test: back to the standard 2 gold (1 gold made 3-stars too easy in the sim).
+	rerollCost = 2,
 
 	-- Copies of each character in a match's shared pool, by cost (1-5).
 	poolCopies = table.freeze({ 30, 26, 22, 15, 10 }),
