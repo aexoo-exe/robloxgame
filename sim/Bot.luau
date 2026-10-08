@@ -14,20 +14,30 @@
 -- Rerolling bots (policies with `rerollCost`) chase 3-star units of one cost:
 --   * Roll level: the level where that cost's shop odds are highest, among levels of at least
 --     cost + 4 (1-cost: 5, 2-cost: 6, 3-cost: 7). Below it, the bot buys XP down to 30 gold.
---   * Targets: among units of that cost not yet at 3 stars, the ones it holds the most copies of
---     (ties by name). It wants `targetCount` 3-stars: two for 1- and 2-cost, one for 3-cost.
---   * At the roll level it buys no XP, keeps 50 gold (full interest) and spends everything above
---     that on rerolls, buying target copies first. Target copies are never sold.
---   * Once all its targets are 3-star it stops rerolling and levels like the balanced bot.
+--   * Targets: units of that cost not yet at 3 stars that can still reach it (copies held plus
+--     copies left in the pool and its own shop: at least 9). They are ranked by the share of the
+--     copies left that they still need ((9 - held) / left, lowest first, so units with more copies
+--     left are preferred), then by copies held, then by name. It wants `targetCount` 3-stars (two
+--     for 1- and 2-cost, one for 3-cost), chasing up to `targetsAtOnce` at a time (2-cost: one).
+--   * Below the roll level the targets are re-picked every time. From the roll level on they are
+--     locked: a target is only dropped when it reaches 3 stars or can no longer reach it.
+--   * Rolling (at the roll level with a target left): no XP, keeps `rollFloor` gold (50, full
+--     interest) and spends everything above that on rerolls. Before each roll it sells non-target
+--     units it would not field; in the shop it buys target copies, and other units only while it
+--     holds fewer units than its level. Target copies are never sold.
+--   * Once all its targets are 3-star (or none can reach it) it levels like the balanced bot.
 -- Passive XP still raises its level over time; PlayerState gives every player that.
+-- Rerolling bots also count what happens while they roll (memory.stats) for the sim report.
 
 local Board = require("../src/shared/Board")
 local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
+local Shop = require("../src/shared/Shop")
 local ShopConfig = require("../src/shared/ShopConfig")
 local StarLevel = require("../src/shared/StarLevel")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
+local UnitPool = require("../src/shared/UnitPool")
 
 local Bot = {}
 
@@ -38,6 +48,20 @@ export type Policy = {
 	rerollsFromLevel: number?, -- rerolls spare gold for copies from this level on
 	rerollCost: number?, -- rerolling strategy: the cost tier it chases 3-stars in
 	targetCount: number?, -- rerolling strategy: how many 3-stars it wants
+	targetsAtOnce: number?, -- rerolling strategy: targets chased at the same time (default: all)
+	rollFloor: number?, -- rerolling strategy: rolls only with gold above this
+}
+
+-- Rerolling bots, counted while rolling (see the header), for the sim report.
+export type RollStats = {
+	offersSeen: number, -- shop slots showing a target
+	offersBought: number,
+	refusedBenchFull: number,
+	refusedGold: number,
+	nonTargetGold: number, -- gold spent on non-target units
+	switches: number, -- locked targets dropped because they could no longer reach 3 stars
+	targetCopiesSold: number, -- copies sold of any unit that was a locked target this match
+	rollStartLevel: number?, -- level at the first roll
 }
 
 -- What a bot remembers between rounds, and what the simulation reports about it.
@@ -46,7 +70,10 @@ export type Memory = {
 	weakestFielded: number?, -- strength of the weakest unit it fielded last round
 	completed: { [string]: boolean }, -- rerolling: targets that reached 3 stars
 	targets: { string }, -- rerolling: current targets
+	locked: boolean, -- rerolling: reached the roll level, so targets are locked
+	everTargeted: { [string]: boolean }, -- rerolling: units that were a locked target
 	rerollGold: number, -- gold spent on rerolls this match
+	stats: RollStats,
 }
 
 -- Standard strategies, cycled across the standard bots in a match.
@@ -63,9 +90,17 @@ Bot.policies = {
 
 -- Rerolling strategies, by the cost they chase.
 Bot.rerollPolicies = {
-	{ name = "reroll 1c", keepGold = 50, seeksCopies = true, rerollCost = 1, targetCount = 2 },
-	{ name = "reroll 2c", keepGold = 50, seeksCopies = true, rerollCost = 2, targetCount = 2 },
-	{ name = "reroll 3c", keepGold = 50, seeksCopies = true, rerollCost = 3, targetCount = 1 },
+	{ name = "reroll 1c", keepGold = 50, rollFloor = 50, seeksCopies = true, rerollCost = 1, targetCount = 2 },
+	{
+		name = "reroll 2c",
+		keepGold = 50,
+		rollFloor = 50,
+		seeksCopies = true,
+		rerollCost = 2,
+		targetCount = 2,
+		targetsAtOnce = 1,
+	},
+	{ name = "reroll 3c", keepGold = 50, rollFloor = 50, seeksCopies = true, rerollCost = 3, targetCount = 1 },
 }
 
 local LEVEL_UP_KEEP_GOLD = 30 -- rerolling bots below their roll level, and after finishing
@@ -87,7 +122,24 @@ function Bot.rollLevel(cost: number): number
 end
 
 function Bot.newMemory(): Memory
-	return { fielded = {}, completed = {}, targets = {}, rerollGold = 0 }
+	return {
+		fielded = {},
+		completed = {},
+		targets = {},
+		locked = false,
+		everTargeted = {},
+		rerollGold = 0,
+		stats = {
+			offersSeen = 0,
+			offersBought = 0,
+			refusedBenchFull = 0,
+			refusedGold = 0,
+			nonTargetGold = 0,
+			switches = 0,
+			targetCopiesSold = 0,
+			rollStartLevel = nil,
+		},
+	}
 end
 
 local COLUMN_ORDER = { 4, 3, 5, 2, 6, 1, 7 }
@@ -128,54 +180,124 @@ local function copiesHeld(state, unitType: string): (number, boolean)
 end
 Bot.copiesHeld = copiesHeld
 
+local THREE_STAR_COPIES = StarLevel.copiesIn(3)
+
+local function completedCount(memory: Memory): number
+	local completed = 0
+	for _ in memory.completed do
+		completed += 1
+	end
+	return completed
+end
+
 local function isRerolling(policy: Policy, memory: Memory): boolean
 	if not policy.rerollCost then
 		return false
 	end
-	local completed = 0
-	for _ in memory.completed do
-		completed += 1
-	end
-	return completed < (policy.targetCount or 1)
+	return completedCount(memory) < (policy.targetCount or 1)
 end
 
--- Marks finished targets and picks the current ones: the target-cost units held in the most copies.
+-- Targets to chase now: the 3-stars still wanted, at most `targetsAtOnce`.
+local function targetsWanted(policy: Policy, memory: Memory): number
+	local wanted = (policy.targetCount or 1) - completedCount(memory)
+	return math.min(wanted, policy.targetsAtOnce or wanted)
+end
+
+-- Rolling: at the roll level (targets locked), with a target left to chase.
+local function isRolling(policy: Policy, memory: Memory): boolean
+	return memory.locked and isRerolling(policy, memory) and #memory.targets > 0
+end
+
+-- Copies of `unitType` the bot can still get: left in the pool, plus any in its own shop (shown
+-- copies are held out of the pool).
+local function copiesLeft(state, unitType: string): number
+	local copies = UnitPool.remaining(state.pool, unitType)
+	for _, offered in state.shop do
+		if offered == unitType then
+			copies += 1
+		end
+	end
+	return copies
+end
+
+-- Marks finished targets, drops locked targets that can no longer reach 3 stars (a switch), and
+-- fills the free target places with the best candidates (see the header). Below the roll level
+-- (not locked) every target is re-picked.
 local function updateTargets(state, policy: Policy, memory: Memory)
-	table.clear(memory.targets)
 	if not policy.rerollCost then
+		table.clear(memory.targets)
 		return
 	end
-	local candidates = {}
 	for _, unit in Board.getUnits(state.board) do
-		if UnitConfig[unit.unitType].cost == policy.rerollCost and not candidates[unit.unitType] then
-			local copies, hasThreeStar = copiesHeld(state, unit.unitType)
-			if hasThreeStar then
-				memory.completed[unit.unitType] = true
-			else
-				candidates[unit.unitType] = copies
+		if unit.starLevel == 3 and UnitConfig[unit.unitType].cost == policy.rerollCost then
+			memory.completed[unit.unitType] = true
+		end
+	end
+
+	local kept = {}
+	if memory.locked then
+		for _, unitType in memory.targets do
+			if not memory.completed[unitType] then
+				if copiesHeld(state, unitType) + copiesLeft(state, unitType) >= THREE_STAR_COPIES then
+					table.insert(kept, unitType)
+				else
+					memory.stats.switches += 1
+				end
 			end
 		end
 	end
+
+	local needed, left = {}, {}
 	local names = {}
-	for name in candidates do
-		table.insert(names, name)
+	for _, name in Shop.unitsByCost[policy.rerollCost] or {} do
+		if not memory.completed[name] and not table.find(kept, name) then
+			local held = copiesHeld(state, name)
+			needed[name] = THREE_STAR_COPIES - held
+			left[name] = copiesLeft(state, name)
+			if left[name] >= needed[name] then
+				table.insert(names, name)
+			end
+		end
 	end
 	table.sort(names, function(a, b)
-		return candidates[a] > candidates[b] or (candidates[a] == candidates[b] and a < b)
+		local shareA, shareB = needed[a] / left[a], needed[b] / left[b]
+		if shareA ~= shareB then
+			return shareA < shareB
+		end
+		if needed[a] ~= needed[b] then
+			return needed[a] < needed[b]
+		end
+		return a < b
 	end)
-	local completed = 0
-	for _ in memory.completed do
-		completed += 1
+
+	local wanted = targetsWanted(policy, memory)
+	table.clear(memory.targets)
+	for _, name in kept do
+		table.insert(memory.targets, name)
 	end
-	for i = 1, math.max(0, (policy.targetCount or 1) - completed) do
-		if names[i] then
-			table.insert(memory.targets, names[i])
+	for _, name in names do
+		if #memory.targets >= wanted then
+			break
+		end
+		table.insert(memory.targets, name)
+	end
+	if memory.locked then
+		for _, name in memory.targets do
+			memory.everTargeted[name] = true
 		end
 	end
 end
 
 local function isTarget(memory: Memory, unitType: string): boolean
 	return table.find(memory.targets, unitType) ~= nil
+end
+
+-- Sells a unit, counting copies of units that were a locked target.
+local function sell(state, memory: Memory, unit)
+	if memory.everTargeted[unit.unitType] then
+		memory.stats.targetCopiesSold += StarLevel.copiesIn(unit.starLevel)
+	end
+	PlayerState.sellUnit(state, unit.id)
 end
 
 local function prefersTraits(policy: Policy): boolean
@@ -208,7 +330,69 @@ local function sharedTraitCount(owned, unitType: string): number
 	return shared
 end
 
+-- Rolling: buys target copies (counting offers and refusals), and other units only while the bot
+-- holds fewer units than its level (to fill the board).
+local function rollingShopPass(state, policy: Policy, memory: Memory)
+	-- Targets first, then the most expensive offers.
+	local slots = {}
+	for slot, unitType in state.shop do
+		if unitType then
+			table.insert(slots, slot)
+		end
+	end
+	local function priority(slot: number): number
+		local unitType = state.shop[slot]
+		return (if isTarget(memory, unitType) then 100 else 0) + UnitConfig[unitType].cost
+	end
+	table.sort(slots, function(a, b)
+		return priority(a) > priority(b)
+	end)
+
+	local stats = memory.stats
+	for _, slot in slots do
+		local unitType = state.shop[slot]
+		if isTarget(memory, unitType) then
+			stats.offersSeen += 1
+			local bought, reason = PlayerState.buyUnit(state, slot)
+			if bought then
+				stats.offersBought += 1
+				updateTargets(state, policy, memory)
+			elseif reason == PlayerState.Refusal.BenchFull then
+				stats.refusedBenchFull += 1
+			elseif reason == PlayerState.Refusal.NotEnoughGold then
+				stats.refusedGold += 1
+			end
+		elseif #Board.getUnits(state.board) < state.level then
+			if PlayerState.buyUnit(state, slot) then
+				stats.nonTargetGold += UnitConfig[unitType].cost
+			end
+		end
+	end
+end
+
+-- Rolling: sells non-target units the bot would not field (beyond its best `level` units), so the
+-- bench has room for target copies.
+local function freeBench(state, memory: Memory)
+	local owned = Board.getUnits(state.board)
+	table.sort(owned, function(a, b)
+		if strength(a) ~= strength(b) then
+			return strength(a) > strength(b)
+		end
+		return a.id < b.id
+	end)
+	for index = state.level + 1, #owned do
+		local unit = owned[index]
+		if not isTarget(memory, unit.unitType) then
+			sell(state, memory, unit)
+		end
+	end
+end
+
 local function shopPass(state, policy: Policy, memory: Memory)
+	if isRolling(policy, memory) then
+		rollingShopPass(state, policy, memory)
+		return
+	end
 	local rerolling = isRerolling(policy, memory)
 	-- Targets first, then the most expensive offers.
 	local slots = {}
@@ -231,7 +415,7 @@ local function shopPass(state, policy: Policy, memory: Memory)
 		local owned = Board.getUnits(state.board)
 		local fieldedCopy = memory.fielded[unitType] and ownsUpgradable(state, unitType)
 		-- While a rerolling bot still needs targets, any unit of its cost may become one.
-		local seedsTarget = rerolling and cost == policy.rerollCost and #memory.targets < (policy.targetCount or 1)
+		local seedsTarget = rerolling and cost == policy.rerollCost and #memory.targets < targetsWanted(policy, memory)
 		local wanted = isTarget(memory, unitType)
 			or seedsTarget
 			or fieldedCopy
@@ -254,7 +438,7 @@ local function shopPass(state, policy: Policy, memory: Memory)
 				end
 			end
 			if weakest and strength(weakest) < cost and state.gold + strength(weakest) >= cost then
-				PlayerState.sellUnit(state, weakest.id)
+				sell(state, memory, weakest)
 				PlayerState.buyUnit(state, slot)
 			end
 		end
@@ -271,7 +455,7 @@ local function trimBench(state, policy: Policy, memory: Memory)
 		local unit = owned[index]
 		if not isTarget(memory, unit.unitType) then
 			if not (policy.seeksCopies and unit.starLevel < 3) or index > state.level + 6 then
-				PlayerState.sellUnit(state, unit.id)
+				sell(state, memory, unit)
 			end
 		end
 	end
@@ -318,17 +502,26 @@ end
 
 -- Plays one Preparation. Returns the units to field, in the player's own board coordinates.
 function Bot.prepare(state, policy: Policy, memory: Memory): { any }
+	if policy.rerollCost and state.level >= Bot.rollLevel(policy.rerollCost) then
+		memory.locked = true
+	end
 	updateTargets(state, policy, memory)
+	if isRolling(policy, memory) then
+		freeBench(state, memory)
+	end
 	shopPass(state, policy, memory)
 
 	if policy.rerollCost then
-		if not isRerolling(policy, memory) or state.level < Bot.rollLevel(policy.rerollCost) then
+		if not isRolling(policy, memory) then
 			buyXpDownTo(state, LEVEL_UP_KEEP_GOLD)
 		else
-			while isRerolling(policy, memory) and state.gold >= policy.keepGold + ShopConfig.rerollCost do
+			local floor = policy.rollFloor or policy.keepGold
+			while isRolling(policy, memory) and state.gold >= floor + ShopConfig.rerollCost do
+				freeBench(state, memory)
 				if not reroll(state, memory) then
 					break
 				end
+				memory.stats.rollStartLevel = memory.stats.rollStartLevel or state.level
 				shopPass(state, policy, memory)
 			end
 		end
