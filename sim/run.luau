@@ -331,6 +331,34 @@ for cost = 1, 5 do
 	committed[cost] = { bots = 0, completed = 0, roundSum = 0, placementDone = 0, placementFailed = 0 }
 end
 
+-- Rerolling bots while rolling (Bot.luau header), by strategy name: summed memory.stats, the bots
+-- that rolled at all with their level and round at the first roll, and for each target unfinished
+-- at the end (or at elimination) the copies left in the pool.
+local rollDiag = {}
+
+local function rollDiagFor(name: string)
+	local entry = rollDiag[name]
+	if not entry then
+		entry = {
+			bots = 0,
+			offersSeen = 0,
+			offersBought = 0,
+			refusedBenchFull = 0,
+			refusedGold = 0,
+			nonTargetGold = 0,
+			switches = 0,
+			targetCopiesSold = 0,
+			rolled = 0,
+			startLevelSum = 0,
+			startRoundSum = 0,
+			unfinished = 0,
+			poolLeftSum = 0,
+		}
+		rollDiag[name] = entry
+	end
+	return entry
+end
+
 -- Top-four boards (final board of each player placing 1-4), by their set of active trait
 -- breakpoints.
 local compositions = { boards = 0, counts = {} }
@@ -410,14 +438,18 @@ local function policyFor(seat: number, matchIndex: number)
 	return Bot.policies[(seat + matchIndex) % #Bot.policies + 1]
 end
 
--- Records the copies a rerolling bot holds of each target it has not finished.
+-- Records the copies a rerolling bot holds of each target it has not finished, and the copies of it
+-- left in the pool (call before an eliminated player's units go back to the pool).
 local function recordFailedTargets(state, policy, memory)
 	if not policy.rerollCost then
 		return
 	end
+	local diag = rollDiagFor(policy.name)
 	for _, unitType in memory.targets do
 		if not memory.completed[unitType] then
 			table.insert(threeStars.failedCopies[policy.rerollCost], (Bot.copiesHeld(state, unitType)))
+			diag.unfinished += 1
+			diag.poolLeftSum += UnitPool.remaining(state.pool, unitType)
 		end
 	end
 end
@@ -458,6 +490,7 @@ local function playMatch(matchIndex: number)
 	local matchHasThreeStar = {}
 	local roundBoards = {}
 	local completedRound = {} -- rerolling bots: round of their first 3-star at their cost
+	local rollStartRound = {} -- rerolling bots: round of their first roll at the roll level
 
 	while not match.finished do
 		local boards = {}
@@ -475,6 +508,9 @@ local function playMatch(matchIndex: number)
 					ledger.win += income.win
 				end
 				boards[id] = Bot.prepare(states[id], policies[id], memories[id])
+				if memories[id].stats.rollStartLevel and not rollStartRound[id] then
+					rollStartRound[id] = round
+				end
 			else
 				-- No Preparation (round 1): the units already on the board fight.
 				boards[id] = Board.getPlacedUnits(states[id].board)
@@ -581,6 +617,25 @@ local function playMatch(matchIndex: number)
 			compositions.boards += 1
 			local key = traitKey(lastBoards[id])
 			compositions.counts[key] = (compositions.counts[key] or 0) + 1
+		end
+	end
+	for id in match.players do
+		if policies[id].rerollCost then
+			local diag = rollDiagFor(policies[id].name)
+			local rollStats = memories[id].stats
+			diag.bots += 1
+			diag.offersSeen += rollStats.offersSeen
+			diag.offersBought += rollStats.offersBought
+			diag.refusedBenchFull += rollStats.refusedBenchFull
+			diag.refusedGold += rollStats.refusedGold
+			diag.nonTargetGold += rollStats.nonTargetGold
+			diag.switches += rollStats.switches
+			diag.targetCopiesSold += rollStats.targetCopiesSold
+			if rollStats.rollStartLevel then
+				diag.rolled += 1
+				diag.startLevelSum += rollStats.rollStartLevel
+				diag.startRoundSum += rollStartRound[id]
+			end
 		end
 	end
 	for id, player in match.players do
@@ -837,6 +892,52 @@ for _, name in groupNames do
 			group.seats
 		)
 	)
+end
+-- Rerolling bots while rolling (at the roll level with a locked target), per bot per match.
+print("Rerolling bots while rolling (per bot per match; rolling = at the roll level with a locked target):")
+local rollNames = {}
+for name in rollDiag do
+	table.insert(rollNames, name)
+end
+table.sort(rollNames)
+for _, name in rollNames do
+	local diag = rollDiag[name]
+	if diag.bots > 0 then
+		print(
+			string.format(
+				"  %s: rolled in %.0f%% of seats, first roll at level %s in round %s  [%d seats]",
+				name,
+				diag.rolled / diag.bots * 100,
+				if diag.rolled > 0 then string.format("%.1f", diag.startLevelSum / diag.rolled) else "-",
+				if diag.rolled > 0 then string.format("%.1f", diag.startRoundSum / diag.rolled) else "-",
+				diag.bots
+			)
+		)
+		print(
+			string.format(
+				"    target offers: %.1f seen, %.1f bought, refused %.2f (bench full) + %.2f (not enough gold)",
+				diag.offersSeen / diag.bots,
+				diag.offersBought / diag.bots,
+				diag.refusedBenchFull / diag.bots,
+				diag.refusedGold / diag.bots
+			)
+		)
+		print(
+			string.format(
+				"    non-target gold %.1f, target switches %.2f, target copies sold %.2f",
+				diag.nonTargetGold / diag.bots,
+				diag.switches / diag.bots,
+				diag.targetCopiesSold / diag.bots
+			)
+		)
+		print(
+			string.format(
+				"    unfinished targets at the end: %d, %s pool copies left on average",
+				diag.unfinished,
+				if diag.unfinished > 0 then string.format("%.1f", diag.poolLeftSum / diag.unfinished) else "-"
+			)
+		)
+	end
 end
 local emptyLine = {}
 for cost = 1, 5 do
