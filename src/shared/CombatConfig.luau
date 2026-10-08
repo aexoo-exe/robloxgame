@@ -11,6 +11,16 @@ return table.freeze({
 	-- Seconds the Combat phase continues after the fight ends, so the last animations can finish.
 	endPadding = 1.5,
 
+	-- Fast-forward for long fights: playback speed by fight time (seconds of simulated fight). Each
+	-- step applies from `fromSecond` until the next step; the first must start at 0. Fights are
+	-- simulated in full before playback, so this only changes how fast clients play them back and
+	-- how long the server's Combat phase lasts (Playback.realSeconds), never the outcome.
+	playbackSpeeds = table.freeze({
+		table.freeze({ fromSecond = 0, speed = 1 }),
+		table.freeze({ fromSecond = 30, speed = 2 }),
+		table.freeze({ fromSecond = 40, speed = 3 }),
+	}),
+
 	-- A fight that reaches the time limit is a draw when both sides' remaining health percentages are
 	-- within this fraction (1 percentage point) of each other. docs/design/match-structure.md section 6.
 	timeoutDrawMargin = 0.01,

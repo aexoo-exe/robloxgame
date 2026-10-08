@@ -18,7 +18,9 @@ local PlayerService = {}
 
 local states: { [number]: PlayerState.PlayerState } = {} -- current match participants
 local eliminated: { [number]: boolean } = {}
-local preparationOpen = false
+-- Requests are taken in every round phase (Preparation, Combat, Results); during Combat and Results
+-- PlayerState itself locks the board (see PlayerState: shop during combat).
+local requestsOpen = false
 local boardUpdated: RemoteEvent
 local playerStateUpdated: RemoteEvent
 local requestRefused: RemoteEvent
@@ -34,13 +36,13 @@ local function sendState(userId: number)
 end
 
 -- Connects a request remote to a PlayerState action. Arguments come from the client and are
--- untrusted; the action validates them. Requests outside Preparation, from spectators, or from
--- eliminated players are ignored. When the action refuses a request with a reason, the player is
--- told why.
+-- untrusted; the action validates them. Requests outside a round (lobby, match over), from
+-- spectators, or from eliminated players are ignored. When the action refuses a request with a
+-- reason, the player is told why.
 local function connectRequest(remoteName: string, action: (PlayerState.PlayerState, ...any) -> (boolean, string?))
 	Remotes.create(remoteName).OnServerEvent:Connect(function(player: Player, ...)
 		local state = states[player.UserId]
-		if not preparationOpen or not state or eliminated[player.UserId] then
+		if not requestsOpen or not state or eliminated[player.UserId] then
 			return
 		end
 		local accepted, reason = action(state, ...)
@@ -67,9 +69,14 @@ function PlayerService.startMatch(userIds: { number })
 	end
 end
 
+-- Stops taking requests (the match is decided; final placements are showing).
+function PlayerService.closeRequests()
+	requestsOpen = false
+end
+
 -- Clears all match state. Clients get an empty board.
 function PlayerService.endMatch()
-	preparationOpen = false
+	requestsOpen = false
 	for userId in states do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
@@ -91,8 +98,8 @@ function PlayerService.eliminate(userId: number)
 	end
 end
 
--- Pays round income, rolls fresh shops for active participants (connected or not) and opens
--- requests.
+-- Unlocks boards, pays round income, rolls fresh shops for active participants (connected or not)
+-- and opens requests.
 function PlayerService.beginPreparation()
 	for userId, state in states do
 		if not eliminated[userId] then
@@ -115,20 +122,32 @@ function PlayerService.beginPreparation()
 			sendState(userId)
 		end
 	end
-	preparationOpen = true
+	requestsOpen = true
 end
 
--- Closes requests and returns each active participant's placed units, by UserId. Boards are not
--- changed by combat, so units are back where the player placed them next round.
+-- Combat starts: locks every active participant's board (the shop stays open) and returns their
+-- placed units, by UserId. Boards are not changed by combat, so units are back where the player
+-- placed them next round.
 function PlayerService.lockBoards(): { [number]: { Board.BoardUnit } }
-	preparationOpen = false
+	requestsOpen = true -- round 1 has no Preparation, so the shop opens here
 	local boards = {}
 	for userId, state in states do
 		if not eliminated[userId] then
+			PlayerState.startCombat(state)
 			boards[userId] = Board.getPlacedUnits(state.board)
 		end
 	end
 	return boards
+end
+
+-- The fights are over: merges that waited for a board copy happen now. Boards stay locked until
+-- the next Preparation.
+function PlayerService.endCombat()
+	for userId, state in states do
+		if not eliminated[userId] and #PlayerState.endCombat(state) > 0 then
+			sendState(userId)
+		end
+	end
 end
 
 -- Records each player's fight outcome (Economy.Outcome) for streaks and next round's income.

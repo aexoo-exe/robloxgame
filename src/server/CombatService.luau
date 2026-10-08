@@ -14,6 +14,7 @@ local BoardConfig = require(ReplicatedStorage.Shared.BoardConfig)
 local CombatConfig = require(ReplicatedStorage.Shared.CombatConfig)
 local CombatSim = require(ReplicatedStorage.Shared.CombatSim)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
+local Playback = require(ReplicatedStorage.Shared.Playback)
 local Pve = require(ReplicatedStorage.Shared.Pve)
 local PveConfig = require(ReplicatedStorage.Shared.PveConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
@@ -51,8 +52,8 @@ end
 
 -- Runs the round's fights (from Match.startRound) between the boards from PlayerService.lockBoards.
 -- `names` maps UserId to display name; `theme` is the match's PvE theme. Returns how long the
--- Combat phase should last (the longest fight plus padding), the fight results for
--- Match.applyResults, and each fighting player's opponent name.
+-- Combat phase should last (the longest fight's playback time with fast-forward, Playback, plus
+-- padding), the fight results for Match.applyResults, and each fighting player's opponent name.
 function CombatService.runRound(
 	fights: { any },
 	boards: { [number]: { any } },
@@ -139,7 +140,9 @@ function CombatService.runRound(
 		)
 	end
 
-	return longestTicks / CombatConfig.ticksPerSecond + CombatConfig.endPadding, results, opponents
+	-- Clients play long fights faster (Playback), so the phase ends when the sped-up playback does.
+	local playbackSeconds = Playback.realSeconds(longestTicks / CombatConfig.ticksPerSecond)
+	return playbackSeconds + CombatConfig.endPadding, results, opponents
 end
 
 function CombatService.start()

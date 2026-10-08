@@ -1,7 +1,8 @@
 -- Names of the RemoteEvents the server creates under ReplicatedStorage.Remotes.
 -- Requests are only requests: the server validates each one against the sender's own state, ignores
 -- invalid ones, and replies to the sender with BoardUpdated and PlayerStateUpdated if it changed
--- anything. Requests are only accepted during Preparation.
+-- anything. Requests are accepted during a round's Preparation, Combat and Results; from the start
+-- of Combat until the next Preparation the board is locked (bench units only; see PlayerState).
 return table.freeze({
 	-- Client -> server: (unitId: string, target: { slot: number } | { column: number, row: number }).
 	-- Moving onto an occupied place swaps the two units.

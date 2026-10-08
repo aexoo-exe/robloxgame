@@ -2,7 +2,8 @@
 -- PlayerState, Shop, CombatSim) and reports pacing. No Roblox Studio needed.
 --   lune run sim/run.luau [matches=200] [players=8]
 -- Match time is estimated from the configured phase timers: Preparation (per round, see
--- Pve.preparationDuration) + Combat (the round's longest fight + padding) + Results per round.
+-- Pve.preparationDuration) + Combat (the round's longest fight played back with fast-forward,
+-- Playback, + padding) + Results per round.
 -- Lobby and final-placement screens are excluded.
 -- PvE rounds (creeps and bosses) are played like the server plays them: starting units at match
 -- start, no Preparation in round 1, PvE rewards paid at Results. PvE fights are left out of the
@@ -20,6 +21,7 @@ local CombatConfig = require("../src/shared/CombatConfig")
 local CombatSim = require("../src/shared/CombatSim")
 local Match = require("../src/shared/Match")
 local MatchConfig = require("../src/shared/MatchConfig")
+local Playback = require("../src/shared/Playback")
 local PlayerState = require("../src/shared/PlayerState")
 local Pve = require("../src/shared/Pve")
 local SeededRandom = require("../src/shared/SeededRandom")
@@ -570,7 +572,8 @@ local function playMatch(matchIndex: number)
 		end
 		local combatSeconds = longestTicks / CombatConfig.ticksPerSecond
 		stats.longestFight = math.max(stats.longestFight, combatSeconds)
-		stats.seconds += preparation + combatSeconds + CombatConfig.endPadding + MatchConfig.resultsDuration
+		-- The Combat phase lasts the longest fight's playback time, with fast-forward (Playback).
+		stats.seconds += preparation + Playback.realSeconds(combatSeconds) + CombatConfig.endPadding + MatchConfig.resultsDuration
 
 		local summary = Match.applyResults(match, results)
 		for id, outcome in summary.outcomes do

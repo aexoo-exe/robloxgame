@@ -26,6 +26,7 @@ local suites = {
 	{ name = "Form", tests = require("./FormTest") },
 	{ name = "Skin", tests = require("./SkinTest") },
 	{ name = "TraitIcon", tests = require("./TraitIconTest") },
+	{ name = "Playback", tests = require("./PlaybackTest") },
 	{ name = "Regression", tests = require("./RegressionTest") },
 }
 

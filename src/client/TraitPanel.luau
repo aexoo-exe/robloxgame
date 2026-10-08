@@ -1,176 +1,119 @@
--- Placeholder trait panel in the top-left corner. During Preparation it lists the traits of the
--- units the player has placed on the board (bench units do not count), updating as units move.
--- During Combat and Results it shows the traits the server used for the fight: the player's own
--- column and an opponent column. Each row shows the trait's count against its next breakpoint (or
--- its top breakpoint once reached); active traits are highlighted. Hidden while TraitConfig has
--- no traits. Presentation only.
+-- The trait panel on the left edge: every origin and class among the units the player has placed on
+-- the board (bench units do not count), with its symbol, its name and how many different
+-- characters with it are fielded. Trait bonuses do not exist yet (TraitConfig is empty), so rows
+-- show counts only; each row keeps an empty area on its right for breakpoints later. Rows are
+-- sorted by count, then origins before classes, then by name. Presentation only.
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Phase = require(Shared:WaitForChild("Phase"))
-local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
-local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
-local TraitConfig = require(Shared:WaitForChild("TraitConfig"))
+local TraitIconConfig = require(Shared:WaitForChild("TraitIconConfig"))
 local Traits = require(Shared:WaitForChild("Traits"))
+local UITheme = require(Shared:WaitForChild("UITheme"))
+local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local BoardController = require(script.Parent.BoardController)
+local TraitIcon = require(script.Parent.TraitIcon)
+local UI = require(script.Parent.UI)
 
 local TraitPanel = {}
 
-local COLUMN_WIDTH = 170
-local ROW_HEIGHT = 20
-local TOP = 64 -- below Roblox's top bar buttons
+local COLORS = UITheme.colors
+local FONTS = UITheme.fonts
+local SIZES = UITheme.sizes
+local ICON = SIZES.traitRow - 6
+local BREAKPOINT_AREA = 30 -- reserved on each row's right for breakpoint pips
 
-type Column = { frame: Frame, list: Frame }
-
-local function newColumn(parent: Instance, x: number, title: string): Column
-	local frame = Instance.new("Frame")
-	frame.Position = UDim2.fromOffset(x, TOP)
-	frame.Size = UDim2.fromOffset(COLUMN_WIDTH, 0)
-	frame.AutomaticSize = Enum.AutomaticSize.Y
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)
-	frame.BackgroundTransparency = 0.35
-	frame.Parent = parent
-
-	local padding = Instance.new("UIPadding")
-	padding.PaddingTop = UDim.new(0, 6)
-	padding.PaddingBottom = UDim.new(0, 6)
-	padding.PaddingLeft = UDim.new(0, 6)
-	padding.PaddingRight = UDim.new(0, 6)
-	padding.Parent = frame
-
-	local layout = Instance.new("UIListLayout")
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 3)
-	layout.Parent = frame
-
-	local heading = Instance.new("TextLabel")
-	heading.LayoutOrder = 0
-	heading.Size = UDim2.new(1, 0, 0, 18)
-	heading.BackgroundTransparency = 1
-	heading.Text = title
-	heading.TextColor3 = Color3.new(1, 1, 1)
-	heading.Font = Enum.Font.GothamBold
-	heading.TextSize = 14
-	heading.TextXAlignment = Enum.TextXAlignment.Left
-	heading.Parent = frame
-
-	local list = Instance.new("Frame")
-	list.LayoutOrder = 1
-	list.Size = UDim2.fromScale(1, 0)
-	list.AutomaticSize = Enum.AutomaticSize.Y
-	list.BackgroundTransparency = 1
-	list.Parent = frame
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 2)
-	listLayout.Parent = list
-
-	return { frame = frame, list = list }
-end
-
-local function render(column: Column, summary: { Traits.TraitState })
-	column.list:ClearAllChildren()
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 2)
-	listLayout.Parent = column.list
-
-	if #summary == 0 then
-		local empty = Instance.new("TextLabel")
-		empty.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
-		empty.BackgroundTransparency = 1
-		empty.Text = "No traits yet"
-		empty.TextColor3 = RenderConfig.traitInactiveTextColor
-		empty.Font = Enum.Font.Gotham
-		empty.TextSize = 13
-		empty.TextXAlignment = Enum.TextXAlignment.Left
-		empty.Parent = column.list
-		return
-	end
-
-	for order, state in summary do
-		local row = Instance.new("TextLabel")
-		row.LayoutOrder = order
-		row.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
-		row.BorderSizePixel = 0
-		row.BackgroundColor3 = if state.active then RenderConfig.traitActiveColor else RenderConfig.traitInactiveColor
-		row.TextColor3 = if state.active then RenderConfig.traitActiveTextColor else RenderConfig.traitInactiveTextColor
-		row.Font = if state.active then Enum.Font.GothamBold else Enum.Font.Gotham
-		row.TextSize = 13
-		row.TextXAlignment = Enum.TextXAlignment.Left
-		-- Count against the next breakpoint, or against the top one once it is reached.
-		local target = state.nextCount or state.reached
-		row.Text = string.format("  %s  %d / %d", state.name, state.count, target)
-		row.Parent = column.list
-	end
-end
-
--- Traits of the placed units in a BoardUpdated snapshot (bench units have no column).
-local function boardSummary(units: { any }): { Traits.TraitState }
-	local placed = {}
+-- Different characters per trait among the placed units: trait -> count.
+local function boardCounts(units: { any }): { [string]: number }
+	local seen = {}
+	local counts = {}
 	for _, unit in units do
-		if unit.column then
-			table.insert(placed, unit)
+		if unit.column and not seen[unit.unitType] and UnitConfig[unit.unitType] then
+			seen[unit.unitType] = true
+			for _, trait in Traits.traitsOf(unit.unitType) do
+				counts[trait] = (counts[trait] or 0) + 1
+			end
 		end
 	end
-	return Traits.summary(placed)
+	return counts
+end
+
+local function isOrigin(trait: string): boolean
+	local entry = TraitIconConfig[trait]
+	return entry ~= nil and entry.shape == "circle"
 end
 
 function TraitPanel.start()
-	-- No traits are defined yet (TraitConfig is empty), so there is nothing to show.
-	if next(TraitConfig) == nil then
-		return
+	local _, root = UI.screen("TraitPanel", 3)
+	local panel = UI.panel(root, UDim2.fromOffset(SIZES.traitPanelWidth, 0), false)
+	panel.AutomaticSize = Enum.AutomaticSize.Y
+	panel.Position = UDim2.fromOffset(SIZES.margin, SIZES.topBarHeight + 14)
+	UI.padding(panel, 6)
+	UI.list(panel, 3)
+
+	local function render(units: { any })
+		for _, child in panel:GetChildren() do
+			if child:IsA("Frame") and child.Name == "TraitRow" then
+				child:Destroy()
+			end
+		end
+		local counts = boardCounts(units)
+		local traits = {}
+		for trait in counts do
+			table.insert(traits, trait)
+		end
+		table.sort(traits, function(a, b)
+			if counts[a] ~= counts[b] then
+				return counts[a] > counts[b]
+			elseif isOrigin(a) ~= isOrigin(b) then
+				return isOrigin(a)
+			end
+			return a < b
+		end)
+		panel.Visible = #traits > 0
+
+		for order, trait in traits do
+			local row = Instance.new("Frame")
+			row.Name = "TraitRow"
+			row.LayoutOrder = order
+			row.Size = UDim2.new(1, 0, 0, SIZES.traitRow)
+			row.BackgroundColor3 = COLORS.panelLight
+			row.BorderSizePixel = 0
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 6)
+			corner.Parent = row
+
+			local icon = TraitIcon.new(trait, ICON, row)
+			icon.AnchorPoint = Vector2.new(0, 0.5)
+			icon.Position = UDim2.new(0, 4, 0.5, 0)
+
+			local count = UI.text(row, tostring(counts[trait]), SIZES.text, FONTS.number, COLORS.gold)
+			count.AnchorPoint = Vector2.new(0, 0.5)
+			count.Position = UDim2.new(0, ICON + 8, 0.5, 0)
+
+			local name = UI.text(row, TraitIcon.name(trait), SIZES.textSmall, FONTS.body)
+			name.AutomaticSize = Enum.AutomaticSize.None
+			name.AnchorPoint = Vector2.new(0, 0.5)
+			name.Position = UDim2.new(0, ICON + 26, 0.5, 0)
+			name.Size = UDim2.new(1, -(ICON + 30 + BREAKPOINT_AREA), 0, SIZES.textSmall + 4)
+			name.TextXAlignment = Enum.TextXAlignment.Left
+			name.TextTruncate = Enum.TextTruncate.AtEnd
+
+			-- Room for breakpoint pips once traits have bonuses.
+			local breakpoints = Instance.new("Frame")
+			breakpoints.Name = "Breakpoints"
+			breakpoints.AnchorPoint = Vector2.new(1, 0.5)
+			breakpoints.Position = UDim2.new(1, -4, 0.5, 0)
+			breakpoints.Size = UDim2.fromOffset(BREAKPOINT_AREA, ICON)
+			breakpoints.BackgroundTransparency = 1
+			breakpoints.Parent = row
+
+			row.Parent = panel
+		end
 	end
-	local matchState = ReplicatedStorage:WaitForChild("MatchState")
-	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "TraitPanel"
-	screenGui.ResetOnSpawn = false
-	local own = newColumn(screenGui, 8, "Your traits")
-	local opponent = newColumn(screenGui, 8 + COLUMN_WIDTH + 6, "Opponent traits")
-	opponent.frame.Visible = false
-
-	local latestUnits = {}
-	local inFight = false
-
-	local function showBoard()
-		inFight = false
-		opponent.frame.Visible = false
-		render(own, boardSummary(latestUnits))
-	end
-
-	BoardController.onUnitsChanged(function(units)
-		latestUnits = units
-		if not inFight then
-			render(own, boardSummary(units))
-		end
-	end)
-
-	remotes:WaitForChild(RemoteNames.CombatStarted).OnClientEvent:Connect(function(payload)
-		if not payload.traits then
-			return
-		end
-		inFight = true
-		-- Same side choice as the combat playback: spectators see side 1 as their own.
-		local localSide = if payload.sideUserIds[2] == Players.LocalPlayer.UserId then 2 else 1
-		render(own, payload.traits[localSide])
-		render(opponent, payload.traits[3 - localSide])
-		opponent.frame.Visible = true
-	end)
-
-	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
-		local phase = matchState:GetAttribute("Phase")
-		if phase == Phase.Preparation or phase == Phase.Waiting then
-			showBoard()
-		end
-	end)
-
-	showBoard()
-	screenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	BoardController.onUnitsChanged(render)
 end
 
 return TraitPanel

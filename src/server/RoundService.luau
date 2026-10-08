@@ -15,6 +15,8 @@
 --   MatchState.Players: one Folder per participant, named by UserId, with attributes
 --     UserId, DisplayName, Health, Placement (0 until placed), Eliminated, Connected,
 --     Opponent (name during Combat, else ""), LastResult (text shown at Results),
+--     LastOutcome (Economy.Outcome of the round's fight, "" before Results; PvE fights are a Win
+--     when the side won), LastDamage (HP lost this round, 0 if none),
 --     LastGold (gold the round's PvE fight earned, shown at Results; 0 otherwise)
 --
 -- PvE rounds (Pve.roundKind) use the match's theme; round 1 has no Preparation, and every player
@@ -115,6 +117,8 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	for userId in match.players do
 		setPlayerAttribute(userId, "Opponent", "")
 		setPlayerAttribute(userId, "LastResult", "")
+		setPlayerAttribute(userId, "LastOutcome", "")
+		setPlayerAttribute(userId, "LastDamage", 0)
 		setPlayerAttribute(userId, "LastGold", 0)
 	end
 
@@ -137,18 +141,33 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	end
 	setPhase(Phase.Combat, combatDuration)
 	task.wait(combatDuration)
+	PlayerService.endCombat()
 
 	local summary = Match.applyResults(match, results)
 	PlayerService.recordOutcomes(summary.outcomes)
 	for userId, outcome in summary.outcomes do
 		setPlayerAttribute(userId, "LastResult", resultText(outcome, summary.damage[userId]))
+		setPlayerAttribute(userId, "LastOutcome", outcome)
+		setPlayerAttribute(userId, "LastDamage", summary.damage[userId] or 0)
 	end
 	PlayerService.recordPve(summary.pve)
+	local pveWinners = {}
+	for _, result in results do
+		if result.fight.pve and result.winner == 1 then
+			pveWinners[result.fight.a] = true
+		end
+	end
 	for userId, reward in summary.pve do
 		local damage = summary.damage[userId]
 		local text = Pve.resultText(reward) .. (if damage and damage > 0 then string.format(", -%d HP", damage) else "")
 		setPlayerAttribute(userId, "LastResult", text)
 		setPlayerAttribute(userId, "LastGold", reward.gold)
+		setPlayerAttribute(
+			userId,
+			"LastOutcome",
+			if pveWinners[userId] then Economy.Outcome.Win else Economy.Outcome.Loss
+		)
+		setPlayerAttribute(userId, "LastDamage", damage or 0)
 	end
 	for _, userId in summary.eliminated do
 		PlayerService.eliminate(userId)
@@ -182,6 +201,8 @@ local function playMatch()
 		folder:SetAttribute("DisplayName", names[userId])
 		folder:SetAttribute("Opponent", "")
 		folder:SetAttribute("LastResult", "")
+		folder:SetAttribute("LastOutcome", "")
+		folder:SetAttribute("LastDamage", 0)
 		folder:SetAttribute("LastGold", 0)
 		folder.Parent = playersFolder
 	end
@@ -195,6 +216,7 @@ local function playMatch()
 	while not match.finished do
 		playRound(match, names)
 	end
+	PlayerService.closeRequests()
 
 	local winner = if match.winner then names[match.winner] else ""
 	matchState:SetAttribute("Winner", winner)
