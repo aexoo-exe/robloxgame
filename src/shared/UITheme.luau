@@ -58,6 +58,10 @@ return freezeAll({
 		draw = rgb(170, 175, 190),
 		you = rgb(255, 198, 66),
 		opponent = rgb(240, 80, 70),
+
+		-- Shop cards for characters you own, and for a copy that completes a star upgrade.
+		owned = rgb(255, 198, 66),
+		upgrade = rgb(90, 255, 140),
 	},
 
 	-- Panels: rounded corners, a gold outline and a slanted gold accent across one corner.
@@ -95,6 +99,7 @@ return freezeAll({
 		mana = "💧",
 		move = "👟",
 		star = "★",
+		upgrade = "⬆",
 		winStreak = "🔥",
 		lossStreak = "❄",
 		win = "✔",

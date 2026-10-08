@@ -3,6 +3,9 @@
 --     and pops when it rises), and the win or loss streak
 --   * five shop cards: name, price, cost color and trait symbols (a trait's name shows on hover
 --     or when its symbol is tapped; tapping the rest of the card buys it)
+--   * a gold outline on cards of characters you own (board or bench), and a pulsing green outline
+--     with an upgrade badge when buying the card completes a star upgrade (you hold two 1-star
+--     copies); updated on every shop and board update, during combat too
 --   * Buy XP and Reroll buttons showing their price
 --   * while a unit is dragged, the shop turns into a sell zone showing the unit's sell value
 --     (BoardController.setSellZone)
@@ -11,6 +14,7 @@
 -- go to the bench); cards fade only when they cannot be bought (no gold, or outside a round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local LevelConfig = require(Shared:WaitForChild("LevelConfig"))
@@ -20,6 +24,7 @@ local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
+local StarConfig = require(Shared:WaitForChild("StarConfig"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
@@ -46,7 +51,12 @@ type Card = {
 	price: Frame,
 	priceLabel: TextLabel,
 	traits: Frame,
+	glow: Frame, -- owned / upgrade highlight outline
+	glowStroke: UIStroke,
+	glowPulse: Tween,
+	upgradeBadge: Frame,
 	shown: string | false | nil,
+	highlight: string?, -- "owned", "upgrade" or nil
 }
 
 -- A small label above a trait symbol with the trait's name.
@@ -101,6 +111,50 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 	price.AnchorPoint = Vector2.new(1, 1)
 	price.Position = UDim2.new(1, -6, 1, -6)
 
+	-- Owned highlight: a thick outline just outside the card (gold when owned, pulsing green when
+	-- buying it completes a star upgrade), plus a badge for the upgrade.
+	local glow = Instance.new("Frame")
+	glow.Name = "OwnedGlow"
+	glow.AnchorPoint = Vector2.new(0.5, 0.5)
+	glow.Position = UDim2.fromScale(0.5, 0.5)
+	glow.Size = UDim2.new(1, 8, 1, 8)
+	glow.BackgroundTransparency = 1
+	glow.ZIndex = 5
+	glow.Visible = false
+	local glowCorner = Instance.new("UICorner")
+	glowCorner.CornerRadius = UDim.new(0, UITheme.buttonCorner + 4)
+	glowCorner.Parent = glow
+	local glowStroke = Instance.new("UIStroke")
+	glowStroke.Thickness = 4
+	glowStroke.Parent = glow
+	glow.Parent = button
+	local glowPulse = TweenService:Create(
+		glowStroke,
+		TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Transparency = 0.55 }
+	)
+
+	local badge = Instance.new("Frame")
+	badge.Name = "UpgradeBadge"
+	badge.AnchorPoint = Vector2.new(0.5, 0.5)
+	badge.Position = UDim2.new(1, -4, 0, 4)
+	badge.Size = UDim2.fromOffset(26, 26)
+	badge.BackgroundColor3 = COLORS.upgrade
+	badge.ZIndex = 6
+	badge.Visible = false
+	local badgeCorner = Instance.new("UICorner")
+	badgeCorner.CornerRadius = UDim.new(1, 0)
+	badgeCorner.Parent = badge
+	local badgeStroke = Instance.new("UIStroke")
+	badgeStroke.Color = COLORS.outline
+	badgeStroke.Thickness = 2
+	badgeStroke.Parent = badge
+	local badgeGlyph = UI.glyph(badge, UITheme.icons.upgrade, SIZES.text)
+	badgeGlyph.AnchorPoint = Vector2.new(0.5, 0.5)
+	badgeGlyph.Position = UDim2.fromScale(0.5, 0.5)
+	badgeGlyph.ZIndex = 7
+	badge.Parent = button
+
 	button.Activated:Connect(onBuy)
 	return {
 		button = button,
@@ -110,8 +164,33 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 		price = price,
 		priceLabel = priceLabel,
 		traits = traits,
+		glow = glow,
+		glowStroke = glowStroke,
+		glowPulse = glowPulse,
+		upgradeBadge = badge,
 		shown = nil,
+		highlight = nil,
 	}
+end
+
+-- Shows a card's owned highlight: "owned" (gold outline), "upgrade" (pulsing green outline and
+-- badge: buying it completes a star upgrade) or nil (none).
+local function setHighlight(card: Card, highlight: string?)
+	if highlight == card.highlight then
+		return
+	end
+	card.highlight = highlight
+	card.glow.Visible = highlight ~= nil
+	card.upgradeBadge.Visible = highlight == "upgrade"
+	card.glowStroke.Color = if highlight == "upgrade" then COLORS.upgrade else COLORS.owned
+	card.glowStroke.Thickness = if highlight == "upgrade" then 5 else 3
+	if highlight == "upgrade" then
+		card.glowPulse:Play()
+		UI.pop(card.upgradeBadge, 1.5)
+	else
+		card.glowPulse:Cancel()
+		card.glowStroke.Transparency = 0
+	end
 end
 
 -- Trait symbols on a card. Each is its own button, so tapping it shows the trait's name instead
@@ -290,12 +369,35 @@ function ShopPanel.start()
 	sellOverlay.Parent = panel
 	BoardController.setSellZone(panel)
 
+	-- The player's units (board and bench): by id, how many of each character, and how many 1-star
+	-- copies of each (two 1-star copies mean the next copy completes a star upgrade).
 	local unitsById = {}
+	local ownedCount: { [string]: number } = {}
+	local oneStarCount: { [string]: number } = {}
+
+	local function updateHighlights()
+		for slot, card in cards do
+			local unitType = if view then view.shop[slot] else nil
+			local highlight = nil
+			if unitType and ownedCount[unitType] then
+				highlight = if (oneStarCount[unitType] or 0) >= StarConfig.copiesToMerge - 1 then "upgrade" else "owned"
+			end
+			setHighlight(card, highlight)
+		end
+	end
+
 	BoardController.onUnitsChanged(function(units)
 		table.clear(unitsById)
+		table.clear(ownedCount)
+		table.clear(oneStarCount)
 		for _, unit in units do
 			unitsById[unit.id] = unit
+			ownedCount[unit.unitType] = (ownedCount[unit.unitType] or 0) + 1
+			if unit.starLevel == 1 then
+				oneStarCount[unit.unitType] = (oneStarCount[unit.unitType] or 0) + 1
+			end
 		end
+		updateHighlights()
 	end)
 	BoardController.onDragChanged(function(unitId, overZone)
 		local unit = if unitId then unitsById[unitId] else nil
@@ -376,6 +478,7 @@ function ShopPanel.start()
 			card.name.TextTransparency = fade
 			card.priceLabel.TextTransparency = fade
 		end
+		updateHighlights()
 	end
 
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(newView)
