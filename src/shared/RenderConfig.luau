@@ -9,6 +9,7 @@ return table.freeze({
 	cellThickness = 0.4,
 	benchDistance = 6, -- from the center of the nearest row to the bench slots
 
+	-- A unit's click box (invisible); its figure (FigureConfig) is drawn this tall.
 	unitSize = Vector3.new(2.2, 3.5, 2.2),
 	-- Size multiplier by star level (1, 2, 3), and the symbol repeated after a unit's name.
 	starSizeScale = table.freeze({ 1, 1.15, 1.3 }),
@@ -17,9 +18,9 @@ return table.freeze({
 	ownCellColor = Color3.fromRGB(70, 95, 130),
 	enemyCellColor = Color3.fromRGB(120, 75, 75),
 	benchSlotColor = Color3.fromRGB(95, 95, 95),
-	-- Colors by unit cost (1-5): shop card stripes and borders, and unit bodies on the board and in
-	-- combat. Traits show as symbols instead (TraitIconConfig). Which side a unit is on shows in its
-	-- health bar color.
+	-- Colors by unit cost (1-5): shop card stripes and borders, and the ring under each unit on the
+	-- board and in combat (bodies use the character's SkinConfig color). Traits show as symbols
+	-- (TraitIconConfig). Which side a unit is on shows in its health bar color.
 	costColors = table.freeze({
 		Color3.fromRGB(150, 150, 155), -- 1-cost gray
 		Color3.fromRGB(70, 190, 90), -- 2-cost green
@@ -49,7 +50,6 @@ return table.freeze({
 
 	-- Combat playback. Durations are in seconds; none of them change fight timing, which comes
 	-- from the server's event list.
-	visorColor = Color3.fromRGB(30, 30, 40), -- marks the front of a unit, so turning is visible
 	turnRate = 14, -- how quickly units turn to face their target (higher is snappier)
 	dashDuration = 0.15, -- dashes are instant in the sim; a short slide keeps them readable
 	dashTrailColor = Color3.fromRGB(255, 255, 255),
@@ -75,7 +75,7 @@ return table.freeze({
 	dotNumberSize = 13, -- damage-over-time ticks
 	-- Forms (transformations). A form's own health pool (a rider's horse) is a second bar stacked
 	-- above the health bar. Looks are keyed by form name: `label` floats up when the unit enters the
-	-- form, and `mount` adds a placeholder horse (a block body and head under the unit).
+	-- form, and `mount` puts the unit on a placeholder horse of that color (FigureConfig.horse).
 	formHealthColor = Color3.fromRGB(230, 160, 60),
 	formChangeTextColor = Color3.fromRGB(255, 210, 120),
 	formLooks = table.freeze({

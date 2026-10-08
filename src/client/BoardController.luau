@@ -5,17 +5,17 @@
 -- sends BoardUpdated.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
-local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
-local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
+local CharacterLook = require(script.Parent.CharacterLook)
 local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
 
@@ -58,13 +58,13 @@ local function render()
 	for _, unit in units do
 		local position = if unit.slot then Arena.benchPosition(unit.slot) else Arena.cellPosition(unit.column, unit.row)
 		local stats = UnitConfig[unit.unitType]
-		local skin = SkinConfig[unit.unitType]
-		local color = RenderConfig.costColors[stats.cost]
-		local view = UnitView.new(skin.name, unit.starLevel, color, position, Arena.folder, {
+		local look = CharacterLook.of(unit.unitType)
+		local view = UnitView.new(look.name, unit.starLevel, look.color, position, Arena.folder, {
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
 			traits = TraitIcon.traitsOf(stats),
+			look = look.figure,
 		})
 		view.part:SetAttribute("UnitId", unit.id)
 		view.part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
@@ -138,6 +138,17 @@ function BoardController.start()
 		end
 	end)
 	matchState:GetAttributeChangedSignal("Phase"):Connect(render)
+
+	-- Idle animations for the units on the board and bench.
+	local lastFrame = os.clock()
+	RunService.RenderStepped:Connect(function()
+		local now = os.clock()
+		local dt = now - lastFrame
+		lastFrame = now
+		for _, view in views do
+			UnitView.update(view, now, dt)
+		end
+	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then

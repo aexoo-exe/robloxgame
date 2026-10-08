@@ -23,21 +23,6 @@ local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
--- What players see of a unit type: name, body color and size. Characters use their SkinConfig name
--- and their cost's color; creeps and bosses use their theme's look (PveThemeConfig).
-local function lookOf(unitType: string): { name: string, color: Color3, scale: number }
-	local character = UnitConfig[unitType]
-	if character then
-		return { name = SkinConfig[unitType].name, color = RenderConfig.costColors[character.cost], scale = 1 }
-	end
-	local look = Pve.pveUnitType(unitType).look
-	return {
-		name = look.name,
-		color = Color3.fromRGB(look.color[1], look.color[2], look.color[3]),
-		scale = look.scale or 1,
-	}
-end
-
 -- Display name of an ability. Abilities are named by their character's internal id.
 local function abilityName(abilityId: string): string
 	local skin = SkinConfig[abilityId]
@@ -46,6 +31,7 @@ end
 
 local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
+local CharacterLook = require(script.Parent.CharacterLook)
 local CombatEffects = require(script.Parent.CombatEffects)
 local TraitIcon = require(script.Parent.TraitIcon)
 local UnitView = require(script.Parent.UnitView)
@@ -106,10 +92,11 @@ local function play(playback)
 		unitsByIndex[unit.index] = unit
 		local own = unit.side == localSide
 		local form = formOf(unit.unitType, unit.formIndex)
-		local look = lookOf(unit.unitType)
+		local look = CharacterLook.of(unit.unitType)
 		views[unit.index] =
 			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), Arena.folder, {
 				sizeScale = look.scale,
+				look = look.figure,
 				maxHealth = unit.maxHealth,
 				mana = unit.mana,
 				maxMana = unit.maxMana,
@@ -245,6 +232,7 @@ local function play(playback)
 					yaw = if own then 0 else math.pi,
 					healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
 					summon = true,
+					look = CharacterLook.summon,
 				})
 		elseif kind == "Pull" and targetView then
 			-- The pulled unit slides to its new cell, like a dash.
@@ -293,6 +281,7 @@ local function play(playback)
 			local own = info[event.unit].side == localSide
 			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
 			CombatEffects.projectile(attacker, target, os.clock() + landsIn, color)
+			UnitView.shoot(attacker, target)
 		else
 			UnitView.lunge(attacker, target, os.clock() + landsIn - RenderConfig.lungeDuration / 2)
 		end

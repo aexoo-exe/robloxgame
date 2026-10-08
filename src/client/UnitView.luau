@@ -1,21 +1,26 @@
--- A placeholder unit: a block colored by origin with a dark visor marking its front, its name and star level,
--- a health bar (with any shield shown as a white segment after the health), and a mana bar under
--- it. Higher-star units are drawn slightly larger (RenderConfig.starSizeScale). Presentation only.
--- Callers color the block by unit cost (RenderConfig.costColors) and pass its traits, whose
--- symbols (TraitIconConfig) show in a row under the name.
+-- A unit on the field or bench: a figure (Figure: a placeholder humanoid with its class prop and a
+-- cost ring, or a finished model), its name and star level, its trait symbols, a health bar (with
+-- any shield shown as a white segment after the health) and a mana bar. Higher-star units are drawn
+-- slightly larger (RenderConfig.starSizeScale). Presentation only.
+-- Callers pass the body color and the figure look (CharacterLook). The unit's `part` is an
+-- invisible box of the old unit size: it takes clicks and hovers (callers set UnitId and UnitType
+-- attributes on it), carries the info board, and is what projectiles fly to.
 -- A unit created with a form health pool (a mounted rider) also gets a pool bar stacked above the
--- health bar, shown while its form has a pool, and its form's look (RenderConfig.formLooks).
+-- health bar, shown while its form has a pool, and its form's look (RenderConfig.formLooks; a
+-- `mount` color adds a placeholder horse).
 --
--- In combat, every animation (gliding, turning, lunges, hit flashes, cast glows, floating numbers,
--- the stun marker, the shield bubble and the death fade) is advanced by UnitView.update, called
--- once per frame. Nothing is scheduled with task.delay or TweenService, so destroying a view
--- removes everything it shows. Views that are never updated (the board during Preparation) just
--- sit where they were placed.
+-- Every animation (idle, walking, gliding, turning, attacks, casts, hit flashes and recoils,
+-- floating numbers, the stun marker, the shield bubble and the defeat fall) is advanced by
+-- UnitView.update, called once per frame. Nothing is scheduled with task.delay or TweenService, so
+-- destroying a view removes everything it shows.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
+local Figure = require(script.Parent.Figure)
 local TraitIcon = require(script.Parent.TraitIcon)
 
 local UnitView = {}
@@ -24,6 +29,10 @@ local UnitView = {}
 local FLOAT_BOARD_SIZE = Vector2.new(220, 220)
 local FLOAT_START_Y = 55 -- top of a new number, just above the info board
 local CAST_TEXT_START_Y = 25
+
+local ANIMATION = FigureConfig.animation
+local TAU = 2 * math.pi
+local rad = math.rad
 
 type Floater = {
 	label: TextLabel,
@@ -34,13 +43,14 @@ type Floater = {
 }
 
 export type UnitView = {
-	part: Part,
-	visor: Part,
+	part: Part, -- invisible hitbox
+	figure: Figure.Figure,
+	pose: Figure.Pose,
 	bubble: Part?,
 	trail: Trail,
 	infoBoard: BillboardGui,
 	floatBoard: BillboardGui,
-	color: Color3,
+	color: Color3, -- body color
 	maxHealth: number,
 	maxMana: number?,
 	health: number,
@@ -52,10 +62,9 @@ export type UnitView = {
 	formBar: Frame?, -- the form health pool bar; nil for units created without a pool
 	formFill: Frame?,
 	maxFormHealth: number?,
-	formParts: { Part }, -- the current form's look (placeholder horse)
 
 	-- Animation state, in os.clock() seconds.
-	base: Vector3, -- part center without lunge or death offsets
+	base: Vector3, -- hitbox center without lunge or death offsets
 	moveFrom: Vector3,
 	moveTo: Vector3,
 	moveStart: number,
@@ -65,16 +74,24 @@ export type UnitView = {
 	faceTarget: UnitView?,
 	lungeDirection: Vector3,
 	lungeStart: number?,
+	shootStart: number?,
+	attackArm: number, -- 1 left, 2 right
+	alternateArms: boolean, -- attacks switch arms (classes with a prop in each hand)
+	castStart: number?,
+	hitStart: number?,
 	flashUntil: number,
 	flashColor: Color3,
 	glowUntil: number,
 	stunUntil: number,
 	trailUntil: number,
 	dyingSince: number?,
+	selected: boolean,
+	phase: number, -- 0-1 offset so neighbors do not idle in step
 	floaters: { Floater },
 	floaterCount: number,
-	shownColor: Color3,
-	shownMaterial: Enum.Material,
+	shownColor: Color3?, -- body tint now shown (nil: the body color)
+	shownMaterial: Enum.Material?,
+	shownTransparency: number,
 	baseTransparency: number, -- see-through for summons
 }
 
@@ -86,6 +103,7 @@ export type Options = {
 	healthColor: Color3?, -- RenderConfig.healthBarColor if nil
 	summon: boolean?, -- drawn smaller and see-through, labeled as a summon
 	sizeScale: number?, -- extra size multiplier (PvE creeps and bosses use their theme look's scale)
+	look: Figure.Look?, -- the figure to draw (CharacterLook); a plain figure if nil
 	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
 	maxFormHealth: number?,
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
@@ -106,25 +124,6 @@ end
 
 local function wrapAngle(angle: number): number
 	return (angle + math.pi) % (2 * math.pi) - math.pi
-end
-
-local function decoration(parent: Part, size: Vector3, cframe: CFrame, color: Color3): Part
-	local piece = Instance.new("Part")
-	piece.Anchored = false
-	piece.CanCollide = false
-	piece.CanQuery = false -- clicks on the board must hit the unit's body
-	piece.CanTouch = false
-	piece.Massless = true
-	piece.Size = size
-	piece.CFrame = cframe
-	piece.Color = color
-	piece.Material = Enum.Material.SmoothPlastic
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = parent
-	weld.Part1 = piece
-	weld.Parent = piece
-	piece.Parent = parent
-	return piece
 end
 
 local function bar(parent: Instance, y: number, height: number): Frame
@@ -160,23 +159,21 @@ function UnitView.new(
 	part.Name = name
 	part.Anchored = true
 	part.CanCollide = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Transparency = 1
 	part.Size = RenderConfig.unitSize
 		* RenderConfig.starSizeScale[starLevel]
 		* (if options.summon then RenderConfig.summonScale else 1)
 		* (options.sizeScale or 1)
 	local base = partPosition(groundPosition, part)
 	part.CFrame = CFrame.new(base) * CFrame.Angles(0, yaw, 0)
-	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
 
 	local size = part.Size
-	local visorSize = Vector3.new(size.X * 0.7, size.Y * 0.16, size.Z * 0.35)
-	local visor = decoration(
-		part,
-		visorSize,
-		part.CFrame * CFrame.new(0, size.Y * 0.25, -(size.Z + visorSize.Z) / 2 + 0.05),
-		RenderConfig.visorColor
-	)
+	local baseTransparency = if options.summon then RenderConfig.summonTransparency else 0
+	local look = options.look or { style = "summon" }
+	local figure = Figure.new(look, color, size.Y, part, baseTransparency)
+	local hand = if look.classLook then look.classLook.hand else "right"
 
 	local trailTop = Instance.new("Attachment")
 	trailTop.Position = Vector3.new(0, size.Y * 0.3, 0)
@@ -262,7 +259,17 @@ function UnitView.new(
 	part.Parent = parent
 	local view = {
 		part = part,
-		visor = visor,
+		figure = figure,
+		pose = {
+			bob = 0,
+			lean = 0,
+			fall = 0,
+			leftArm = 0,
+			rightArm = 0,
+			leftLeg = 0,
+			rightLeg = 0,
+			stride = 0,
+		},
 		bubble = nil,
 		trail = trail,
 		infoBoard = infoBoard,
@@ -279,7 +286,6 @@ function UnitView.new(
 		formBar = formBar,
 		formFill = formFill,
 		maxFormHealth = options.maxFormHealth,
-		formParts = {},
 
 		base = base,
 		moveFrom = base,
@@ -291,22 +297,31 @@ function UnitView.new(
 		faceTarget = nil,
 		lungeDirection = Vector3.zero,
 		lungeStart = nil,
+		shootStart = nil,
+		attackArm = if hand == "left" then 1 else 2,
+		alternateArms = hand == "both",
+		castStart = nil,
+		hitStart = nil,
 		flashUntil = 0,
 		flashColor = color,
 		glowUntil = 0,
 		stunUntil = 0,
 		trailUntil = 0,
 		dyingSince = nil,
+		selected = false,
+		phase = math.random(),
 		floaters = {},
 		floaterCount = 0,
-		shownColor = color,
-		shownMaterial = part.Material,
-		baseTransparency = if options.summon then RenderConfig.summonTransparency else 0,
+		shownColor = nil,
+		shownMaterial = nil,
+		shownTransparency = baseTransparency,
+		baseTransparency = baseTransparency,
 	}
 	UnitView.setMana(view, options.mana or 0)
 	if options.formLook or options.maxFormHealth then
 		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth)
 	end
+	UnitView.update(view, os.clock(), 0)
 	return view
 end
 
@@ -321,29 +336,12 @@ function UnitView.setFormHealth(view: UnitView, formHealth: number?)
 	end
 end
 
--- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for the plain block) and
--- its health pool (nil if it has none).
+-- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for none) and its health
+-- pool (nil if it has none). A look with a `mount` color puts the unit on a placeholder horse; any
+-- other look removes the horse.
 function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFormHealth: number?)
-	for _, piece in view.formParts do
-		piece:Destroy()
-	end
-	table.clear(view.formParts)
-	if look and look.mount and not view.dyingSince then
-		-- Placeholder horse: a long low body under the unit, sticking out front and back, and a head
-		-- at the front (-Z).
-		local size = view.part.Size
-		local bodySize = Vector3.new(size.X * 1.05, size.Y * 0.32, size.Z * 1.9)
-		local headSize = Vector3.new(size.X * 0.4, size.Y * 0.4, size.Z * 0.45)
-		local bottom = -size.Y / 2
-		local bodyOffset = CFrame.new(0, bottom + bodySize.Y / 2, 0)
-		local headOffset = CFrame.new(0, bottom + bodySize.Y + headSize.Y / 2 - 0.1, -(bodySize.Z - headSize.Z) / 2)
-		local body = decoration(view.part, bodySize, view.part.CFrame * bodyOffset, look.mount)
-		local head = decoration(view.part, headSize, view.part.CFrame * headOffset, look.mount)
-		for _, piece in { body, head } do
-			piece.Transparency = view.part.Transparency
-			table.insert(view.formParts, piece)
-		end
-	end
+	local mount = if look and not view.dyingSince then look.mount else nil
+	Figure.setMount(view.figure, mount)
 	if maxFormHealth then
 		view.maxFormHealth = maxFormHealth
 	end
@@ -371,15 +369,15 @@ local function startMove(view: UnitView, groundPosition: Vector3, duration: numb
 	view.moveIsDash = isDash
 end
 
--- Moves the unit to a ground position: glides over `duration` seconds (driven by UnitView.update),
--- or snaps there at once if no duration is given.
+-- Moves the unit to a ground position: walks there over `duration` seconds (driven by
+-- UnitView.update), or snaps there at once if no duration is given.
 function UnitView.moveTo(view: UnitView, groundPosition: Vector3, duration: number?)
 	if duration and duration > 0 then
 		startMove(view, groundPosition, duration, false)
 	else
 		local goal = partPosition(groundPosition, view.part)
 		view.moveFrom, view.moveTo, view.moveDuration, view.base = goal, goal, 0, goal
-		view.part.CFrame = CFrame.new(goal) * CFrame.Angles(0, view.yaw, 0)
+		UnitView.update(view, os.clock(), 0)
 	end
 end
 
@@ -394,16 +392,31 @@ function UnitView.face(view: UnitView, target: UnitView?)
 	view.faceTarget = target
 end
 
--- A small lunge toward `target` and back, starting at `startAt` (os.clock(); now if omitted). It
--- peaks halfway through RenderConfig.lungeDuration.
+local function nextAttackArm(view: UnitView)
+	if view.alternateArms then
+		view.attackArm = 3 - view.attackArm
+	end
+end
+
+-- A melee attack: a small lunge toward `target` and back with a swing of the attacking arm,
+-- starting at `startAt` (os.clock(); now if omitted). It peaks halfway through
+-- RenderConfig.lungeDuration.
 function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
 	local direction = target.part.Position - view.part.Position
 	direction = Vector3.new(direction.X, 0, direction.Z)
 	if direction.Magnitude < 1e-3 then
 		return
 	end
+	nextAttackArm(view)
 	view.lungeDirection = direction.Unit
 	view.lungeStart = startAt or os.clock()
+	view.faceTarget = target
+end
+
+-- A ranged attack: faces `target` and recoils, starting at `startAt` (os.clock(); now if omitted).
+function UnitView.shoot(view: UnitView, target: UnitView, startAt: number?)
+	nextAttackArm(view)
+	view.shootStart = startAt or os.clock()
 	view.faceTarget = target
 end
 
@@ -426,10 +439,18 @@ function UnitView.setShield(view: UnitView, shield: number)
 	redrawHealth(view)
 	if shield > 0 and not view.bubble and not view.dyingSince then
 		local size = view.part.Size
-		local diameter = math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale
-		local bubble = decoration(view.part, Vector3.one * diameter, view.part.CFrame, RenderConfig.shieldBubbleColor)
+		local bubble = Instance.new("Part")
+		bubble.Anchored = true
+		bubble.CanCollide = false
+		bubble.CanQuery = false
+		bubble.CanTouch = false
+		bubble.CastShadow = false
 		bubble.Shape = Enum.PartType.Ball
+		bubble.Size = Vector3.one * math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale
+		bubble.Color = RenderConfig.shieldBubbleColor
 		bubble.Material = Enum.Material.ForceField
+		bubble.CFrame = view.part.CFrame
+		bubble.Parent = view.part
 		view.bubble = bubble
 	end
 	if view.bubble then
@@ -548,19 +569,24 @@ function UnitView.popText(view: UnitView, text: string, color: Color3)
 	)
 end
 
--- Shows the ability name above the caster and makes it glow briefly.
+-- Shows the ability name above the caster, makes it glow briefly and throws its arms up.
 function UnitView.cast(view: UnitView, abilityName: string)
-	view.glowUntil = os.clock() + RenderConfig.castGlowDuration
+	local now = os.clock()
+	view.glowUntil = now + RenderConfig.castGlowDuration
+	view.castStart = now
 	UnitView.popText(view, abilityName, RenderConfig.castTextColor)
 end
 
--- Briefly flashes the unit to show it was hit; crits flash in a different color.
+-- Briefly flashes the unit and knocks it back to show it was hit; crits flash in a different color.
 function UnitView.flash(view: UnitView, crit: boolean?)
-	view.flashUntil = os.clock() + RenderConfig.hitFlashDuration
+	local now = os.clock()
+	view.flashUntil = now + RenderConfig.hitFlashDuration
 	view.flashColor = if crit then RenderConfig.critFlashColor else RenderConfig.hitFlashColor
+	view.hitStart = now
 end
 
--- Starts the death fade. Keep updating the view until UnitView.update returns false, then destroy it.
+-- Starts the defeat: the unit falls backward, sinks and fades. Keep updating the view until
+-- UnitView.update returns false, then destroy it.
 function UnitView.kill(view: UnitView)
 	if view.dyingSince then
 		return
@@ -578,12 +604,93 @@ function UnitView.isAlive(view: UnitView): boolean
 	return view.dyingSince == nil and view.part.Parent ~= nil
 end
 
+-- Progress (0-1) of a one-shot animation that started at `start` and lasts `duration`, or nil when
+-- it is not playing.
+local function progressOf(start: number?, duration: number, now: number): number?
+	if not start or now < start then
+		return nil
+	end
+	local progress = (now - start) / duration
+	return if progress < 1 then progress else nil
+end
+
+-- Works out this frame's pose from the animation state. Later layers add to earlier ones: idle or
+-- walking, then an attack, a cast, a hit recoil, a stun and the defeat fall.
+local function updatePose(view: UnitView, now: number, moving: boolean)
+	local pose = view.pose
+	local figure = view.figure
+	local height = figure.height
+	local rest = figure.restArms
+	local idle = math.sin((now / ANIMATION.idlePeriod + view.phase) * TAU)
+	pose.bob = idle * ANIMATION.idleBob * height
+	pose.lean, pose.fall, pose.stride = 0, 0, 0
+	pose.leftArm = rest[1] + rad(ANIMATION.idleArmSway) * idle
+	pose.rightArm = rest[2] - rad(ANIMATION.idleArmSway) * idle
+	pose.leftLeg, pose.rightLeg = 0, 0
+
+	if moving then
+		local step = math.sin((now / ANIMATION.walkCycle + view.phase) * TAU)
+		local legSwing = rad(ANIMATION.walkLegSwing) * step
+		local armSwing = rad(ANIMATION.walkArmSwing) * step
+		pose.leftLeg, pose.rightLeg = legSwing, -legSwing
+		pose.leftArm, pose.rightArm = rest[1] - armSwing, rest[2] + armSwing
+		pose.bob = math.abs(step) * ANIMATION.walkBob * height
+		pose.stride = rad(ANIMATION.horseLegSwing) * step
+	end
+
+	-- Attacks: the attacking arm swings with a melee lunge, or kicks up with a ranged shot.
+	local armRaise, attackLean = 0, 0
+	local lunge = progressOf(view.lungeStart, RenderConfig.lungeDuration, now)
+	local shot = progressOf(view.shootStart, ANIMATION.shootDuration, now)
+	if lunge then
+		local swing = math.sin(math.pi * lunge)
+		armRaise, attackLean = rad(ANIMATION.attackArm) * swing, rad(ANIMATION.attackLean) * swing
+	elseif shot then
+		local recoil = math.sin(math.pi * shot)
+		armRaise, attackLean = rad(ANIMATION.shootArm) * recoil, rad(ANIMATION.shootLean) * recoil
+	end
+	if view.attackArm == 1 then
+		pose.leftArm += armRaise
+	else
+		pose.rightArm += armRaise
+	end
+	pose.lean += attackLean
+
+	local cast = progressOf(view.castStart, ANIMATION.castDuration, now)
+	if cast then
+		local lift = math.sin(math.pi * cast)
+		local up = rad(ANIMATION.castArms)
+		pose.leftArm += (up - pose.leftArm) * lift
+		pose.rightArm += (up - pose.rightArm) * lift
+	end
+
+	local hit = progressOf(view.hitStart, ANIMATION.hitDuration, now)
+	if hit then
+		pose.lean += rad(ANIMATION.hitLean) * (1 - hit)
+	end
+
+	if now < view.stunUntil and not view.dyingSince then
+		-- Stunned: arms drop and the idle stops.
+		pose.bob = 0
+		pose.leftArm *= 0.3
+		pose.rightArm *= 0.3
+	end
+
+	if view.dyingSince then
+		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
+		local eased = 1 - (1 - progress) * (1 - progress)
+		pose.fall = rad(ANIMATION.defeatFall) * eased
+		pose.leftArm *= 1 - eased
+		pose.rightArm *= 1 - eased
+	end
+end
+
 -- Advances every animation to `now` (os.clock()); `dt` is the frame time. Returns false once a
 -- dying view has finished fading and has no floating text left, when it should be destroyed.
 function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local part = view.part
 
-	-- Position: the glide or dash, plus any lunge, minus any death sink.
+	-- Position: the walk or dash, plus any lunge, minus any death sink.
 	local base = currentBase(view, now)
 	local moving = view.moveDuration > 0 and now < view.moveStart + view.moveDuration
 	if view.moveDuration > 0 and not moving then
@@ -591,13 +698,9 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	end
 	view.base = base
 	local offset = Vector3.zero
-	if view.lungeStart and now >= view.lungeStart then
-		local progress = (now - view.lungeStart) / RenderConfig.lungeDuration
-		if progress >= 1 then
-			view.lungeStart = nil
-		else
-			offset = view.lungeDirection * (RenderConfig.lungeDistance * math.sin(math.pi * progress))
-		end
+	local lunge = progressOf(view.lungeStart, RenderConfig.lungeDuration, now)
+	if lunge then
+		offset = view.lungeDirection * (RenderConfig.lungeDistance * math.sin(math.pi * lunge))
 	end
 
 	-- Facing: along the path while moving, otherwise toward the target.
@@ -618,33 +721,33 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		transparency = view.baseTransparency + (1 - view.baseTransparency) * progress
 		offset -= Vector3.new(0, RenderConfig.deathSinkDistance * progress, 0)
 	end
-
-	local cframe = CFrame.new(base + offset) * CFrame.Angles(0, view.yaw, 0)
-	if part.CFrame ~= cframe then
-		part.CFrame = cframe
-	end
-	if part.Transparency ~= transparency then
-		part.Transparency = transparency
-		view.visor.Transparency = transparency
-		for _, piece in view.formParts do
-			piece.Transparency = transparency
-		end
+	if transparency ~= view.shownTransparency then
+		Figure.setTransparency(view.figure, transparency)
+		view.shownTransparency = transparency
 	end
 
-	-- Color: a hit flash wins over a cast glow.
-	local color, material = view.color, Enum.Material.SmoothPlastic
+	updatePose(view, now, moving)
+	local center = base + offset
+	local rotation = CFrame.Angles(0, view.yaw, 0)
+	local hitboxCFrame = CFrame.new(center) * rotation
+	local root = CFrame.new(center - Vector3.new(0, part.Size.Y / 2, 0)) * rotation
+	Figure.place(view.figure, hitboxCFrame, root, view.pose)
+	if view.bubble and view.bubble.Transparency < 1 then
+		view.bubble.CFrame = hitboxCFrame
+	end
+
+	-- Body tint: a hit flash wins over a cast glow, which wins over the selection glow.
+	local color, material = nil, nil
 	if now < view.flashUntil then
 		color = view.flashColor
 	elseif now < view.glowUntil then
 		color, material = RenderConfig.castGlowColor, Enum.Material.Neon
+	elseif view.selected then
+		material = Enum.Material.Neon
 	end
-	if color ~= view.shownColor then
-		part.Color = color
-		view.shownColor = color
-	end
-	if material ~= view.shownMaterial then
-		part.Material = material
-		view.shownMaterial = material
+	if color ~= view.shownColor or material ~= view.shownMaterial then
+		Figure.setTint(view.figure, color, material)
+		view.shownColor, view.shownMaterial = color, material
 	end
 
 	local stunned = now < view.stunUntil and not view.dyingSince
@@ -680,8 +783,8 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 end
 
 function UnitView.setSelected(view: UnitView, selected: boolean)
-	view.part.Material = if selected then Enum.Material.Neon else Enum.Material.SmoothPlastic
-	view.shownMaterial = view.part.Material
+	view.selected = selected
+	UnitView.update(view, os.clock(), 0)
 end
 
 function UnitView.destroy(view: UnitView)

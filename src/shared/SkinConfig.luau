@@ -1,9 +1,16 @@
 -- Everything players see about a character, keyed by its internal id (UnitConfig key): its display
--- name, its ability's display name and its color as { red, green, blue } (0-255). All character
--- text in the UI comes from here and nowhere else, so renaming or reskinning a character is a
--- change to this file only. Names are from docs/design/revamp-roster.md (Block 2).
--- The colors are not drawn at the moment: unit bodies and shop cards are colored by cost
--- (RenderConfig.costColors), and traits show as symbols (TraitIconConfig).
+-- name, its ability's display name, its color as { red, green, blue } (0-255) and optionally a
+-- finished model. All character text in the UI comes from here and nowhere else, so renaming or
+-- reskinning a character is a change to this file only. Names are from
+-- docs/design/revamp-roster.md (Block 2).
+-- The color is the body color of the character's placeholder figure (FigureConfig); its cost shows
+-- as the ring under it (RenderConfig.costColors), and traits as symbols (TraitIconConfig).
+--
+-- `model` (optional): the name of a Model under ReplicatedStorage.CharacterModels, drawn instead of
+-- the placeholder figure. To give a character a finished model, add the model there and pass its
+-- name as the fourth argument of its skin(...) line below. The model should stand on the ground
+-- with its front along -Z; it is scaled to the figure's height and moved with the figure's body
+-- animations (bob, lean, lunge, recoil, fall). Without the model in place, the placeholder is drawn.
 -- Pure Luau: no Roblox APIs, so it loads in Lune tests too.
 
 local HUNTERS = { 214, 120, 52 }
@@ -16,8 +23,13 @@ local SHINOBI = { 70, 170, 175 }
 local CREW = { 232, 92, 92 }
 local HEROES = { 240, 200, 70 }
 
-local function skin(name: string, ability: string, color: { number })
-	return table.freeze({ name = name, ability = ability, color = table.freeze(table.clone(color)) })
+local function skin(name: string, ability: string, color: { number }, model: string?)
+	return table.freeze({
+		name = name,
+		ability = ability,
+		color = table.freeze(table.clone(color)),
+		model = model,
+	})
 end
 
 return table.freeze({
