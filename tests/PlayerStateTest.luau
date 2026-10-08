@@ -106,9 +106,9 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "reroll costs 1 gold (experimental) and is refused without it",
+	name = "reroll costs ShopConfig.rerollCost gold and is refused without it",
 	run = function()
-		expectEqual(ShopConfig.rerollCost, 1, "reroll cost")
+		assert(ShopConfig.rerollCost >= 1, "reroll cost must be at least 1 gold")
 		local state = newPlayer(ShopConfig.rerollCost + 1)
 		state.shop[1] = false
 		assert(PlayerState.reroll(state), "reroll refused")
