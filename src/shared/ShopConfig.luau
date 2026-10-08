@@ -13,11 +13,12 @@ return table.freeze({
 		[2] = table.freeze({ 100, 0, 0, 0, 0 }),
 		[3] = table.freeze({ 75, 25, 0, 0, 0 }),
 		[4] = table.freeze({ 55, 30, 15, 0, 0 }),
-		[5] = table.freeze({ 40, 30, 25, 5, 0 }),
-		[6] = table.freeze({ 25, 30, 30, 14, 1 }),
-		[7] = table.freeze({ 18, 25, 32, 22, 3 }),
-		[8] = table.freeze({ 12, 20, 30, 31, 7 }),
-		[9] = table.freeze({ 8, 15, 25, 37, 15 }),
+		-- Levels 5-9: tuning pass 1 (more 2- and 3-cost at the levels where they are rolled for).
+		[5] = table.freeze({ 45, 33, 20, 2, 0 }),
+		[6] = table.freeze({ 30, 40, 25, 5, 0 }),
+		[7] = table.freeze({ 19, 30, 40, 10, 1 }),
+		[8] = table.freeze({ 18, 25, 32, 22, 3 }),
+		[9] = table.freeze({ 15, 20, 25, 30, 10 }),
 		[10] = table.freeze({ 5, 10, 20, 40, 25 }),
 	}),
 })

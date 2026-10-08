@@ -95,9 +95,18 @@ function UnitPool.rollUnit(pool: Pool, rng: SeededRandom.SeededRandom, level: nu
 	if not cost then
 		return nil
 	end
-	local names = Shop.unitsByCost[cost]
-	local roll = SeededRandom.nextInt(rng, UnitPool.tierRemaining(pool, cost))
-	for _, name in names do
+	return UnitPool.drawOfCost(pool, rng, cost)
+end
+
+-- Takes one random character of `cost` out of the pool, weighted by copies left (as a shop slot
+-- does once its tier is chosen). Returns nil if the tier is empty. Used for the PvE starting units.
+function UnitPool.drawOfCost(pool: Pool, rng: SeededRandom.SeededRandom, cost: number): string?
+	local total = UnitPool.tierRemaining(pool, cost)
+	if total == 0 then
+		return nil
+	end
+	local roll = SeededRandom.nextInt(rng, total)
+	for _, name in Shop.unitsByCost[cost] do
 		roll -= pool.remaining[name]
 		if roll <= 0 then
 			UnitPool.take(pool, name)

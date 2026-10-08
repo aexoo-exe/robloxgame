@@ -17,14 +17,25 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local Forms = require(Shared:WaitForChild("Forms"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
+local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
--- A character's body color: its cost's color.
-local function costColor(unitType: string): Color3
-	return RenderConfig.costColors[UnitConfig[unitType].cost]
+-- What players see of a unit type: name, body color and size. Characters use their SkinConfig name
+-- and their cost's color; creeps and bosses use their theme's look (PveThemeConfig).
+local function lookOf(unitType: string): { name: string, color: Color3, scale: number }
+	local character = UnitConfig[unitType]
+	if character then
+		return { name = SkinConfig[unitType].name, color = RenderConfig.costColors[character.cost], scale = 1 }
+	end
+	local look = Pve.pveUnitType(unitType).look
+	return {
+		name = look.name,
+		color = Color3.fromRGB(look.color[1], look.color[2], look.color[3]),
+		scale = look.scale or 1,
+	}
 end
 
 -- Display name of an ability. Abilities are named by their character's internal id.
@@ -83,7 +94,7 @@ local function play(playback)
 
 	-- A unit's form data by index (nil for units without forms).
 	local function formOf(unitType: string, formIndex: number?)
-		local forms = UnitConfig[unitType].forms
+		local forms = Pve.unitType(unitType).forms
 		return if forms and formIndex then forms[formIndex] else nil
 	end
 	local function formLook(form)
@@ -95,13 +106,10 @@ local function play(playback)
 		unitsByIndex[unit.index] = unit
 		local own = unit.side == localSide
 		local form = formOf(unit.unitType, unit.formIndex)
-		views[unit.index] = UnitView.new(
-			SkinConfig[unit.unitType].name,
-			unit.starLevel,
-			costColor(unit.unitType),
-			toWorld(unit.column, unit.row),
-			Arena.folder,
-			{
+		local look = lookOf(unit.unitType)
+		views[unit.index] =
+			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), Arena.folder, {
+				sizeScale = look.scale,
 				maxHealth = unit.maxHealth,
 				mana = unit.mana,
 				maxMana = unit.maxMana,
@@ -111,9 +119,9 @@ local function play(playback)
 				formHealth = unit.formHealth,
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
-				traits = TraitIcon.traitsOf(UnitConfig[unit.unitType]),
-			}
-		)
+				-- Creeps and bosses have no traits.
+				traits = if UnitConfig[unit.unitType] then TraitIcon.traitsOf(UnitConfig[unit.unitType]) else nil,
+			})
 		views[unit.index].part:SetAttribute("UnitType", unit.unitType) -- for the hover tooltip
 	end
 
@@ -122,7 +130,7 @@ local function play(playback)
 	-- Move speed includes the starting form's change and is updated as Form events apply.
 	local info = {}
 	for _, unit in result.units do
-		local stats = UnitConfig[unit.unitType]
+		local stats = Pve.unitType(unit.unitType)
 		local form = formOf(unit.unitType, unit.formIndex)
 		info[unit.index] = {
 			side = unit.side,
@@ -143,7 +151,7 @@ local function play(playback)
 
 	local reading = CastReader.read(result.units, result.events, function(index, name)
 		local unit = unitsByIndex[index]
-		return if unit then Forms.abilityNamed(UnitConfig[unit.unitType], name) else nil
+		return if unit then Forms.abilityNamed(Pve.unitType(unit.unitType), name) else nil
 	end)
 
 	-- Pulses every field cell within the area's radius, spreading outward from its center.
@@ -250,7 +258,7 @@ local function play(playback)
 			local look = formLook(form)
 			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth)
 			UnitView.setHealth(view, event.health)
-			info[event.unit].moveSpeed = Forms.baseStat(UnitConfig[unit.unitType], form, "MoveSpeed", "moveSpeed")
+			info[event.unit].moveSpeed = Forms.baseStat(Pve.unitType(unit.unitType), form, "MoveSpeed", "moveSpeed")
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end

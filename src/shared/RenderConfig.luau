@@ -82,6 +82,10 @@ return table.freeze({
 		Mounted = table.freeze({ label = "Mounted", mount = Color3.fromRGB(125, 85, 50) }),
 		Dismounted = table.freeze({ label = "Dismounted!" }),
 	}),
+	-- PvE rounds: tint of the top phase label. Creep and boss bodies, names and sizes come from
+	-- their theme's looks (PveThemeConfig).
+	creepRoundColor = Color3.fromRGB(35, 80, 40),
+	bossRoundColor = Color3.fromRGB(100, 25, 25),
 	deathFadeDuration = 0.5,
 	deathSinkDistance = 1.2,
 

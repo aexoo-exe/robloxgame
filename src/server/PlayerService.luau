@@ -52,13 +52,17 @@ local function connectRequest(remoteName: string, action: (PlayerState.PlayerSta
 	end)
 end
 
--- Gives every participant a fresh starting state, drawing from a new shared pool.
+-- Gives every participant a fresh starting state, drawing from a new shared pool, and their
+-- starting units (PveConfig.startingUnits), placed on the board for the round-1 creep fight.
 function PlayerService.startMatch(userIds: { number })
 	table.clear(states)
 	table.clear(eliminated)
 	local pool = UnitPool.new()
 	for _, userId in userIds do
-		states[userId] = PlayerState.new(seedRandom:NextInteger(1, 2 ^ 31 - 2), pool)
+		local state = PlayerState.new(seedRandom:NextInteger(1, 2 ^ 31 - 2), pool)
+		states[userId] = state
+		local granted = PlayerState.grantStartingUnits(state)
+		print(string.format("[PlayerService] %d starts with %s", userId, table.concat(granted, ", ")))
 		sendState(userId)
 	end
 end
@@ -133,6 +137,18 @@ function PlayerService.recordOutcomes(outcomes: { [number]: string })
 		local state = states[userId]
 		if state then
 			PlayerState.recordCombat(state, outcome)
+		end
+	end
+end
+
+-- Pays each player the gold their PvE fight earned (Pve.Reward, from Match.applyResults) and
+-- marks the fight for next round's income. Streaks are left alone.
+function PlayerService.recordPve(rewards: { [number]: any })
+	for userId, reward in rewards do
+		local state = states[userId]
+		if state then
+			PlayerState.recordPve(state, reward.gold)
+			sendState(userId)
 		end
 	end
 end

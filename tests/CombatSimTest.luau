@@ -150,7 +150,15 @@ table.insert(tests, {
 			critChance = 0, -- exact damage
 		}))
 		assert(result.survivors[1] == 1 and result.survivors[2] == 3, "all units should survive")
-		assert(result.healthPercent[2] < 0.75, "the husks should have lost health")
+		-- Three 300-damage hits, against the husks' combat health (which follows the health dial).
+		local huskHealth = 0
+		for _, unit in result.units do
+			if unit.side == 2 then
+				huskHealth += unit.maxHealth
+			end
+		end
+		local expected = (huskHealth - 900) / huskHealth
+		assert(math.abs(result.healthPercent[2] - expected) < 1e-9, "the husks should have lost 900 health")
 		assert(result.winner == 1, "the healthier side should win despite fewer units")
 	end,
 })

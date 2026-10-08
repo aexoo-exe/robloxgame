@@ -14,6 +14,7 @@ local BoardConfig = if script then require(script.Parent.BoardConfig) else requi
 local Economy = if script then require(script.Parent.Economy) else require("./Economy")
 local EconomyConfig = if script then require(script.Parent.EconomyConfig) else require("./EconomyConfig")
 local LevelConfig = if script then require(script.Parent.LevelConfig) else require("./LevelConfig")
+local PveConfig = if script then require(script.Parent.PveConfig) else require("./PveConfig")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 local StarLevel = if script then require(script.Parent.StarLevel) else require("./StarLevel")
 local ShopConfig = if script then require(script.Parent.ShopConfig) else require("./ShopConfig")
@@ -98,6 +99,49 @@ function PlayerState.recordCombat(state: PlayerState, outcome: string)
 	state.streak = Economy.nextStreak(state.streak, outcome)
 	state.lastOutcome = outcome
 	state.foughtSincePreparation = true
+end
+
+-- Records a PvE fight (creep or boss round): pays its reward gold now. The next Preparation still
+-- pays round income and XP, but PvE leaves the win/loss streak unchanged and earns no win bonus.
+function PlayerState.recordPve(state: PlayerState, gold: number)
+	state.gold += gold
+	state.lastOutcome = nil
+	state.foughtSincePreparation = true
+end
+
+-- Gives the match-start units (PveConfig.startingUnits): random units of the configured cost drawn
+-- from the shared pool, each placed on the first free listed cell (on the bench if none is free or
+-- the board is at the level cap). Returns their unit types.
+function PlayerState.grantStartingUnits(state: PlayerState): { string }
+	local rule = PveConfig.startingUnits
+	local granted = {}
+	for _ = 1, rule.count do
+		if not Board.hasBenchSpace(state.board) then
+			break
+		end
+		local unitType = UnitPool.drawOfCost(state.pool, state.rng, rule.cost)
+		if not unitType then
+			break
+		end
+		local id = tostring(state.nextUnitId)
+		state.nextUnitId += 1
+		Board.addUnit(state.board, id, unitType)
+		local taken = {}
+		for _, unit in Board.getPlacedUnits(state.board) do
+			taken[unit.column .. "," .. unit.row] = true
+		end
+		for _, cell in rule.cells do
+			-- Moving onto an occupied cell would swap, so only free cells are tried.
+			if not taken[cell.column .. "," .. cell.row] then
+				if Board.moveUnit(state.board, id, { column = cell.column, row = cell.row }, state.level) then
+					break
+				end
+			end
+		end
+		Board.mergeUnits(state.board)
+		table.insert(granted, unitType)
+	end
+	return granted
 end
 
 -- Buys the unit in a shop slot onto the bench, then merges any completed set of copies. Refused if

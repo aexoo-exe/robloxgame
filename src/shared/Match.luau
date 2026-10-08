@@ -2,15 +2,22 @@
 -- history (docs/design/match-structure.md sections 2-5 and 7). Players are identified by UserId, so
 -- their state survives leaving and rejoining.
 --
--- A match with a single participant is a practice match: every round they fight a scripted enemy
--- (`fight.b` and `fight.ghostOf` both nil), take damage by the normal formula, and the match ends
--- when they are eliminated.
+-- A match with a single participant is a practice match: every PvP round they fight a scripted
+-- enemy (`fight.b` and `fight.ghostOf` both nil), take damage by the normal formula, and the match
+-- ends when they are eliminated.
+--
+-- PvE rounds (Pve.roundKind: the opening creep rounds and the boss rounds) give every active player
+-- the same PvE fight (`fight.pve` set to the round kind) from the match's theme, picked at the
+-- start. They are not recorded in the pairing history, cost PveConfig.healthLoss HP when not won,
+-- and earn the gold in Pve.reward; they report in `summary.pve`, not `summary.outcomes`, so they
+-- leave streaks alone.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Economy = if script then require(script.Parent.Economy) else require("./Economy")
 local MatchConfig = if script then require(script.Parent.MatchConfig) else require("./MatchConfig")
 local MatchRules = if script then require(script.Parent.MatchRules) else require("./MatchRules")
 local Pairing = if script then require(script.Parent.Pairing) else require("./Pairing")
+local Pve = if script then require(script.Parent.Pve) else require("./Pve")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 
 local Match = {}
@@ -29,6 +36,7 @@ export type MatchPlayer = {
 export type Match = {
 	round: number,
 	practice: boolean,
+	theme: string, -- PvE theme (PveThemeConfig) for every PvE round of this match
 	finished: boolean,
 	winner: number?,
 	players: { [number]: MatchPlayer },
@@ -42,11 +50,13 @@ export type FightResult = {
 	fight: Pairing.Fight,
 	winner: number?,
 	survivors: { number },
+	healthPercent: { number }?, -- CombatSim healthPercent per side; boss rewards need it
 }
 
 export type RoundSummary = {
 	damage: { [number]: number }, -- HP lost per player this round
-	outcomes: { [number]: string }, -- Economy.Outcome per real player who fought
+	outcomes: { [number]: string }, -- Economy.Outcome per real player who fought a PvP fight
+	pve: { [number]: Pve.Reward }, -- per player who fought a PvE fight: the gold it earned
 	eliminated: { number }, -- players eliminated this round, best placement first
 }
 
@@ -67,6 +77,8 @@ function Match.new(ids: { number }, seed: number): Match
 	return {
 		round = 0,
 		practice = #ids == 1,
+		-- Its own generator, so the theme pick leaves the pairing sequence of `rng` unchanged.
+		theme = Pve.pickTheme(SeededRandom.new(seed)),
 		finished = false,
 		winner = nil,
 		players = players,
@@ -108,6 +120,14 @@ function Match.startRound(match: Match): { Pairing.Fight }
 		local player = match.players[id]
 		player.missingThisRound = not player.connected
 	end
+	local kind = Pve.roundKind(match.round)
+	if kind ~= Pve.Kind.PvP then
+		local fights = {}
+		for _, id in active do
+			table.insert(fights, { a = id, pve = kind })
+		end
+		return fights
+	end
 	if match.practice then
 		return { { a = active[1] } }
 	end
@@ -126,7 +146,7 @@ end
 -- Applies a round's fight results at Results: player damage, leaver HP loss, eliminations,
 -- placements and the winner. Only real players take damage; ghost and practice opponents never do.
 function Match.applyResults(match: Match, results: { FightResult }): RoundSummary
-	local summary = { damage = {}, outcomes = {}, eliminated = {} }
+	local summary = { damage = {}, outcomes = {}, pve = {}, eliminated = {} }
 	local active = Match.activeIds(match)
 	local healthBefore = {}
 	for _, id in active do
@@ -142,6 +162,14 @@ function Match.applyResults(match: Match, results: { FightResult }): RoundSummar
 		local fight = result.fight
 		local a = match.players[fight.a]
 		a.lastSurvivors = result.survivors[1]
+		if fight.pve then
+			summary.pve[fight.a] = Pve.reward(match.theme, match.round, result.survivors, result.healthPercent)
+			local loss = Pve.healthLoss(fight.pve)
+			if result.winner ~= 1 and loss > 0 then
+				hurt(fight.a, loss)
+			end
+			continue
+		end
 		summary.outcomes[fight.a] = outcomeFor(result.winner, 1)
 		if result.winner == 2 then
 			hurt(fight.a, MatchRules.playerDamage(match.round, result.survivors[2]))
