@@ -2,6 +2,8 @@
 -- pulses on the hexes an area ability hits. Built-in shapes only. Every effect is animated by
 -- CombatEffects.update (once per frame) and removed by CombatEffects.clear; nothing is scheduled
 -- with task.delay or TweenService. Presentation only.
+-- Times come from CombatEffects.setClock (os.clock by default); combat playback sets a clock that
+-- runs in fight time, so effects follow the playback speed.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -30,6 +32,12 @@ type Pulse = {
 local folder: Folder? = nil
 local projectiles: { Projectile } = {}
 local pulses: { Pulse } = {}
+local clock: () -> number = os.clock
+
+-- Sets the time source for new effects (nil: os.clock).
+function CombatEffects.setClock(source: (() -> number)?)
+	clock = source or os.clock
+end
 
 -- Width of a hex cell across its flat sides.
 local HEX_WIDTH = math.sqrt(3) * (RenderConfig.hexRadius - RenderConfig.cellGap)
@@ -64,7 +72,7 @@ local function targetPosition(projectile: Projectile): Vector3
 	return projectile.lastTargetPosition
 end
 
--- Fires a projectile from `from` that reaches `target` at `arrivesAt` (os.clock()).
+-- Fires a projectile from `from` that reaches `target` at `arrivesAt` (on the effects' clock).
 function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number, color: Color3)
 	local part = effectPart(color)
 	part.Shape = Enum.PartType.Ball
@@ -75,7 +83,7 @@ function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number,
 		from = from.part.Position,
 		target = target,
 		lastTargetPosition = target.part.Position,
-		launchedAt = os.clock(),
+		launchedAt = clock(),
 		arrivesAt = arrivesAt,
 	})
 end
@@ -83,7 +91,7 @@ end
 -- Pulses the given ground positions. Each entry is { position = Vector3, delay = seconds }. `color`
 -- defaults to RenderConfig.areaPulseColor.
 function CombatEffects.areaPulse(cells: { { position: Vector3, delay: number } }, color: Color3?)
-	local now = os.clock()
+	local now = clock()
 	for _, cell in cells do
 		local part = effectPart(color or RenderConfig.areaPulseColor)
 		part.Shape = Enum.PartType.Cylinder
@@ -94,7 +102,7 @@ function CombatEffects.areaPulse(cells: { { position: Vector3, delay: number } }
 	end
 end
 
--- Advances every effect to `now` (os.clock()) and removes finished ones.
+-- Advances every effect to `now` (on the effects' clock) and removes finished ones.
 function CombatEffects.update(now: number)
 	for i = #projectiles, 1, -1 do
 		local projectile = projectiles[i]

@@ -2,6 +2,11 @@
 -- event with its tick; events are applied as server time passes `startsAt`. Presentation only:
 -- nothing here changes what happens in the fight or when.
 --
+-- Long fights play faster (fast-forward, CombatConfig.playbackSpeeds): the playback runs on a
+-- fight-time clock, Playback.fightSeconds(server time since `startsAt`), which every unit view and
+-- effect uses, so movement, animations, projectiles and numbers all follow the speed. The server
+-- times the Combat phase with the same schedule. A badge shows the speed while it is above 1x.
+--
 -- The event list is known in full when the fight starts, so attacks are anticipated: melee
 -- attackers start their lunge early so it peaks as the hit lands, and ranged attackers launch a
 -- projectile that arrives as the hit lands. Damage types and area centers come from CastReader,
@@ -17,6 +22,7 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local Forms = require(Shared:WaitForChild("Forms"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local Phase = require(Shared:WaitForChild("Phase"))
+local Playback = require(Shared:WaitForChild("Playback"))
 local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
@@ -33,12 +39,14 @@ local Arena = require(script.Parent.Arena)
 local CastReader = require(script.Parent.CastReader)
 local CharacterLook = require(script.Parent.CharacterLook)
 local CombatEffects = require(script.Parent.CombatEffects)
+local FastForwardBadge = require(script.Parent.FastForwardBadge)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
 
--- One-shot effects (numbers, flashes, text) are skipped for events older than this, so a client
--- that joins mid-fight does not get a burst of everything that already happened.
+-- One-shot effects (numbers, flashes, text) are skipped for events older than this (fight
+-- seconds), so a client that joins mid-fight does not get a burst of everything that already
+-- happened.
 local STALE_SECONDS = 0.5
 
 local views: { [number]: UnitView.UnitView } = {} -- living units, by unit index
@@ -50,6 +58,8 @@ local function clear()
 		connection:Disconnect()
 		connection = nil
 	end
+	FastForwardBadge.setSpeed(1)
+	CombatEffects.setClock(nil)
 	for _, view in views do
 		UnitView.destroy(view)
 	end
@@ -73,9 +83,16 @@ local function play(playback)
 		end
 		return Arena.cellPosition(column, row)
 	end
-	local function serverTimeOf(tick: number): number
-		return playback.startsAt + tick / result.ticksPerSecond
+	-- Fight time: the moment of the fight on screen now, with fast-forward applied. Every view and
+	-- effect of this fight runs on it.
+	local function fightNow(): number
+		return Playback.fightSeconds(workspace:GetServerTimeNow() - playback.startsAt)
 	end
+	local function fightTimeOf(tick: number): number
+		return tick / result.ticksPerSecond
+	end
+	local fightEnd = fightTimeOf(result.endTick)
+	CombatEffects.setClock(fightNow)
 
 	-- A unit's form data by index (nil for units without forms).
 	local function formOf(unitType: string, formIndex: number?)
@@ -107,6 +124,7 @@ local function play(playback)
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
 				starPips = character, -- creeps and bosses have no star level to show
+				clock = fightNow,
 			})
 		-- For the hover tooltip and the unit info panel.
 		views[unit.index].part:SetAttribute("UnitType", unit.unitType)
@@ -237,6 +255,7 @@ local function play(playback)
 					summon = true,
 					look = CharacterLook.summon,
 					starPips = false,
+					clock = fightNow,
 				})
 		elseif kind == "Pull" and targetView then
 			-- The pulled unit slides to its new cell, like a dash.
@@ -271,22 +290,22 @@ local function play(playback)
 		return if isRanged(unitIndex) then RenderConfig.projectileFlightTime else RenderConfig.lungeDuration / 2
 	end
 
-	-- Starts the wind-up of an attack that lands at `landsAt` (server time).
-	local function anticipate(event, landsAt: number, serverNow: number)
+	-- Starts the wind-up of an attack that lands at fight time `landsAt`.
+	local function anticipate(event, landsAt: number, now: number)
 		local attacker = views[event.unit]
 		local target = views[event.target]
 		if not attacker or not target then
 			return
 		end
 		UnitView.face(attacker, target)
-		local landsIn = landsAt - serverNow
+		local landsIn = landsAt - now
 		if isRanged(event.unit) then
 			local own = info[event.unit].side == localSide
 			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
-			CombatEffects.projectile(attacker, target, os.clock() + landsIn, color)
+			CombatEffects.projectile(attacker, target, now + landsIn, color)
 			UnitView.shoot(attacker, target)
 		else
-			UnitView.lunge(attacker, target, os.clock() + landsIn - RenderConfig.lungeDuration / 2)
+			UnitView.lunge(attacker, target, now + landsIn - RenderConfig.lungeDuration / 2)
 		end
 	end
 
@@ -295,15 +314,17 @@ local function play(playback)
 	local nextAnticipated = 1
 	local maxLead = math.max(RenderConfig.projectileFlightTime, RenderConfig.lungeDuration / 2)
 	local upcoming = {} -- indexes of attacks inside the lead window, not yet wound up
-	local lastFrame = os.clock()
+	local lastFrame = fightNow()
 
+	-- Every time below is fight time: lead windows, durations and the frame step all scale with
+	-- the playback speed.
 	connection = RunService.RenderStepped:Connect(function()
-		local now = os.clock()
-		local dt = now - lastFrame
+		local now = fightNow()
+		local dt = math.max(0, now - lastFrame)
 		lastFrame = now
-		local serverNow = workspace:GetServerTimeNow()
+		FastForwardBadge.setSpeed(if now < fightEnd then Playback.speedAt(now) else 1)
 
-		while nextAnticipated <= #events and serverTimeOf(events[nextAnticipated].tick) - maxLead <= serverNow do
+		while nextAnticipated <= #events and fightTimeOf(events[nextAnticipated].tick) - maxLead <= now do
 			if events[nextAnticipated].kind == "Attack" then
 				table.insert(upcoming, nextAnticipated)
 			end
@@ -311,19 +332,19 @@ local function play(playback)
 		end
 		for i = #upcoming, 1, -1 do
 			local event = events[upcoming[i]]
-			local landsAt = serverTimeOf(event.tick)
-			if serverNow >= landsAt - leadTime(event.unit) then
+			local landsAt = fightTimeOf(event.tick)
+			if now >= landsAt - leadTime(event.unit) then
 				table.remove(upcoming, i)
-				if landsAt > serverNow then
-					anticipate(event, landsAt, serverNow)
+				if landsAt > now then
+					anticipate(event, landsAt, now)
 				end
 			end
 		end
 
-		local currentTick = (serverNow - playback.startsAt) * result.ticksPerSecond
+		local currentTick = now * result.ticksPerSecond
 		while nextEvent <= #events and events[nextEvent].tick <= currentTick do
 			local event = events[nextEvent]
-			apply(nextEvent, event, serverNow - serverTimeOf(event.tick) < STALE_SECONDS)
+			apply(nextEvent, event, now - fightTimeOf(event.tick) < STALE_SECONDS)
 			nextEvent += 1
 		end
 
