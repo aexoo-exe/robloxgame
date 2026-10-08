@@ -27,6 +27,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local StarLevel = require(Shared:WaitForChild("StarLevel"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local Arena = require(script.Parent.Arena)
@@ -194,11 +196,18 @@ local function render()
 		end
 		local stats = UnitConfig[unit.unitType]
 		local look = CharacterLook.of(unit.unitType)
+		-- Units with forms are shown in the form they start every fight in (riders on their horse),
+		-- with its health pool full.
+		local form = if stats.forms then stats.forms[1] else nil
+		local formPool = if form and form.health then StarLevel.scaleHealth(form.health, unit.starLevel) else nil
 		local view = UnitView.new(look.name, unit.starLevel, look.color, positionOf(placeOf(unit)), Arena.folder, {
 			maxHealth = stats.health,
 			mana = stats.startingMana,
 			maxMana = stats.maxMana,
 			look = look.figure,
+			formLook = if form then RenderConfig.formLooks[form.name] else nil,
+			formHealth = formPool,
+			maxFormHealth = formPool,
 		})
 		view.part:SetAttribute("UnitId", unit.id)
 		-- For the hover tooltip and the unit info panel.
