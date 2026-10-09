@@ -56,7 +56,7 @@ local SPEC = {
 	night_command = { 4, 900, 89, 32, 34, 0.94, 1, 1.1, 30, 100 },
 	frozen_moment = { 4, 950, 88, 38, 38, 0.86, 1, 1.0, 40, 110 },
 	cyclone_edge = { 4, 860, 90, 30, 30, 0.95, 1, 1.2, 20, 90 },
-	night_parade = { 4, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 110 },
+	night_parade = { 4, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 40 },
 	restoration_strike = { 4, 1200, 78, 58, 45, 0.72, 1, 1.0, 40, 120 },
 
 	severing_temple = { 5, 1100, 98, 45, 48, 0.88, 2, 1.1, 30, 110 },
@@ -167,7 +167,7 @@ local ABILITIES = {
 	night_command = "SUMMON x2/3/3 15/17/20s hp 50/55/65% ad 75/85/100% armor 55% mr 55% as 95% range 1 move 1.1",
 	frozen_moment = "AREA_STUN SELF r2 1/1.5/2s onEnd PHYSICAL 180/290/460 lifesteal 40%",
 	cyclone_edge = "DASH HIGHEST_AD_ENEMY 4 retarget; AREA_DAMAGE HIGHEST_AD_ENEMY r1 PHYSICAL 330/525/840; BUFF SELF AttackSpeed +35/55/80% 4s [onKill 4s x2: DASH NEAREST_ENEMY 4 retarget, AREA_DAMAGE NEAREST_ENEMY r1 PHYSICAL 330/525/840]",
-	night_parade = "SUMMON x1 lasting hp 60/70/80% ad 80/100/120% armor 45% mr 45% as 100% range 1 move 1 unless CAST_CYCLE 3/3; RECALL if CAST_CYCLE 3/3; AREA_DAMAGE CURRENT_TARGET LINE MAGIC 540/855/1370 bonus RECALLED 100% if CAST_CYCLE 3/3",
+	night_parade = "SUMMON x2 lasting hp 60/70/80% ad 80/100/120% armor 45% mr 45% as 100% range 1 move 1 unless CAST_CYCLE 2/2; RECALL if CAST_CYCLE 2/2; AREA_DAMAGE CURRENT_TARGET LINE MAGIC 70/110/180 bonus RECALLED 100% if CAST_CYCLE 2/2",
 	restoration_strike = "SHIELD SELF 250/400/640 4s; HEAL LOWEST_HP_OTHER_ALLIES x2 300/480/770; DAMAGE CURRENT_TARGET PHYSICAL 200/320/510",
 
 	severing_temple = "AREA_DAMAGE CURRENT_TARGET r2 PHYSICAL 450/720/1150; DAMAGE_OVER_TIME CURRENT_TARGET r2 MAGIC 35/55/90 every 1s 4s",

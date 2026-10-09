@@ -317,3 +317,9 @@ attack damage made up the rest. Details per unit in the Tuning A handoff.
 
 Part 3: roster health dial 1.2992 -> 1.403136 (x1.08); Caster AP 15/30/50 -> 12/25/40; boss
 combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16/20).
+## 8. Tuning B
+
+- night_parade: the cycle is 2 casts (AbilityConfig.nightParadeCycle 3 -> 2). Cast 1 summons two
+  curses (was one per summoning cast); cast 2 recalls every living curse (even none) and fires the
+  line; then it repeats. Max mana 110 -> 40 (about one cast every 5 seconds). Line base
+  540/855/1370 -> 70/110/180 (+100% per curse recalled, unchanged).

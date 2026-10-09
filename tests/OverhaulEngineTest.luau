@@ -726,15 +726,16 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "roster: night_parade summons on casts 1 and 2, fires on cast 3 (even with no curses), then restarts",
+	name = "roster: night_parade summons before the last cast of its cycle, then fires (even with no curses)",
 	run = function()
 		local cycle = AbilityConfig.nightParadeCycle
+		local perCast = UnitConfig.night_parade.ability.effects[1].count -- curses per summoning cast
 		local battle, units = newBattle(rosterTypes(), { { "night_parade", 1, 4, 2 }, { "Dummy", 2, 4, 6 } })
 		local unit = units[1]
 		unit.target = units[2]
 		for casts = 1, cycle - 1 do
 			Abilities.cast(battle, unit)
-			expectEqual(#Battle.summonsOf(battle, unit), casts, "curses after cast " .. casts)
+			expectEqual(#Battle.summonsOf(battle, unit), casts * perCast, "curses after cast " .. casts)
 		end
 		local before = #eventsOfKind(battle, "Damage")
 		Abilities.cast(battle, unit)
@@ -745,10 +746,10 @@ table.insert(tests, {
 				recalled += 1
 			end
 		end
-		expectEqual(recalled, cycle - 1, "every living curse recalled")
+		expectEqual(recalled, (cycle - 1) * perCast, "every living curse recalled")
 		assert(#eventsOfKind(battle, "Damage") > before, "the line hit")
 		Abilities.cast(battle, unit)
-		expectEqual(#Battle.summonsOf(battle, unit), 1, "the cycle restarts")
+		expectEqual(#Battle.summonsOf(battle, unit), perCast, "the cycle restarts")
 
 		-- The line fires even when every curse died first.
 		local lonely, more = newBattle(rosterTypes(), { { "night_parade", 1, 4, 2 }, { "Dummy", 2, 4, 6 } })

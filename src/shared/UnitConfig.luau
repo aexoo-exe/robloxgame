@@ -561,9 +561,10 @@ add("cyclone_edge", unit(4, "Corps", { "Blade", "Assassin" }, 860, 90, 30, 30, 0
 		},
 	},
 })
--- A cast counter (AbilityConfig.nightParadeCycle = 3): casts 1 and 2 summon a curse that stays until
--- killed; cast 3 recalls every living curse (even none) and fires a line through his current target
--- with its base damage plus a bonus per curse recalled; then the count starts over.
+-- A cast counter (AbilityConfig.nightParadeCycle = 2): cast 1 summons two curses that stay until
+-- killed; cast 2 recalls every living curse (even none) and fires a line through his current target
+-- with its base damage plus a bonus per curse recalled; then the count starts over. A short mana bar
+-- (40) makes him cast about every 5 seconds.
 local function paradeCast(fires: boolean)
 	return {
 		type = "CAST_CYCLE",
@@ -572,10 +573,10 @@ local function paradeCast(fires: boolean)
 		negate = not fires,
 	}
 end
-add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 110), {
-	with(lastingSummon(1, { 60, 70, 80 }, { 80, 100, 120 }, 45, 100, 1, 1.0), { condition = paradeCast(false) }),
+add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 40), {
+	with(lastingSummon(2, { 60, 70, 80 }, { 80, 100, 120 }, 45, 100, 1, 1.0), { condition = paradeCast(false) }),
 	{ type = "RECALL", condition = paradeCast(true) },
-	with(line("CURRENT_TARGET", "MAGIC", { 540, 855, 1370 }), {
+	with(line("CURRENT_TARGET", "MAGIC", { 70, 110, 180 }), {
 		condition = paradeCast(true),
 		bonus = { type = "RECALLED", percent = 100 },
 	}),
