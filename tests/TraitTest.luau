@@ -57,23 +57,24 @@ local TEST_TRAITS = {
 	},
 }
 
--- Membership sizes from docs/design/revamp-structure.md (origins and classes).
+-- Membership sizes from docs/design/revamp-structure.md (origins and classes), with the
+-- Overhaul 1 faction and class changes.
 local MEMBER_COUNTS = {
 	Shinobi = 5,
 	Cursed = 6,
 	Crew = 4,
 	Titans = 4,
-	Corps = 3,
+	Corps = 4,
 	Spirit = 5,
 	Heroes = 5,
-	Hunters = 6,
+	Hunters = 5,
 	Arcane = 4,
 	Blade = 10,
-	Brawler = 10,
+	Brawler = 11,
 	Caster = 11,
 	Marksman = 6,
-	Assassin = 8,
-	Guardian = 5,
+	Assassin = 9,
+	Guardian = 8,
 	Support = 5,
 }
 
@@ -321,7 +322,7 @@ table.insert(tests, {
 		for _, state in Traits.summary(quiet, TEST_TRAITS) do
 			assert(not state.active, "test setup: " .. state.name .. " is active")
 		end
-		local enemy = onBoard({ "cinder_arc", "titanheart", "redline_cut", "orbit_breaker" })
+		local enemy = onBoard({ "cinder_arc", "titanheart", "null_edge", "orbit_breaker" })
 		for _, state in Traits.summary(enemy, TEST_TRAITS) do
 			assert(not state.active, "test setup: enemy " .. state.name .. " is active")
 		end

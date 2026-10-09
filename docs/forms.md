@@ -85,7 +85,7 @@ call where that moment happens (in `Abilities.cast` or `CombatSim.step`).
 
 ## Rider mounts (current numbers in `FormConfig.mount`)
 
-- Horse pool: `spurshot` 220, `orbit_breaker` 260, scaled like unit health by the roster health dial (`CombatConfig.globalHealthMultiplier`, 1.2992): 286 and 338 at 1 star.
+- Horse pool: `spurshot` 300, `orbit_breaker` 260, scaled like unit health by the roster health dial (`CombatConfig.globalHealthMultiplier`, 1.2992): 390 and 338 at 1 star.
 - Mounted: +0.2 move speed (the riders' former extra speed; their base is now 1.0), +0 attack damage.
 - Remount: off. When on, a Dismounted rider remounts after a takedown, at most `remountsPerFight`
   (1) times per fight, with the horse pool at `remountHorseHealthPercent` (50%).

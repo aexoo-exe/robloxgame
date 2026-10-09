@@ -29,7 +29,7 @@ return table.freeze({
 		-- Horse health pool per rider, before scaling: like unit health it is multiplied by the star
 		-- level's health multiplier and CombatConfig.globalHealthMultiplier (StarLevel.scaleHealth).
 		horseHealth = table.freeze({
-			spurshot = 220, -- 286 at 1 star (x1.2992)
+			spurshot = 300, -- 390 at 1 star (x1.2992)
 			orbit_breaker = 260, -- 338 at 1 star
 		}),
 		-- Added to the rider's move speed while mounted (flat, on the move speed scalar). This is the

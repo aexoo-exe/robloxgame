@@ -178,7 +178,7 @@ add("wolfstep", unit(1, "Corps", { "Blade" }, 590, 62, 22, 20, 0.77, 1, 1.1, 20,
 	dash("HIGHEST_AD_ENEMY", 3, true),
 	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 135, 215, 345 }),
 })
-add("spurshot", unit(1, "Spirit", { "Marksman" }, 550, 64, 18, 18, 0.76, 3, 1.0, 20, 80), {
+add("spurshot", unit(1, "Spirit", { "Marksman", "Brawler" }, 650, 56, 18, 18, 0.76, 2, 1.0, 20, 80), {
 	damage("FARTHEST_ENEMY", "PHYSICAL", { 140, 225, 360 }),
 	buffPercent("SELF", "AttackSpeed", { 15, 25, 40 }, 4),
 })
@@ -207,12 +207,12 @@ add("blooming_aid", unit(1, "Shinobi", { "Support" }, 600, 46, 22, 28, 0.65, 2, 
 
 -- 2-cost --------------------------------------------------------------------------------------
 
-add("redline_cut", unit(2, "Corps", { "Blade" }, 690, 68, 27, 25, 0.83, 1, 1.1, 20, 80), {
+add("redline_cut", unit(2, "Corps", { "Blade", "Guardian" }, 690, 68, 27, 25, 0.83, 1, 1.1, 20, 80), {
 	dash("HIGHEST_AD_ENEMY", 3, true),
 	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 215, 345, 550 }),
 	buffPercent("SELF", "AttackSpeed", { 20, 32, 50 }, 4),
 })
-add("flare_kick", unit(2, "Crew", { "Brawler" }, 760, 69, 30, 27, 0.78, 1, 1.1, 30, 90), {
+add("flare_kick", unit(2, "Crew", { "Brawler", "Assassin" }, 760, 69, 30, 27, 0.78, 1, 1.1, 30, 90), {
 	damage("CURRENT_TARGET", "PHYSICAL", { 150, 240, 385 }),
 	area("CURRENT_TARGET", 1, "MAGIC", { 75, 120, 190 }),
 })
@@ -240,7 +240,7 @@ add("marsh_fortress", unit(2, "Shinobi", { "Guardian" }, 900, 52, 45, 42, 0.58, 
 add("shade_pack", unit(2, "Cursed", { "Caster" }, 650, 50, 23, 30, 0.67, 3, 1.0, 30, 100), {
 	summon({ 2, 2, 3 }, { 8, 9, 10 }, { 30, 35, 40 }, { 45, 50, 55 }, 50, 90, 1, 1.1),
 })
-add("field_medic", unit(2, "Crew", { "Support" }, 640, 46, 24, 32, 0.68, 3, 1.0, 40, 110), {
+add("field_medic", unit(2, "Crew", { "Support", "Brawler" }, 640, 46, 24, 32, 0.68, 3, 1.0, 40, 110), {
 	heal("ALL_ALLIES", { 45, 70, 110 }),
 	shield("LOWEST_HP_ALLY", { 150, 240, 385 }, 5),
 })
@@ -262,12 +262,12 @@ add("threefold_crash", unit(3, "Crew", { "Blade" }, 900, 80, 38, 32, 0.78, 1, 1.
 	area("HIGHEST_AD_ENEMY", 1, "PHYSICAL", { 280, 450, 720 }),
 	stun("HIGHEST_AD_ENEMY", { 0.75, 1.25, 1.75 }),
 })
-add("titanheart", unit(3, "Titans", { "Guardian" }, 1050, 65, 50, 45, 0.62, 1, 0.9, 40, 110), {
+add("titanheart", unit(3, "Titans", { "Guardian", "Brawler" }, 1050, 65, 50, 45, 0.62, 1, 0.9, 40, 110), {
 	shield("SELF", { 360, 575, 920 }, 6),
 	buffFlat("SELF", "Armor", { 30, 45, 70 }, 6),
 	buffPercent("SELF", "AD", { 15, 25, 40 }, 6),
 })
-add("snapfire", unit(3, "Arcane", { "Caster" }, 740, 57, 24, 32, 0.70, 4, 1.0, 20, 90), {
+add("snapfire", unit(3, "Corps", { "Caster" }, 740, 57, 24, 32, 0.70, 4, 1.0, 20, 90), {
 	area("HIGHEST_AD_ENEMY", 1, "MAGIC", { 300, 480, 770 }),
 })
 add("mirror_script", unit(3, "Shinobi", { "Assassin", "Caster" }, 780, 72, 30, 34, 0.82, 2, 1.1, 30, 100), {
@@ -277,7 +277,7 @@ add("clockbreaker", unit(3, "Spirit", { "Brawler" }, 930, 79, 40, 36, 0.72, 1, 1
 	areaStun("SELF", 1, { 1, 1.5, 2 }),
 	damage("CURRENT_TARGET", "PHYSICAL", { 300, 480, 770 }),
 })
-add("skyboulder", unit(3, "Titans", { "Marksman" }, 900, 76, 38, 35, 0.72, 4, 0.9, 30, 100), {
+add("skyboulder", unit(3, "Titans", { "Guardian" }, 1050, 64, 50, 35, 0.72, 2, 0.9, 30, 100), {
 	area("FARTHEST_ENEMY", 1, "PHYSICAL", { 300, 480, 770 }),
 })
 add("horizon_cut", unit(3, "Hunters", { "Blade", "Marksman" }, 820, 80, 32, 30, 0.84, 3, 1.0, 20, 90), {
@@ -303,14 +303,14 @@ add("starless_burst", unit(4, "Arcane", { "Caster", "Marksman" }, 830, 67, 28, 4
 	area("HIGHEST_AD_ENEMY", 1, "MAGIC", { 350, 560, 895 }),
 	shield("SELF", { 250, 400, 640 }, 5),
 })
-add("echo_legion", unit(4, "Shinobi", { "Brawler", "Caster" }, 1050, 82, 42, 42, 0.82, 2, 1.1, 30, 110), {
+add("echo_legion", unit(4, "Shinobi", { "Caster" }, 1050, 82, 42, 42, 0.82, 2, 1.1, 30, 110), {
 	summon({ 2, 2, 3 }, { 8, 9, 10 }, { 25, 30, 35 }, { 35, 40, 45 }, 40, 100, 1, 1.1),
 	area("CURRENT_TARGET", 1, "MAGIC", { 270, 430, 690 }),
 })
-add("night_command", unit(4, "Hunters", { "Assassin" }, 900, 89, 32, 34, 0.94, 1, 1.1, 30, 100), {
+add("night_command", unit(4, "Arcane", { "Assassin" }, 900, 89, 32, 34, 0.94, 1, 1.1, 30, 100), {
 	summon({ 2, 3, 3 }, { 9, 10, 12 }, { 30, 35, 40 }, { 50, 55, 65 }, 55, 95, 1, 1.1),
 })
-add("frozen_moment", unit(4, "Spirit", { "Assassin" }, 950, 88, 38, 38, 0.86, 1, 1.0, 40, 110), {
+add("frozen_moment", unit(4, "Spirit", { "Assassin", "Marksman" }, 950, 88, 38, 38, 0.86, 1, 1.0, 40, 110), {
 	areaStun("SELF", 1, { 1, 1.5, 2 }),
 	damage("CURRENT_TARGET", "PHYSICAL", { 320, 510, 815 }),
 	heal("SELF", { 180, 290, 465 }),
@@ -324,7 +324,7 @@ add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.
 	area("CURRENT_TARGET", 1, "MAGIC", { 220, 350, 560 }),
 	summon({ 2, 2, 3 }, { 9, 10, 12 }, { 35, 40, 45 }, { 40, 50, 60 }, 45, 85, 1, 1.0),
 })
-add("restoration_strike", unit(4, "Spirit", { "Support", "Brawler" }, 1100, 78, 48, 45, 0.72, 1, 1.0, 40, 120), {
+add("restoration_strike", unit(4, "Spirit", { "Support", "Guardian" }, 1200, 78, 58, 45, 0.72, 1, 1.0, 40, 120), {
 	heal("LOWEST_HP_OTHER_ALLY", { 450, 720, 1150 }),
 	damage("CURRENT_TARGET", "PHYSICAL", { 200, 320, 510 }),
 })
