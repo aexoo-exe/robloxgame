@@ -324,4 +324,7 @@ combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16
   line; then it repeats. Max mana 110 -> 40 (about one cast every 5 seconds). Line base
   540/855/1370 -> 70/110/180 (+100% per curse recalled, unchanged).- Sim damage ranges (report only): redline_cut is measured against the carry range of its cost;
   skyboulder, titanheart and elastic_wardrum against a new "bruiser" range halfway between the
-  support and carry ranges (1c 475-800, 2c 550-950, 3c 775-1250, 4c 1050-1650, 5c 1450-2300).
+  support and carry ranges (1c 475-800, 2c 550-950, 3c 775-1250, 4c 1050-1650, 5c 1450-2300).- Trims (attack damage and ability scaled by the same factor, target / measured, so the measured
+  split stays): burst_vector AD 67 -> 52, area 105/165/265 -> 80/130/205; orbit_breaker AD 68 ->
+  54, hit 110/180/285 -> 85/140/225, bounce 50/80/125 -> 40/65/100; severing_temple AD 98 -> 74,
+  area 450/720/1150 -> 340/545/875, damage over time 35/55/90 -> 27/42/68 per second.

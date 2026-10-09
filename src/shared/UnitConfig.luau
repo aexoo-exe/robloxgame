@@ -323,8 +323,8 @@ add("flare_kick", unit(2, "Crew", { "Brawler", "Assassin" }, 760, 69, 30, 27, 0.
 	dash("LOWEST_HP_ENEMY_NEARBY", AbilityConfig.flareKickRange, true),
 	damage("LOWEST_HP_ENEMY_NEARBY", "PHYSICAL", { 110, 175, 280 }),
 }, { castTime = 0, resetAttackTimer = true, nearbyRange = AbilityConfig.flareKickRange })
-add("burst_vector", unit(2, "Heroes", { "Caster", "Marksman" }, 650, 67, 22, 24, 0.78, 4, 1.0, 20, 80), {
-	area("CURRENT_TARGET", 1, "MAGIC", { 105, 165, 265 }),
+add("burst_vector", unit(2, "Heroes", { "Caster", "Marksman" }, 650, 52, 22, 24, 0.78, 4, 1.0, 20, 80), {
+	area("CURRENT_TARGET", 1, "MAGIC", { 80, 130, 205 }),
 	buffPercent("SELF", "AD", { 10, 15, 25 }, 4),
 })
 -- A heavy hit, and a line of half damage through the enemies behind the target.
@@ -343,12 +343,12 @@ add("crimson_hunger", unit(2, "Cursed", { "Assassin" }, 720, 70, 26, 27, 0.82, 1
 -- Damage and stun, then a bounce to the nearest other enemy (two bounces while mounted).
 local function orbitBreakerEffects(bounces)
 	return {
-		damage("CURRENT_TARGET", "PHYSICAL", { 110, 180, 285 }),
+		damage("CURRENT_TARGET", "PHYSICAL", { 85, 140, 225 }),
 		stun("CURRENT_TARGET", { 1, 1.5, 2 }),
-		bounce("CURRENT_TARGET", bounces, "PHYSICAL", { 50, 80, 125 }),
+		bounce("CURRENT_TARGET", bounces, "PHYSICAL", { 40, 65, 100 }),
 	}
 end
-add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 68, 23, 25, 0.82, 3, 1.0, 20, 90), orbitBreakerEffects(2))
+add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 54, 23, 25, 0.82, 3, 1.0, 20, 90), orbitBreakerEffects(2))
 roster.orbit_breaker.forms =
 	mountedForms("orbit_breaker", formAbility("orbit_breaker", "dismounted", orbitBreakerEffects(1)))
 -- A slam around himself that heals him per enemy hit.
@@ -590,10 +590,10 @@ add("restoration_strike", unit(4, "Spirit", { "Support", "Guardian" }, 1200, 78,
 
 -- 5-cost --------------------------------------------------------------------------------------
 
-add("severing_temple", unit(5, "Cursed", { "Caster", "Blade" }, 1100, 98, 45, 48, 0.88, 2, 1.1, 30, 110), {
-	area("CURRENT_TARGET", 2, "PHYSICAL", { 450, 720, 1150 }),
+add("severing_temple", unit(5, "Cursed", { "Caster", "Blade" }, 1100, 74, 45, 48, 0.88, 2, 1.1, 30, 110), {
+	area("CURRENT_TARGET", 2, "PHYSICAL", { 340, 545, 875 }),
 	-- "Enemies initially hit": the same center and radius, applied right after the hit.
-	dot("CURRENT_TARGET", 2, "MAGIC", { 35, 55, 90 }, 4),
+	dot("CURRENT_TARGET", 2, "MAGIC", { 27, 42, 68 }, 4),
 })
 -- Stacks that never expire, and three forms: each cast moves him up one (with a bigger look); in
 -- the third his ability is a beam from him through his current target to the board's edge.
