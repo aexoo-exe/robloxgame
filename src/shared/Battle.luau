@@ -112,6 +112,7 @@ export type Unit = {
 	auraCount: number?, -- units with an aura: enemies inside at the last pulse
 	untargetableUntilTick: number, -- while above the tick: no one can target or hit it, and it cannot act
 	shieldSource: string?, -- the trait that gave the current shield (nil for ability shields)
+	items: { string }, -- equipped item ids (ItemCombat applies them; summons carry none)
 	-- Forms (units whose type lists `forms` only; all nil otherwise):
 	form: any?, -- the current form (Forms data)
 	formIndex: number?,
@@ -210,6 +211,7 @@ function Battle.new(params): Battle
 				flags = {},
 				stacks = 0,
 				untargetableUntilTick = 0,
+				items = if placed.items then table.clone(placed.items) else {},
 			}
 			-- Units that cast at full attack stacks show their stacks as mana instead (see gainMana).
 			if stats.attackStacks and stats.attackStacks.castAtMax then
@@ -1060,6 +1062,7 @@ function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
 		flags = {},
 		stacks = 0,
 		untargetableUntilTick = 0,
+		items = {},
 	}
 	table.insert(battle.units, unit)
 	battle.occupied[Battle.cellKey(battle, column, row)] = unit

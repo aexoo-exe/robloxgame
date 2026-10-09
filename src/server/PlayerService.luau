@@ -193,6 +193,9 @@ function PlayerService.start()
 	connectRequest(RemoteNames.RequestSellUnit, PlayerState.sellUnit)
 	connectRequest(RemoteNames.RequestReroll, PlayerState.reroll)
 	connectRequest(RemoteNames.RequestBuyXp, PlayerState.buyXp)
+	connectRequest(RemoteNames.RequestEquipItem, PlayerState.equipItem)
+	connectRequest(RemoteNames.RequestUnequipItem, PlayerState.unequipItem)
+	connectRequest(RemoteNames.RequestMoveItem, PlayerState.moveItem)
 
 	-- A participant who rejoins gets their state back and can act again.
 	Players.PlayerAdded:Connect(function(player)

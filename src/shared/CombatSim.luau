@@ -40,6 +40,7 @@ export type PlacedUnit = {
 	starLevel: number?, -- 1 if omitted
 	column: number,
 	row: number,
+	items: { string }?, -- equipped item ids (ItemConfig); applied by ItemCombat at combat start
 }
 
 export type Params = {
@@ -72,6 +73,7 @@ export type UnitSummary = {
 	maxHealth: number,
 	mana: number,
 	maxMana: number?,
+	items: { string }, -- equipped item ids
 	-- Units with forms only: the starting form and its health pool (nil without a pool).
 	form: string?,
 	formIndex: number?,
@@ -339,6 +341,7 @@ function CombatSim.run(params: Params): Result
 			formIndex = unit.formIndex,
 			formHealth = unit.formHealth,
 			maxFormHealth = unit.maxFormHealth,
+			items = table.clone(unit.items),
 		})
 	end
 	-- After the summaries: trait dummies are summons and appear as Summon events, not summaries.

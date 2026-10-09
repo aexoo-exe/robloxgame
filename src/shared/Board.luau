@@ -4,7 +4,13 @@
 --
 -- A unit is either on the bench (`slot` set) or on the board (`column` and `row` set). The only
 -- exception is a copy bought with a full bench, which exists unplaced until mergeUnits consumes it.
+--
+-- Items (docs/items.md): every unit holds a list of item ids (`items`, at most
+-- ItemConfig.rules.slotsPerUnit, never two of the same). When copies merge, the consumed copies'
+-- items move to the merged unit; those it cannot hold (slots full, or a copy it already holds)
+-- wait in `looseItems` until the owner takes them back (Board.takeLooseItems).
 
+local ItemConfig = if script then require(script.Parent.ItemConfig) else require("./ItemConfig")
 local StarConfig = if script then require(script.Parent.StarConfig) else require("./StarConfig")
 
 local Board = {}
@@ -19,6 +25,7 @@ export type BoardUnit = {
 	slot: number?,
 	column: number?,
 	row: number?,
+	items: { string }, -- equipped item ids, in slot order
 }
 
 export type Board = {
@@ -28,6 +35,7 @@ export type Board = {
 	units: { [string]: BoardUnit },
 	cells: { [number]: string },
 	bench: { [number]: string },
+	looseItems: { string }, -- items a merge could not move onto the merged unit
 }
 
 -- A place on the board: a bench slot ({ slot = n }) or a board cell ({ column = c, row = r }).
@@ -45,7 +53,16 @@ function Board.new(columns: number, rows: number, benchSlots: number): Board
 		units = {},
 		cells = {},
 		bench = {},
+		looseItems = {},
 	}
+end
+
+-- Items a merge could not keep on the merged unit, removed from the board (the owner puts them back
+-- in the inventory).
+function Board.takeLooseItems(board: Board): { string }
+	local items = board.looseItems
+	board.looseItems = {}
+	return items
 end
 
 local function cellIndex(board: Board, column: number, row: number): number
@@ -143,13 +160,13 @@ function Board.addUnit(board: Board, id: string, unitType: string, allowUnplaced
 	end
 	for slot = 1, board.benchSlots do
 		if board.bench[slot] == nil then
-			board.units[id] = { id = id, unitType = unitType, starLevel = 1, slot = slot }
+			board.units[id] = { id = id, unitType = unitType, starLevel = 1, slot = slot, items = {} }
 			board.bench[slot] = id
 			return true
 		end
 	end
 	if allowUnplaced then
-		board.units[id] = { id = id, unitType = unitType, starLevel = 1 }
+		board.units[id] = { id = id, unitType = unitType, starLevel = 1, items = {} }
 		return true
 	end
 	return false
@@ -209,11 +226,22 @@ local function mergeOnce(board: Board, benchOnly: boolean?): BoardUnit?
 		if #copies >= StarConfig.copiesToMerge then
 			table.sort(copies, mergePriority)
 			local kept = copies[1]
+			kept.items = kept.items or {}
 			for i = 2, StarConfig.copiesToMerge do
-				Board.removeUnit(board, copies[i].id)
+				local removed = Board.removeUnit(board, copies[i].id)
+				-- The consumed copy's items move to the merged unit while it has room for them.
+				for _, item in if removed then removed.items or {} else {} do
+					if #kept.items < ItemConfig.rules.slotsPerUnit and not table.find(kept.items, item) then
+						table.insert(kept.items, item)
+					else
+						table.insert(board.looseItems, item)
+					end
+				end
 			end
 			kept.starLevel += 1
-			return table.clone(kept)
+			local copy = table.clone(kept)
+			copy.items = table.clone(kept.items)
+			return copy
 		end
 	end
 	return nil
@@ -247,6 +275,7 @@ function Board.removeUnit(board: Board, unitId: any): BoardUnit?
 		return nil
 	end
 	local removed = table.clone(unit)
+	removed.items = table.clone(unit.items or {})
 	removeFromCurrentPlace(board, unit)
 	board.units[unitId] = nil
 	return removed
@@ -293,7 +322,9 @@ end
 function Board.getUnits(board: Board): { BoardUnit }
 	local result = {}
 	for _, unit in board.units do
-		table.insert(result, table.clone(unit))
+		local copy = table.clone(unit)
+		copy.items = table.clone(unit.items or {})
+		table.insert(result, copy)
 	end
 	table.sort(result, function(a, b)
 		return a.id < b.id

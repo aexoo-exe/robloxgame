@@ -15,10 +15,20 @@ return table.freeze({
 	RequestReroll = "RequestReroll",
 	-- Client -> server: ()
 	RequestBuyXp = "RequestBuyXp",
+	-- Items (docs/items.md). Refused from the start of combat until the next Preparation.
+	-- Client -> server: (inventoryIndex: number, unitId: string)
+	RequestEquipItem = "RequestEquipItem",
+	-- Client -> server: (unitId: string, slotIndex: number): back to the inventory
+	RequestUnequipItem = "RequestUnequipItem",
+	-- Client -> server: (unitId: string, slotIndex: number, toUnitId: string)
+	RequestMoveItem = "RequestMoveItem",
+	-- Client -> server: (offerIndex: number): pick one item of the open item choice
+	RequestPickItem = "RequestPickItem",
 
 	-- Server -> owning client: the player's units (Board.getUnits).
 	BoardUpdated = "BoardUpdated",
-	-- Server -> owning client: gold, level, XP and shop (PlayerState.getView).
+	-- Server -> owning client: gold, level, XP, shop, item inventory and any open item choice
+	-- (PlayerState.getView). Board units carry their equipped items (BoardUpdated).
 	PlayerStateUpdated = "PlayerStateUpdated",
 	-- Server -> owning client: (reason: string) why a request was refused, from PlayerState.Refusal.
 	RequestRefused = "RequestRefused",
