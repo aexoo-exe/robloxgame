@@ -134,6 +134,12 @@ function PlayerState.recordCombat(state: PlayerState, outcome: string)
 	state.foughtSincePreparation = true
 end
 
+-- Pays trait gold (Crew takedowns after a PvP fight; Match.applyResults) now. It changes nothing
+-- else: income, streaks and the next round are untouched.
+function PlayerState.grantGold(state: PlayerState, gold: number)
+	state.gold += math.max(0, math.floor(gold))
+end
+
 -- Records a PvE fight (creep or boss round): pays its reward gold now. The next Preparation still
 -- pays round income and XP, but PvE leaves the win/loss streak unchanged and earns no win bonus.
 function PlayerState.recordPve(state: PlayerState, gold: number)

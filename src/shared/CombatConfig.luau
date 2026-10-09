@@ -30,8 +30,9 @@ return table.freeze({
 	-- StarLevel. Creeps and bosses (PveThemeConfig) list final health and are not scaled by it.
 	-- Summons follow it through their summoner's health. UnitConfig keeps the design docs' base
 	-- values. Player health and player damage are separate and unaffected.
-	-- docs/design/revamp-structure.md set 1.16; tuning pass 1B raised it 12% (1.16 x 1.12).
-	globalHealthMultiplier = 1.2992,
+	-- docs/design/revamp-structure.md set 1.16; tuning pass 1B raised it 12% (1.16 x 1.12 = 1.2992);
+	-- Overhaul 1 tuning A raised it 8% (1.2992 x 1.08).
+	globalHealthMultiplier = 1.403136,
 
 	-- Global combat rules from docs/design/combat-and-roster.md section 1. Every unit uses these.
 	critChance = 0.25, -- per basic attack; abilities cannot crit
@@ -47,6 +48,8 @@ return table.freeze({
 	maxStunSeconds = 2.0, -- no STUN or AREA_STUN may last longer; enforced by Abilities.validate
 	maxEntitiesPerSide = 12, -- living board units plus summons on one side; SUMMON stops at this
 	dotManaCap = 10, -- most mana a victim gains from one DAMAGE_OVER_TIME application, over all its ticks
+	-- Overhaul 1 engine pieces (docs/design/overhaul-1.md).
+	auraManaCap = 2, -- most mana a victim gains from one passive aura pulse (placeholder)
 	-- COPY magnitude multiplier, by the copied unit's cost (1-5). Scales DAMAGE, AREA_DAMAGE, HEAL,
 	-- SHIELD and DAMAGE_OVER_TIME amounts only.
 	copyPowerByCost = table.freeze({ 0.80, 0.80, 0.80, 0.60, 0.45 }),

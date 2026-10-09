@@ -21,6 +21,7 @@ type Projectile = {
 	lastTargetPosition: Vector3,
 	launchedAt: number,
 	arrivesAt: number,
+	tongue: boolean?,
 }
 
 type Pulse = {
@@ -73,11 +74,19 @@ local function targetPosition(projectile: Projectile): Vector3
 end
 
 -- Fires a projectile from `from` (or from `start`, e.g. a fingertip) that reaches `target` at
--- `arrivesAt` (on the effects' clock).
-function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number, color: Color3, start: Vector3?)
+-- `arrivesAt` (on the effects' clock). A `tongue` projectile is a thin bar that stretches straight
+-- from the start to its tip instead of an arcing ball (a placeholder look for some attacks).
+function CombatEffects.projectile(
+	from: Mover,
+	target: Mover,
+	arrivesAt: number,
+	color: Color3,
+	start: Vector3?,
+	tongue: boolean?
+)
 	local origin = start or from.part.Position
 	local part = effectPart(color)
-	part.Shape = Enum.PartType.Ball
+	part.Shape = if tongue then Enum.PartType.Block else Enum.PartType.Ball
 	part.Size = Vector3.one * RenderConfig.projectileSize
 	part.Position = origin
 	table.insert(projectiles, {
@@ -87,6 +96,7 @@ function CombatEffects.projectile(from: Mover, target: Mover, arrivesAt: number,
 		lastTargetPosition = target.part.Position,
 		launchedAt = clock(),
 		arrivesAt = arrivesAt,
+		tongue = tongue,
 	})
 end
 
@@ -113,6 +123,14 @@ function CombatEffects.update(now: number)
 		if progress >= 1 then
 			projectile.part:Destroy()
 			table.remove(projectiles, i)
+		elseif projectile.tongue then
+			local tip = projectile.from:Lerp(targetPosition(projectile), progress)
+			local length = (tip - projectile.from).Magnitude
+			local thickness = RenderConfig.projectileSize * 0.4
+			projectile.part.Size = Vector3.new(thickness, thickness, math.max(thickness, length))
+			if length > 1e-3 then
+				projectile.part.CFrame = CFrame.lookAt((projectile.from + tip) / 2, tip)
+			end
 		else
 			local arc = Vector3.new(0, RenderConfig.projectileArcHeight * math.sin(math.pi * progress), 0)
 			projectile.part.Position = projectile.from:Lerp(targetPosition(projectile), progress) + arc

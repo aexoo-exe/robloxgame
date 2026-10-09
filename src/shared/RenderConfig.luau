@@ -85,12 +85,51 @@ return table.freeze({
 	-- a placeholder horse of that color (FigureConfig.horse).
 	formHealthColor = Color3.fromRGB(230, 160, 60),
 	formChangeTextColor = Color3.fromRGB(255, 210, 120),
+	-- `scale` draws the unit larger (a giant form) and `tint` recolors its body; both are placeholders
+	-- for each form's art. Form names are shared across characters, so they must be unique.
 	formLooks = table.freeze({
 		Mounted = table.freeze({ label = "Remount!", mount = Color3.fromRGB(125, 85, 50) }),
 		Dismounted = table.freeze({ label = "Dismounted!" }),
+		Chainsaw = table.freeze({ label = "Chainsaw!", tint = Color3.fromRGB(190, 60, 50) }),
+		["Pack Out"] = table.freeze({ label = "Pack out!" }),
+		Bruiser = table.freeze({ label = "Bruiser!", tint = Color3.fromRGB(200, 90, 80) }),
+		Human = table.freeze({ label = "Human" }),
+		Titan = table.freeze({ label = "Titan!", scale = 1.35, tint = Color3.fromRGB(170, 110, 80) }),
+		["Gear 2"] = table.freeze({ label = "Gear 2!" }),
+		["Gear 3"] = table.freeze({ label = "Gear 3!", tint = Color3.fromRGB(255, 120, 120) }),
+		["Core II"] = table.freeze({ label = "Core II!", scale = 1.1, tint = Color3.fromRGB(255, 225, 120) }),
+		["Core III"] = table.freeze({ label = "Core III!", scale = 1.2, tint = Color3.fromRGB(255, 250, 200) }),
 	}),
-	-- Callouts (text over a unit) are kept for big moments: form changes and boss abilities.
+	-- Callouts (text over a unit) are kept for big moments: form changes, boss abilities and trait
+	-- moments (a mark, a meter phase).
 	bossCastTextColor = Color3.fromRGB(255, 120, 90),
+	traitTextColor = Color3.fromRGB(150, 230, 255),
+
+	-- Overhaul 1 placeholder visuals (docs/design/overhaul-1.md). Statuses float up as small labels
+	-- when applied (debuff buffs and damage over time), keyed by Battle.Status.
+	statusLabels = table.freeze({
+		SLOW = "Slowed",
+		WEAKEN = "Weakened",
+		CURSE = "Hexed",
+		BURN = "Burning",
+		POISON = "Poisoned",
+	}),
+	statusTextColor = Color3.fromRGB(200, 170, 255),
+	-- Trait moments: a hunter mark, and the shared meter's phase after each step (TraitCombat).
+	markLabel = "Marked",
+	meterLabels = table.freeze({ GUARD = "Guard", FURY = "Fury!", BOTH = "Guard + Fury!" }),
+	vanishTransparency = 0.75, -- untargetable units (Vanish events)
+	bounceColor = Color3.fromRGB(255, 240, 160), -- the projectile between bounce targets
+	bounceFlightTime = 0.2,
+	lineAreaColor = Color3.fromRGB(255, 170, 90), -- LINE and CONE area pulses
+	-- Clones drawn around a caster while it casts (client only; they are not units): count and
+	-- seconds, keyed by ability name (= character id).
+	castClones = table.freeze({
+		echo_legion = table.freeze({ count = 2, duration = 1.0 }),
+	}),
+	-- Basic attacks drawn with a different projectile (a long, thin "tongue"), by character id.
+	tongueAttacks = table.freeze({ shade_pack = true }),
+	tongueColor = Color3.fromRGB(230, 90, 120),
 	-- PvE creep and boss bodies, names and sizes come from their theme's looks (PveThemeConfig); the
 	-- top bar's round tracker colors come from UITheme.roundKinds.
 	deathFadeDuration = 0.5,

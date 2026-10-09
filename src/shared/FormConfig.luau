@@ -29,8 +29,8 @@ return table.freeze({
 		-- Horse health pool per rider, before scaling: like unit health it is multiplied by the star
 		-- level's health multiplier and CombatConfig.globalHealthMultiplier (StarLevel.scaleHealth).
 		horseHealth = table.freeze({
-			spurshot = 220, -- 286 at 1 star (x1.2992)
-			orbit_breaker = 260, -- 338 at 1 star
+			spurshot = 300, -- 421 at 1 star (x1.403136)
+			orbit_breaker = 260, -- 365 at 1 star
 		}),
 		-- Added to the rider's move speed while mounted (flat, on the move speed scalar). This is the
 		-- riders' former extra speed: their UnitConfig move speed went from 1.2 to 1.0.
@@ -43,5 +43,42 @@ return table.freeze({
 		remountsPerFight = 1,
 		-- Horse pool on remount, as a percentage of its full pool.
 		remountHorseHealthPercent = 50,
+		-- With remountEnabled false, a rider can still remount when this flag is set for the fight
+		-- (the spurshot + orbit_breaker bond sets it; BondConfig).
+		remountFlag = "remount",
 	}),
+
+	-- Overhaul 1 forms (placeholders). Stat changes are { flat = n } or { percent = n }; splash is the
+	-- percentage of a basic attack that also hits enemies next to the target.
+	-- ripcord_frenzy: the first cast only transforms; the chainsaw form lasts the rest of the fight.
+	ripcordFrenzy = table.freeze({
+		chainsawAttackSpeedPercent = 60,
+		chainsawSplashPercent = 70,
+	}),
+	-- titanheart: a smaller human form; below the health threshold (once per fight) a titan form with
+	-- its own health pool, back to human when the pool is empty.
+	titanheart = table.freeze({
+		humanAttackDamagePercent = -25,
+		humanArmorFlat = -15,
+		humanMagicResistFlat = -15,
+		titanBelowPercent = 50,
+		titanHealth = 900, -- pool before scaling (StarLevel.scaleHealth): 1263 at 1 star
+		titanAttackDamagePercent = 35,
+		titanArmorFlat = 15,
+		titanSplashPercent = 35,
+	}),
+	-- field_medic: below the health threshold (once per fight) a melee bruiser form.
+	fieldMedic = table.freeze({
+		bruiserBelowPercent = 50,
+		bruiserRange = 1,
+		bruiserAttackDamageFlat = 35,
+		bruiserAttackSpeedPercent = 20,
+		bruiserArmorFlat = 15,
+	}),
+	-- elastic_wardrum: gears for the rest of the fight. Gear 2 attacks faster; gear 3 also splashes.
+	elasticWardrum = table.freeze({
+		attackSpeedPercent = 30,
+		splashPercent = 40,
+	}),
+	-- ascending_core's three forms change only its ability and look (RenderConfig.formLooks).
 })

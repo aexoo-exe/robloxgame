@@ -9,11 +9,18 @@
 --   ability  optional ability (Abilities data) used instead of the unit's own while in this form
 --   health   optional health pool of the form's own, before scaling (StarLevel.scaleHealth). While
 --            the pool has health, damage goes to it instead of the unit's health (Battle.damage).
+--   range    optional attack range (hexes) used instead of the unit's own while in this form
+--   splash   optional { percent }: basic attacks also hit every enemy next to the target for this
+--            percentage of the attack's damage (physical, after crits; CombatSim)
 --   rules    optional overrides of FormConfig.rules for this form
---   trigger  optional { type, to?, healthPercent?, maxUses? }: what moves the unit on. `to` names
---            the destination form (default: the next form in the list), `healthPercent` sets the
---            destination's pool on entry (default 100), `maxUses` limits how often this trigger can
---            fire per fight (default unlimited).
+--   trigger  optional { type, to?, healthPercent?, maxUses?, belowPercent?, unlockedBy? }: what
+--            moves the unit on. `to` names the destination form (default: the next form in the
+--            list), `healthPercent` sets the destination's pool on entry (default 100), `maxUses`
+--            limits how often this trigger can fire per fight (default unlimited; 1 is a
+--            once-per-fight change). HEALTH_BELOW needs `belowPercent`. With `unlockedBy` (a flag
+--            name) the trigger fires only for units whose `flags` has that flag set for the fight
+--            (bonds set them; see Bonds).
+-- The look of a form (size, tint, callout text) is presentation only: RenderConfig.formLooks.
 --
 -- Form changes are decided by the combat simulation on the server (Battle.checkForm) and reach
 -- clients as Form events in the fight's event list.
@@ -25,18 +32,21 @@ local Forms = {}
 
 -- Moments at which Battle asks the current form's trigger whether it fires.
 Forms.Hook = table.freeze({
-	Damaged = "Damaged", -- the unit just took a hit (after the hit's event)
+	Damaged = "Damaged", -- the unit just took a hit and survived it (after the hit's event)
 	Takedown = "Takedown", -- the unit just landed the killing blow on an enemy board unit
+	Cast = "Cast", -- the unit just finished applying its ability (Abilities.cast)
 })
 
 Forms.Trigger = table.freeze({
 	FormHealthDepleted = "FORM_HEALTH_DEPLETED",
 	Takedown = "TAKEDOWN",
+	OnCast = "ON_CAST",
+	HealthBelow = "HEALTH_BELOW",
 })
 
 -- Trigger types: the hook each one listens to, whether its form needs a health pool, and the
--- condition checked at that hook. A new trigger (HP threshold, on cast, timer) is one entry here,
--- plus a hook call in Battle or CombatSim if it needs a new moment.
+-- condition checked at that hook. A new trigger (a timer, say) is one entry here, plus a hook call
+-- in Battle or CombatSim if it needs a new moment.
 local TRIGGERS = {
 	[Forms.Trigger.FormHealthDepleted] = {
 		hook = Forms.Hook.Damaged,
@@ -49,6 +59,20 @@ local TRIGGERS = {
 		hook = Forms.Hook.Takedown,
 		fires = function(_unit): boolean
 			return true
+		end,
+	},
+	-- Every cast in the form moves the unit on, so the next cast uses the next form's ability.
+	[Forms.Trigger.OnCast] = {
+		hook = Forms.Hook.Cast,
+		fires = function(_unit): boolean
+			return true
+		end,
+	},
+	-- The unit's own health (not a form pool) fell below `belowPercent` of its max health.
+	[Forms.Trigger.HealthBelow] = {
+		hook = Forms.Hook.Damaged,
+		fires = function(unit, trigger): boolean
+			return unit.health * 100 < unit.maxHealth * trigger.belowPercent
 		end,
 	},
 }
@@ -80,11 +104,23 @@ function Forms.baseStat(stats, form, stat: string, field: string): number
 	return ((stats[field] or 0) + flat) * (1 + percent / 100)
 end
 
--- True if `form`'s trigger fires for `unit` at `hook`.
+-- True if `form`'s trigger fires for `unit` at `hook`. A trigger with `unlockedBy` fires only
+-- while the unit has that flag.
 function Forms.fires(form, unit, hook: string): boolean
 	local trigger = form and form.trigger
 	local kind = trigger and TRIGGERS[trigger.type]
-	return kind ~= nil and kind.hook == hook and kind.fires(unit)
+	if kind == nil or kind.hook ~= hook then
+		return false
+	end
+	if trigger.unlockedBy and not (unit.flags and unit.flags[trigger.unlockedBy]) then
+		return false
+	end
+	return kind.fires(unit, trigger)
+end
+
+-- A unit's attack range in `form` (nil: no form): the form's own range, else the unit type's.
+function Forms.range(stats, form): number
+	return if form and form.range then form.range else stats.range
 end
 
 -- Index of the form a trigger moves to from form `index`, or nil if there is none.
@@ -153,6 +189,12 @@ function Forms.validate(forms): (boolean, string?)
 		if form.health ~= nil and not positive(form.health) then
 			return false, where .. ": health must be a positive number"
 		end
+		if form.range ~= nil and (not positive(form.range) or form.range ~= math.floor(form.range)) then
+			return false, where .. ": range must be a whole number of at least 1"
+		end
+		if form.splash ~= nil and (type(form.splash) ~= "table" or not positive(form.splash.percent)) then
+			return false, where .. ": splash needs a positive percent"
+		end
 		if form.ability ~= nil and (type(form.ability) ~= "table" or type(form.ability.name) ~= "string") then
 			return false, where .. ": ability must be ability data with a name"
 		end
@@ -196,6 +238,16 @@ function Forms.validate(forms): (boolean, string?)
 				and (not positive(trigger.maxUses) or trigger.maxUses ~= math.floor(trigger.maxUses))
 			then
 				return false, where .. ": maxUses must be a whole number of at least 1"
+			end
+			if trigger.type == Forms.Trigger.HealthBelow then
+				if not positive(trigger.belowPercent) or trigger.belowPercent >= 100 then
+					return false, where .. ": HEALTH_BELOW needs belowPercent above 0 and below 100"
+				end
+			elseif trigger.belowPercent ~= nil then
+				return false, where .. ": belowPercent is only for HEALTH_BELOW"
+			end
+			if trigger.unlockedBy ~= nil and (type(trigger.unlockedBy) ~= "string" or trigger.unlockedBy == "") then
+				return false, where .. ": unlockedBy must be a flag name"
 			end
 		end
 	end

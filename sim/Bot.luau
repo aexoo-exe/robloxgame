@@ -7,9 +7,11 @@
 --
 -- Every bot buys copies of the units it fielded last round whenever it can afford them.
 --
--- Standard bots also prefer traits: after buying XP, they spend gold above their keepGold on units
--- that share a trait with one they fielded last round, while they hold fewer than level + 3 units;
--- and when choosing what to field, shared traits break ties between equally strong units.
+-- Standard bots also value traits and bonds: after buying XP, they spend gold above their keepGold
+-- on units that would add to last round's board (Bot.traitGain: shared traits, the next
+-- breakpoint of a trait, completing a bond), best gain first, while they hold fewer than level + 3
+-- units; a unit that reaches a breakpoint or completes a bond may dip a little below keepGold. When
+-- choosing what to field, shared traits break ties between equally strong units.
 --
 -- Rerolling bots (policies with `rerollCost`) chase 3-star units of one cost:
 --   * Roll level: the level where that cost's shop odds are highest, among levels of at least
@@ -27,14 +29,27 @@
 --     holds fewer units than its level. Target copies are never sold.
 --   * Once all its targets are 3-star (or none can reach it) it levels like the balanced bot.
 -- Passive XP still raises its level over time; PlayerState gives every player that.
+--
+-- The trait strategy (Bot.traitPolicy, policy.traitFocus) plays like the balanced bot, plus:
+--   * Commits: once it holds 2 different characters of one faction or class, it commits to the
+--     trait it holds the most of (ties: the trait with more characters in the roster). Once that
+--     trait was fielded at its top step, it commits to a second trait the same way.
+--   * Buys: before leveling, any shop character that adds a new member to a committed trait still
+--     short of its top step, or that completes a bond, with gold down to 20 below its keepGold.
+--     The first copy of every committed-trait character and bond character survives bench trims.
+--   * Fields: one unit at a time, the highest of strength + 3 for a new member of a committed trait
+--     below its top step + 2 for completing a bond, so trait units win over slightly stronger ones.
+--   * Records the highest step each committed trait reached on its board (memory.traitSteps).
 -- Rerolling bots also count what happens while they roll (memory.stats) for the sim report.
 
 local Board = require("../src/shared/Board")
+local BondConfig = require("../src/shared/BondConfig")
 local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local Shop = require("../src/shared/Shop")
 local ShopConfig = require("../src/shared/ShopConfig")
 local StarLevel = require("../src/shared/StarLevel")
+local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
 local UnitPool = require("../src/shared/UnitPool")
@@ -50,6 +65,7 @@ export type Policy = {
 	targetCount: number?, -- rerolling strategy: how many 3-stars it wants
 	targetsAtOnce: number?, -- rerolling strategy: targets chased at the same time (default: all)
 	rollFloor: number?, -- rerolling strategy: rolls only with gold above this
+	traitFocus: boolean?, -- trait strategy (Bot.traitPolicy): commits to traits, see the header
 }
 
 -- Rerolling bots, counted while rolling (see the header), for the sim report.
@@ -74,6 +90,8 @@ export type Memory = {
 	everTargeted: { [string]: boolean }, -- rerolling: units that were a locked target
 	rerollGold: number, -- gold spent on rerolls this match
 	stats: RollStats,
+	focus: { string }, -- trait strategy: committed traits, in order (at most two)
+	traitSteps: { [string]: number }, -- trait strategy: highest step fielded per committed trait
 }
 
 -- Standard strategies, cycled across the standard bots in a match.
@@ -102,6 +120,19 @@ Bot.rerollPolicies = {
 	},
 	{ name = "reroll 3c", keepGold = 50, rollFloor = 50, seeksCopies = true, rerollCost = 3, targetCount = 1 },
 }
+
+-- The trait strategy (see the header). Its gold habits are the balanced bot's.
+Bot.traitPolicy = { name = "trait", keepGold = 30, seeksCopies = true, rerollsFromLevel = 7, traitFocus = true }
+
+-- Trait strategy: it commits to its first trait once it holds this many different characters of it.
+local FOCUS_COMMIT_COUNT = 2
+-- Trait strategy: fielding bonus for a character that adds a member to a committed trait still below
+-- its top step, and for one that completes a bond. Strength is cost x 3^(stars - 1), so 3 lets a
+-- trait unit beat a unit up to about one cost tier (or a few strength points) stronger.
+local FOCUS_WEIGHT = 3
+local BOND_WEIGHT = 2
+-- Trait strategy: it buys trait units with gold down to this much below keepGold.
+local FOCUS_DIP = 20
 
 local LEVEL_UP_KEEP_GOLD = 30 -- rerolling bots below their roll level, and after finishing
 -- Standard bots: fielding score per trait shared with another owned character. Strengths are whole
@@ -139,6 +170,8 @@ function Bot.newMemory(): Memory
 			targetCopiesSold = 0,
 			rollStartLevel = nil,
 		},
+		focus = {},
+		traitSteps = {},
 	}
 end
 
@@ -304,17 +337,44 @@ local function prefersTraits(policy: Policy): boolean
 	return policy.rerollCost == nil
 end
 
--- True if `unitType` shares a trait with a different character the bot fielded last round.
-local function sharesFieldedTrait(memory: Memory, unitType: string): boolean
+-- How much `unitType` would add to the traits and bonds of the board the bot fielded last round:
+-- 1 per trait it shares with a different fielded character, 2 more per trait whose next
+-- breakpoint (TraitConfig) it would reach, and 2 per bond (BondConfig) it would complete.
+-- 0 for a character already fielded (copies do not count toward traits).
+local function traitGain(memory: Memory, unitType: string): number
+	if memory.fielded[unitType] then
+		return 0
+	end
+	local counts = {}
+	for fielded in memory.fielded do
+		for _, trait in Traits.traitsOf(fielded) do
+			counts[trait] = (counts[trait] or 0) + 1
+		end
+	end
+	local gain = 0
 	for _, trait in Traits.traitsOf(unitType) do
-		for fielded in memory.fielded do
-			if fielded ~= unitType and table.find(Traits.traitsOf(fielded), trait) then
-				return true
+		local count = counts[trait] or 0
+		if count > 0 then
+			gain += 1
+			for _, breakpoint in (TraitConfig[trait] and TraitConfig[trait].breakpoints) or {} do
+				if breakpoint.count == count + 1 then
+					gain += 2
+				end
 			end
 		end
 	end
-	return false
+	for _, bond in BondConfig do
+		local partner = if bond.units[1] == unitType
+			then bond.units[2]
+			elseif bond.units[2] == unitType then bond.units[1]
+			else nil
+		if partner and memory.fielded[partner] then
+			gain += 2
+		end
+	end
+	return gain
 end
+Bot.traitGain = traitGain
 
 -- Traits `unitType` shares with other characters among `owned`.
 local function sharedTraitCount(owned, unitType: string): number
@@ -328,6 +388,205 @@ local function sharedTraitCount(owned, unitType: string): number
 		end
 	end
 	return shared
+end
+
+-- Trait strategy ----------------------------------------------------------------------------------
+
+local function isTraitBot(policy: Policy): boolean
+	return policy.traitFocus == true
+end
+
+-- The member count of a trait's top step.
+local function topStep(trait: string): number
+	local breakpoints = TraitConfig[trait].breakpoints
+	return breakpoints[#breakpoints].count
+end
+
+local function hasTrait(unitType: string, trait: string): boolean
+	return table.find(Traits.traitsOf(unitType), trait) ~= nil
+end
+
+-- Different characters per trait among `units` (each with a unitType).
+local function distinctCounts(units): { [string]: number }
+	local seen, counts = {}, {}
+	for _, unit in units do
+		if not seen[unit.unitType] then
+			seen[unit.unitType] = true
+			for _, trait in Traits.traitsOf(unit.unitType) do
+				counts[trait] = (counts[trait] or 0) + 1
+			end
+		end
+	end
+	return counts
+end
+
+-- The trait (configured, not in `exclude`) with the most different characters owned; ties go to
+-- the trait with more characters in the roster, then by name. nil if none has `atLeast`.
+local function bestOwnedTrait(state, exclude: { string }, atLeast: number): string?
+	local counts = distinctCounts(Board.getUnits(state.board))
+	local best, bestCount = nil, atLeast - 1
+	local names = {}
+	for trait in counts do
+		table.insert(names, trait)
+	end
+	table.sort(names)
+	for _, trait in names do
+		local count = counts[trait]
+		if TraitConfig[trait] and not table.find(exclude, trait) then
+			local better = count > bestCount
+				or (best ~= nil and count == bestCount and #Traits.members[trait] > #Traits.members[best])
+			if better then
+				best, bestCount = trait, count
+			end
+		end
+	end
+	return best
+end
+
+-- Commits to a first trait once it holds FOCUS_COMMIT_COUNT characters of one, and to a second once
+-- the first was fielded at its top step.
+local function updateFocus(state, policy: Policy, memory: Memory)
+	if not isTraitBot(policy) then
+		return
+	end
+	if #memory.focus == 0 then
+		local trait = bestOwnedTrait(state, {}, FOCUS_COMMIT_COUNT)
+		if trait then
+			table.insert(memory.focus, trait)
+		end
+	elseif
+		#memory.focus == 1
+		and (memory.traitSteps[memory.focus[1]] or 0) >= #TraitConfig[memory.focus[1]].breakpoints
+	then
+		local trait = bestOwnedTrait(state, memory.focus, 1)
+		if trait then
+			table.insert(memory.focus, trait)
+		end
+	end
+end
+
+-- True if `unitType` would add a new character to a committed trait that is still short of its top
+-- step among `units` (owned, or chosen for the board).
+local function addsFocusMember(memory: Memory, units, unitType: string): boolean
+	for _, unit in units do
+		if unit.unitType == unitType then
+			return false
+		end
+	end
+	local counts = distinctCounts(units)
+	for _, trait in memory.focus do
+		if hasTrait(unitType, trait) and (counts[trait] or 0) < topStep(trait) then
+			return true
+		end
+	end
+	return false
+end
+
+-- True if `unitType` completes a bond with a character among `units` (and is not among them).
+local function completesBond(units, unitType: string): boolean
+	local present = {}
+	for _, unit in units do
+		present[unit.unitType] = true
+	end
+	if present[unitType] then
+		return false
+	end
+	for _, bond in BondConfig do
+		if
+			(bond.units[1] == unitType and present[bond.units[2]])
+			or (bond.units[2] == unitType and present[bond.units[1]])
+		then
+			return true
+		end
+	end
+	return false
+end
+
+-- Trait strategy, before leveling: buys characters that add to a committed trait or complete a
+-- bond, with gold down to FOCUS_DIP below keepGold, while it holds fewer than level + 4 units.
+local function focusPass(state, policy: Policy, memory: Memory)
+	if not isTraitBot(policy) then
+		return
+	end
+	for slot, unitType in state.shop do
+		if unitType then
+			local owned = Board.getUnits(state.board)
+			local useful = addsFocusMember(memory, owned, unitType) or completesBond(owned, unitType)
+			if
+				useful
+				and state.gold - UnitConfig[unitType].cost >= policy.keepGold - FOCUS_DIP
+				and #owned < state.level + 4
+			then
+				PlayerState.buyUnit(state, slot)
+			end
+		end
+	end
+end
+
+-- Trait strategy: the first copy of each character of a committed trait, and of a bond partner, is
+-- kept when trimming the bench.
+local function keepsForTraits(state, policy: Policy, memory: Memory, unit): boolean
+	if not isTraitBot(policy) then
+		return false
+	end
+	for _, other in Board.getUnits(state.board) do
+		if other.unitType == unit.unitType and other.id < unit.id then
+			return false -- another copy is the one kept
+		end
+	end
+	for _, trait in memory.focus do
+		if hasTrait(unit.unitType, trait) then
+			return true
+		end
+	end
+	for _, bond in BondConfig do
+		if bond.units[1] == unit.unitType or bond.units[2] == unit.unitType then
+			return true
+		end
+	end
+	return false
+end
+
+-- Trait strategy: picks `count` units to field one at a time, each time the highest of strength
+-- plus FOCUS_WEIGHT if it adds a character to a committed trait below its top step, plus BOND_WEIGHT
+-- if it completes a bond with a unit already picked. Ties by id.
+local function traitFieldingOrder(owned, memory: Memory, count: number)
+	local remaining = table.clone(owned)
+	local chosen = {}
+	while #chosen < count and #remaining > 0 do
+		local bestIndex, bestScore = 1, -math.huge
+		for index, unit in remaining do
+			local score = strength(unit)
+			if addsFocusMember(memory, chosen, unit.unitType) then
+				score += FOCUS_WEIGHT
+			end
+			if completesBond(chosen, unit.unitType) then
+				score += BOND_WEIGHT
+			end
+			if score > bestScore or (score == bestScore and unit.id < remaining[bestIndex].id) then
+				bestIndex, bestScore = index, score
+			end
+		end
+		table.insert(chosen, table.remove(remaining, bestIndex))
+	end
+	for _, unit in remaining do
+		table.insert(chosen, unit)
+	end
+	return chosen
+end
+
+-- Trait strategy: records the highest step each committed trait reached on a fielded board.
+local function recordFocusSteps(memory: Memory, placed)
+	if #memory.focus == 0 then
+		return
+	end
+	local levels = {}
+	for _, state in Traits.summary(placed) do
+		levels[state.name] = state.level
+	end
+	for _, trait in memory.focus do
+		memory.traitSteps[trait] = math.max(memory.traitSteps[trait] or 0, levels[trait] or 0)
+	end
 end
 
 -- Rolling: buys target copies (counting offers and refusals), and other units only while the bot
@@ -453,7 +712,7 @@ local function trimBench(state, policy: Policy, memory: Memory)
 	end)
 	for index = state.level + 3, #owned do
 		local unit = owned[index]
-		if not isTarget(memory, unit.unitType) then
+		if not isTarget(memory, unit.unitType) and not keepsForTraits(state, policy, memory, unit) then
 			if not (policy.seeksCopies and unit.starLevel < 3) or index > state.level + 6 then
 				sell(state, memory, unit)
 			end
@@ -483,19 +742,38 @@ end
 -- before leveling locked gold on the bench (trimBench keeps up to level + 3 units), so the bots
 -- bought less XP and earned less interest; cheap trait units on the bench also drew copy purchases
 -- in later rounds.
+-- Offers are taken in order of trait gain (traitGain), highest first; an offer that reaches a
+-- breakpoint or completes a bond (gain of 3 or more) may dip BREAKPOINT_DIP gold below keepGold.
+local BREAKPOINT_DIP = 10
 local function traitPass(state, policy: Policy, memory: Memory)
 	if not prefersTraits(policy) or memory.weakestFielded == nil then
 		return
 	end
+	local offers = {}
 	for slot, unitType in state.shop do
+		if unitType then
+			local gain = traitGain(memory, unitType)
+			if gain > 0 then
+				table.insert(offers, { slot = slot, unitType = unitType, gain = gain })
+			end
+		end
+	end
+	table.sort(offers, function(a, b)
+		if a.gain ~= b.gain then
+			return a.gain > b.gain
+		end
+		return a.slot < b.slot
+	end)
+	for _, offer in offers do
+		local cost = UnitConfig[offer.unitType].cost
+		local floor = if offer.gain >= 3 then policy.keepGold - BREAKPOINT_DIP else policy.keepGold
 		if
-			unitType
-			and UnitConfig[unitType].cost >= memory.weakestFielded
-			and state.gold - UnitConfig[unitType].cost >= policy.keepGold
+			state.shop[offer.slot] == offer.unitType
+			and cost >= memory.weakestFielded
+			and state.gold - cost >= floor
 			and #Board.getUnits(state.board) < state.level + 3
-			and sharesFieldedTrait(memory, unitType)
 		then
-			PlayerState.buyUnit(state, slot)
+			PlayerState.buyUnit(state, offer.slot)
 		end
 	end
 end
@@ -506,10 +784,13 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 		memory.locked = true
 	end
 	updateTargets(state, policy, memory)
+	updateFocus(state, policy, memory)
 	if isRolling(policy, memory) then
 		freeBench(state, memory)
 	end
 	shopPass(state, policy, memory)
+	updateFocus(state, policy, memory)
+	focusPass(state, policy, memory)
 
 	if policy.rerollCost then
 		if not isRolling(policy, memory) then
@@ -537,17 +818,21 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 	trimBench(state, policy, memory)
 
 	local owned = Board.getUnits(state.board)
-	local score = {}
-	for _, unit in owned do
-		score[unit.id] = strength(unit)
-			+ (if prefersTraits(policy) then TRAIT_SHARE_WEIGHT * sharedTraitCount(owned, unit.unitType) else 0)
-	end
-	table.sort(owned, function(a, b)
-		if score[a.id] ~= score[b.id] then
-			return score[a.id] > score[b.id]
+	if isTraitBot(policy) then
+		owned = traitFieldingOrder(owned, memory, state.level)
+	else
+		local score = {}
+		for _, unit in owned do
+			score[unit.id] = strength(unit)
+				+ (if prefersTraits(policy) then TRAIT_SHARE_WEIGHT * sharedTraitCount(owned, unit.unitType) else 0)
 		end
-		return a.id < b.id
-	end)
+		table.sort(owned, function(a, b)
+			if score[a.id] ~= score[b.id] then
+				return score[a.id] > score[b.id]
+			end
+			return a.id < b.id
+		end)
+	end
 	local placed = {}
 	local taken = {}
 	table.clear(memory.fielded)
@@ -574,6 +859,7 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 			end
 		end
 	end
+	recordFocusSteps(memory, placed)
 	return placed
 end
 

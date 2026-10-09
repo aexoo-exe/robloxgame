@@ -6,6 +6,7 @@
 local Battle = require("../src/shared/Battle")
 local Board = require("../src/shared/Board")
 local CombatSim = require("../src/shared/CombatSim")
+local TraitCombat = require("../src/shared/TraitCombat")
 local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
@@ -57,23 +58,24 @@ local TEST_TRAITS = {
 	},
 }
 
--- Membership sizes from docs/design/revamp-structure.md (origins and classes).
+-- Membership sizes from docs/design/revamp-structure.md (origins and classes), with the
+-- Overhaul 1 faction and class changes.
 local MEMBER_COUNTS = {
 	Shinobi = 5,
 	Cursed = 6,
 	Crew = 4,
 	Titans = 4,
-	Corps = 3,
+	Corps = 4,
 	Spirit = 5,
 	Heroes = 5,
-	Hunters = 6,
+	Hunters = 5,
 	Arcane = 4,
 	Blade = 10,
-	Brawler = 10,
+	Brawler = 11,
 	Caster = 11,
 	Marksman = 6,
-	Assassin = 8,
-	Guardian = 5,
+	Assassin = 9,
+	Guardian = 8,
 	Support = 5,
 }
 
@@ -166,13 +168,230 @@ end
 
 local tests = {}
 
+-- Overhaul 1 breakpoints: faction and class -> member counts.
+local BREAKPOINTS = {
+	Hunters = "2,4",
+	Corps = "2,3",
+	Spirit = "2,4",
+	Cursed = "2,4,6",
+	Arcane = "2,3",
+	Titans = "2,3",
+	Shinobi = "2,4",
+	Crew = "2,3",
+	Heroes = "2,4",
+	Blade = "2,4,6",
+	Assassin = "2,4,6",
+	Brawler = "2,4,6",
+	Caster = "2,4,6",
+	Guardian = "2,4,6",
+	Marksman = "2,4",
+	Support = "2,4",
+}
+
 table.insert(tests, {
-	name = "the real trait config is empty, so no trait counts and no bonus applies",
+	name = "TraitConfig has every faction and class with its Overhaul 1 breakpoints, and valid effects",
 	run = function()
-		expectEqual(next(TraitConfig), nil, "TraitConfig entries")
-		local board = placed({ "flashline", "cinder_arc", "thunder_nest", "iron_rush", "titanheart" })
-		expectEqual(#Traits.summary(board), 0, "traits listed")
-		expectEqual(next(Traits.bonuses(board)), nil, "bonuses")
+		local ok, reason = Traits.validate(TraitConfig, Battle.StatFields)
+		assert(ok, tostring(reason))
+		for trait, expected in BREAKPOINTS do
+			local entry = TraitConfig[trait]
+			assert(entry, trait .. " is missing")
+			local counts = {}
+			for _, breakpoint in entry.breakpoints do
+				table.insert(counts, tostring(breakpoint.count))
+			end
+			expectEqual(table.concat(counts, ","), expected, trait .. " breakpoints")
+			expectEqual(
+				entry.kind,
+				if Traits.members[trait] and UnitConfig[Traits.members[trait][1]].origin == trait
+					then "origin"
+					else "class",
+				trait .. " kind"
+			)
+		end
+		for trait in TraitConfig do
+			assert(BREAKPOINTS[trait], "unexpected trait " .. trait)
+		end
+	end,
+})
+
+-- A battle of two boards (character ids, placed along each side's front row) with the real traits
+-- and bonds of both sides set up as CombatSim does.
+local function traitBattle(side1: { string }, side2: { string }, seed: number?)
+	local boards = { onBoard(side1), onBoard(side2) }
+	local battle = Battle.new({
+		boards = boards,
+		columns = 7,
+		rows = 4,
+		unitTypes = UnitConfig,
+		ticksPerSecond = 20,
+		maxTicks = 1000,
+		seed = seed or 1,
+		critChance = 0,
+	})
+	local bonuses, setups = Traits.combatParams(boards[1], boards[2])
+	for _, unit in battle.units do
+		local bonus = bonuses[unit.side][unit.id]
+		if bonus then
+			Battle.applyStartBonus(battle, unit, bonus)
+		end
+	end
+	TraitCombat.setup(battle, setups)
+	return battle
+end
+
+local function unitsOn(battle, side: number)
+	local result = {}
+	for _, unit in battle.units do
+		if unit.side == side and not unit.summoned then
+			table.insert(result, unit)
+		end
+	end
+	return result
+end
+
+local function eventsOf(battle, kind: string)
+	local result = {}
+	for _, event in battle.events do
+		if event.kind == kind then
+			table.insert(result, event)
+		end
+	end
+	return result
+end
+
+table.insert(tests, {
+	name = "Cursed: passive dummies appear in front at fight start; at 4, destroying one curses the killer",
+	run = function()
+		local battle = traitBattle({ "ripcord_frenzy", "crimson_hunger" }, { "cinder_arc" })
+		local summons = eventsOf(battle, "Summon")
+		expectEqual(#summons, 1, "one dummy at Cursed 2")
+		expectEqual(summons[1].source, "Cursed", "a trait summon")
+		local dummy = battle.units[summons[1].summon]
+		assert(dummy.passive and dummy.expiresTick == nil, "passive, until destroyed")
+
+		local four = traitBattle({ "ripcord_frenzy", "crimson_hunger", "shade_pack", "night_parade" }, { "cinder_arc" })
+		local dummyIndex = eventsOf(four, "Summon")[1].summon
+		local killer = unitsOn(four, 2)[1]
+		Battle.damage(four, killer, four.units[dummyIndex], 1e6, "TRUE", "Attack")
+		assert(Battle.hasStatus(four, killer, Battle.Status.Curse), "the killer is cursed")
+	end,
+})
+
+table.insert(tests, {
+	name = "Hunters mark the healthiest enemy and hit it harder; the mark moves when it dies",
+	run = function()
+		local battle = traitBattle({ "flashline", "cinder_arc" }, { "iron_rush", "boiling_crown" })
+		local marks = eventsOf(battle, "Mark")
+		expectEqual(#marks, 1, "one mark")
+		local enemies = unitsOn(battle, 2)
+		local healthiest = if enemies[1].health > enemies[2].health then enemies[1] else enemies[2]
+		local other = if healthiest == enemies[1] then enemies[2] else enemies[1]
+		expectEqual(marks[1].unit, healthiest.index, "the healthiest enemy is marked")
+		local hunter = unitsOn(battle, 1)[1]
+		local before = healthiest.health
+		Battle.damage(battle, hunter, healthiest, 100, "TRUE", "Damage")
+		expectEqual(before - healthiest.health, 120, "+20% against the mark")
+		Battle.damage(battle, hunter, healthiest, 1e6, "TRUE", "Damage")
+		marks = eventsOf(battle, "Mark")
+		expectEqual(marks[#marks].unit, other.index, "the mark moved")
+	end,
+})
+
+table.insert(tests, {
+	name = "Crew takedowns stack a fight-long boost and pay gold up to the cap",
+	run = function()
+		local battle = traitBattle(
+			{ "flare_kick", "field_medic" },
+			{ "flashline", "cinder_arc", "wolfstep", "null_edge" }
+		)
+		local crew = unitsOn(battle, 1)[1]
+		local baseAD = Battle.stat(battle, crew, "AD")
+		for _, enemy in unitsOn(battle, 2) do
+			Battle.damage(battle, crew, enemy, 1e6, "TRUE", "Attack")
+		end
+		local results = TraitCombat.results(battle)
+		expectEqual(results[1].crewTakedowns, 4, "four takedowns")
+		expectEqual(results[1].gold, TraitConfig.Crew.breakpoints[1].params.goldCap, "gold capped")
+		assert(Battle.stat(battle, crew, "AD") > baseAD, "the boost stacked")
+	end,
+})
+
+table.insert(tests, {
+	name = "Arcane gives starting mana; Assassin 4 jumps to the enemy back row at the first tick",
+	run = function()
+		local arcane = traitBattle({ "null_edge", "bitter_vapor" }, { "cinder_arc" })
+		local arcaneUnits = unitsOn(arcane, 1)
+		expectEqual(arcaneUnits[1].mana, UnitConfig.null_edge.startingMana + 20, "Arcane 2 mana")
+
+		local battle = traitBattle({ "flashline", "crimson_hunger", "volt_spear", "thunder_nest" }, { "cinder_arc" })
+		CombatSim.step(battle)
+		local jumps = 0
+		for _, event in eventsOf(battle, "Dash") do
+			if event.source == "Assassin" then
+				jumps += 1
+				expectEqual(event.row, battle.fieldRows, "jumped into the enemy back row")
+			end
+		end
+		expectEqual(jumps, 4, "every Assassin jumped")
+	end,
+})
+
+table.insert(tests, {
+	name = "Heroes meter: the team takes less damage below half, deals more from half",
+	run = function()
+		local battle = traitBattle({ "skybreaker", "zero_field" }, { "cinder_arc" })
+		local hero, enemy = unitsOn(battle, 1)[1], unitsOn(battle, 2)[1]
+		local before = hero.health
+		Battle.damage(battle, enemy, hero, 100, "TRUE", "Damage")
+		expectEqual(before - hero.health, 90, "guard: -10% taken")
+		local params = TraitConfig.Heroes.breakpoints[1].params
+		for _ = 1, params.meterMax / 2 do
+			Battle.runHooks(battle, "cast", hero)
+		end
+		local enemyBefore = enemy.health
+		Battle.damage(battle, hero, enemy, 100, "TRUE", "Damage")
+		expectEqual(enemyBefore - enemy.health, 110, "fury: +10% dealt")
+		local meters = eventsOf(battle, "Meter")
+		expectEqual(meters[#meters].phase, "FURY", "Meter event phase")
+	end,
+})
+
+table.insert(tests, {
+	name = "bonds need both characters placed; the riders' bond lets them remount",
+	run = function()
+		expectEqual(#Traits.bonds(placed({ "spurshot" })), 0, "one rider alone")
+		local active = Traits.bonds(placed({ "spurshot", "orbit_breaker", "cinder_arc" }))
+		expectEqual(#active, 1, "both riders")
+		expectEqual(active[1].id, "riders", "the riders' bond")
+		local battle = traitBattle({ "spurshot", "orbit_breaker" }, { "cinder_arc" })
+		local rider, enemy = unitsOn(battle, 1)[1], unitsOn(battle, 2)[1]
+		Battle.damage(battle, enemy, rider, 1e6, "TRUE", "Damage")
+		expectEqual(rider.form.name, "Dismounted", "dismounted")
+		Battle.damage(battle, rider, enemy, 1e6, "TRUE", "Damage")
+		expectEqual(rider.form.name, "Mounted", "remounted after a takedown")
+
+		local alone = traitBattle({ "spurshot" }, { "cinder_arc", "cinder_arc" })
+		local soloRider, soloEnemy = unitsOn(alone, 1)[1], unitsOn(alone, 2)[1]
+		Battle.damage(alone, soloEnemy, soloRider, 1e6, "TRUE", "Damage")
+		Battle.damage(alone, soloRider, soloEnemy, 1e6, "TRUE", "Damage")
+		expectEqual(soloRider.form.name, "Dismounted", "no remount without the bond")
+	end,
+})
+
+table.insert(tests, {
+	name = "Shinobi vanish once below the threshold and return with a shield",
+	run = function()
+		local battle = traitBattle({ "blooming_aid", "marsh_fortress" }, { "cinder_arc" })
+		local shinobi, enemy = unitsOn(battle, 1)[1], unitsOn(battle, 2)[1]
+		Battle.damage(battle, enemy, shinobi, shinobi.maxHealth * 0.8, "TRUE", "Damage")
+		assert(Battle.isUntargetable(battle, shinobi), "vanished")
+		expectEqual(#eventsOf(battle, "Vanish"), 1, "Vanish event")
+		for _ = 1, 20 do
+			CombatSim.step(battle)
+		end
+		assert(not Battle.isUntargetable(battle, shinobi), "back after a second")
+		assert(shinobi.shield > 0, "returned with a shield")
 	end,
 })
 
@@ -321,7 +540,7 @@ table.insert(tests, {
 		for _, state in Traits.summary(quiet, TEST_TRAITS) do
 			assert(not state.active, "test setup: " .. state.name .. " is active")
 		end
-		local enemy = onBoard({ "cinder_arc", "titanheart", "redline_cut", "orbit_breaker" })
+		local enemy = onBoard({ "cinder_arc", "titanheart", "null_edge", "orbit_breaker" })
 		for _, state in Traits.summary(enemy, TEST_TRAITS) do
 			assert(not state.active, "test setup: enemy " .. state.name .. " is active")
 		end

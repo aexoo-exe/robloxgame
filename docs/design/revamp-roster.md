@@ -1,50 +1,55 @@
-BLOCK 2 — 42-CHARACTER ROSTER v1.1
+BLOCK 2 — 42-CHARACTER ROSTER v1.1 (roster block updated for Overhaul 1)
 
 HP below = PRE-1.16 global multiplier [H].
 AP baseline 100; crit baseline 25%/140% [H].
 Ability values [T].
 
+Overhaul 1 changed factions (ORIGIN), classes and three stat lines; this block shows the
+current values (MANA here is v1.1: spurshot now 0/80 and casts at full spin stacks, flare_kick
+15/50, starless_burst 20/160). The abilities below are the v1.1 originals: the 30 reworked
+abilities are in docs/design/overhaul-1.md, which replaces them where they differ.
+
 NAME            C ORIGIN   CLASS(ES)          HP   AD ARM MR AS   RNG MOV MANA
 Lightitsu       1 Hunters  Blade/Assassin     560 63 20 20 .78   1 1.1 20/90
 Tontaro         1 Hunters  Blade              650 57 28 25 .70   1 1.0 30/90
 Thorvinn        1 Corps    Blade              590 62 22 20 .77   1 1.1 20/80
-Jonny           1 Spirit   Marksman           550 64 18 18 .76   3 1.2 20/80
+Jonny           1 Spirit   Marksman/Brawler   650 56 18 18 .76   2 1.2 20/80
 Dengi           1 Cursed   Brawler            700 58 28 24 .72   1 1.0 30/90
 Pasta           1 Arcane   Blade              680 61 30 35 .68   1 1.0 30/90
 Meow-Meow       1 Arcane   Support            580 43 20 30 .62   3 1.0 40/100
 Armored Giant   1 Titans   Guardian           750 48 40 35 .56   1 .9  40/100
 Saku            1 Shinobi  Support            600 46 22 28 .65   2 1.0 40/100
 
-Mika            2 Corps    Blade              690 68 27 25 .83   1 1.1 20/80
-Love-cook       2 Crew     Brawler            760 69 30 27 .78   1 1.1 30/90
+Mika            2 Corps    Blade/Guardian     690 68 27 25 .83   1 1.1 20/80
+Love-cook       2 Crew     Brawler/Assassin   760 69 30 27 .78   1 1.1 30/90
 Kachan          2 Heroes   Caster/Marksman    650 67 22 24 .78   4 1.0 20/80
 Quirkless       2 Heroes   Brawler            820 66 35 30 .70   1 1.0 30/90
 Kenny           2 Cursed   Assassin           720 70 26 27 .82   1 1.1 20/80
 Jyro            2 Spirit   Marksman           660 68 23 25 .82   3 1.2 20/90
 Toad Samurai    2 Shinobi  Guardian           900 52 45 42 .58   1 .9  40/110
 Potential Man   2 Cursed   Caster             650 50 23 30 .67   3 1.0 30/100
-Boku wa Docta   2 Crew     Support            640 46 24 32 .68   3 1.0 40/110
+Boku wa Docta   2 Crew     Support/Brawler    640 46 24 32 .68   3 1.0 40/110
 
 Saucekay        3 Shinobi  Blade/Assassin     790 79 28 30 .88   1 1.1 20/90
 Zolduck         3 Hunters  Assassin           770 78 26 27 .90   1 1.2 20/90
 Moss Head       3 Crew     Blade              900 80 38 32 .78   1 1.0 30/100
-Aaron           3 Titans   Guardian          1050 65 50 45 .62   1 .9  40/110
-Ray             3 Arcane   Caster             740 57 24 32 .70   4 1.0 20/90
+Aaron           3 Titans   Guardian/Brawler  1050 65 50 45 .62   1 .9  40/110
+Ray             3 Corps    Caster             740 57 24 32 .70   4 1.0 20/90
 Kashi           3 Shinobi  Assassin/Caster    780 72 30 34 .82   2 1.1 30/100
 Goataro         3 Spirit   Brawler            930 79 40 36 .72   1 1.0 30/100
-Beast Giant     3 Titans   Marksman           900 76 38 35 .72   4 .9  30/100
+Beast Giant     3 Titans   Guardian          1050 64 50 35 .72   2 .9  30/100
 Itchigo         3 Hunters  Blade/Marksman     820 80 32 30 .84   3 1.0 20/90
 Urarocka        3 Heroes   Support            760 52 27 35 .68   3 1.0 40/110
 
 Freaks          4 Hunters  Brawler           1050 88 45 40 .72   2 1.0 40/130
 Rubber Man      4 Crew     Brawler/Guardian  1200 84 55 50 .80   1 1.0 40/110
 Archmage        4 Arcane   Caster/Marksman    830 67 28 48 .80   4 1.0 20/100
-Fish Cake       4 Shinobi  Brawler/Caster    1050 82 42 42 .82   2 1.1 30/110
-Leveler         4 Hunters  Assassin            900 89 32 34 .94   1 1.1 30/100
-Za Warudo       4 Spirit   Assassin            950 88 38 38 .86   1 1.0 40/110
+Fish Cake       4 Shinobi  Caster            1050 82 42 42 .82   2 1.1 30/110
+Leveler         4 Arcane   Assassin            900 89 32 34 .94   1 1.1 30/100
+Za Warudo       4 Spirit   Assassin/Marksman   950 88 38 38 .86   1 1.0 40/110
 Revi            4 Corps    Blade/Assassin      860 90 30 30 .95   1 1.2 20/90
-Bangs           4 Cursed   Caster              900 68 32 42 .75   3 1.0 30/110
-Joeskay         4 Spirit   Support/Brawler    1100 78 48 45 .72   1 1.0 40/120
+Keto            4 Cursed   Caster              900 68 32 42 .75   3 1.0 30/110
+Joeskay         4 Spirit   Support/Guardian   1200 78 58 45 .72   1 1.0 40/120
 
 Thukuna         5 Cursed   Caster/Blade       1100 98 45 48 .88   2 1.1 30/110
 Sonion          5 Heroes   Brawler/Caster     1250 94 55 50 .88   2 1.1 30/100
@@ -263,7 +268,7 @@ AREA_DAMAGE target radius 1 physical: 330/525/840.
 SELF BUFF AS +35/55/80% for 4s.
 Transformation: silver blade trails form a continuous ring.
 
-BANGS — NIGHT PARADE [T]
+KETO — NIGHT PARADE [T]
 CURRENT_TARGET-centered AREA_DAMAGE radius 1 magic:
 220/350/560.
 SUMMON 2/2/3 curses for 9/10/12s:

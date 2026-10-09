@@ -6,7 +6,13 @@
 -- Playback, + padding) + Results per round.
 -- Lobby and final-placement screens are excluded.
 -- PvE rounds (creeps and bosses) are played like the server plays them: starting units at match
--- start, no Preparation in round 1, PvE rewards paid at Results. PvE fights are left out of the
+-- start, no Preparation in round 1, PvE rewards paid at Results.
+-- Traits and bonds work as on the server (Traits.combatParams: combat-start bonuses and TraitCombat
+-- effects; Crew takedown gold paid after PvP fights). The report adds bond use, fight-time trait
+-- effects, Crew gold, and (Mechanics) form changes for every unit with forms and the Overhaul 1
+-- pieces (areas by shape, bounces, knockbacks, debuffs, executes, ...).
+-- With 8 players, seat 4 is the trait bot (Bot.traitPolicy, in place of the "no copies" bot); the
+-- report shows it under results by strategy and per committed trait (steps reached, placement). PvE fights are left out of the
 -- per-character, mechanics and timeout reports (those measure the roster against itself) and are
 -- reported in their own section.
 
@@ -45,9 +51,10 @@ end
 
 local function runFight(fight, boards, seed, match)
 	local sideB = enemyBoard(fight, boards, match)
-	local bonusB = if fight.pve then {} else Traits.bonuses(sideB)
+	local startBonuses, traitSetups = Traits.combatParams(boards[fight.a], sideB, fight.pve ~= nil)
 	return CombatSim.run({
-		startBonuses = if TRAITS_ON then { Traits.bonuses(boards[fight.a]), bonusB } else nil,
+		startBonuses = if TRAITS_ON then startBonuses else nil,
+		traits = if TRAITS_ON then traitSetups else nil,
 		boards = { boards[fight.a], sideB },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
@@ -234,6 +241,7 @@ local goldTotals = {
 	units = 0,
 	rerolls = 0,
 	xp = 0,
+	crew = 0, -- Crew takedown gold after PvP fights (TraitCombat)
 }
 local ledgers = setmetatable({}, { __mode = "k" }) -- PlayerState -> this match's ledger
 
@@ -290,8 +298,10 @@ local function calibrateBoss(board, match, seed: number)
 		end
 		return final, manaGained
 	end
+	local bossBoard = Pve.enemyBoard(match.theme, match.round)
+	local startBonuses, traitSetups = Traits.combatParams(board, bossBoard, true)
 	local ok, result = pcall(CombatSim.run, {
-		boards = { board, Pve.enemyBoard(match.theme, match.round) },
+		boards = { board, bossBoard },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
 		unitTypes = Pve.unitTypes(match.theme),
@@ -299,7 +309,8 @@ local function calibrateBoss(board, match, seed: number)
 		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
 		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
 		seed = seed,
-		startBonuses = if TRAITS_ON then { Traits.bonuses(board), {} } else nil,
+		startBonuses = if TRAITS_ON then startBonuses else nil,
+		traits = if TRAITS_ON then traitSetups else nil,
 	})
 	Battle.damage = original
 	assert(ok, result)
@@ -325,6 +336,37 @@ end
 -- Trait use in each match's final five rounds: boards (one per player per round) with each
 -- "Trait level" active, and the final placements of players who had it at least once.
 local traitUse = { boards = 0, active = {}, placementSum = {}, players = {} }
+
+-- Bonds in each match's final five rounds: boards with each bond active, and the final placements
+-- of players who had it at least once.
+local bondUse = { boards = 0, active = {}, placementSum = {}, players = {} }
+
+-- Fight-time trait effects (TraitCombat results), PvP fights only: per trait, the sides that had it
+-- active and what it did there.
+local traitEffects = {
+	Hunters = { sides = 0, marks = 0 },
+	Shinobi = { sides = 0, vanishes = 0 },
+	Assassin = { sides = 0, executes = 0 },
+	Heroes = { sides = 0, meterFills = 0 },
+	Crew = { sides = 0, crewTakedowns = 0, gold = 0 },
+}
+
+local function recordTraitEffects(result, sides)
+	for side, board in sides do
+		local outcome = result.traitResults[side]
+		for _, state in Traits.summary(board) do
+			local entry = traitEffects[state.name]
+			if entry and state.active then
+				entry.sides += 1
+				for key in entry do
+					if key ~= "sides" then
+						entry[key] += outcome[key]
+					end
+				end
+			end
+		end
+	end
+end
 
 -- Rerolling bots by the cost they chase: seats, how many made a 3-star of that cost, the round
 -- they first did, and final placements split by whether they did.
@@ -425,19 +467,78 @@ local function recordTraitUse(roundBoards, finalRound: number, placements)
 			traitUse.placementSum[key] = (traitUse.placementSum[key] or 0) + placements[id]
 		end
 	end
+
+	local hadBond = {}
+	for round = math.max(1, finalRound - 4), finalRound do
+		for id, board in roundBoards[round] or {} do
+			bondUse.boards += 1
+			for _, bond in Traits.bonds(board) do
+				bondUse.active[bond.id] = (bondUse.active[bond.id] or 0) + 1
+				hadBond[bond.id] = hadBond[bond.id] or {}
+				hadBond[bond.id][id] = true
+			end
+		end
+	end
+	for bondId, ids in hadBond do
+		for id in ids do
+			bondUse.players[bondId] = (bondUse.players[bondId] or 0) + 1
+			bondUse.placementSum[bondId] = (bondUse.placementSum[bondId] or 0) + placements[id]
+		end
+	end
 end
 
 local function groupOf(policy): string
+	if policy.traitFocus then
+		return "trait"
+	end
 	return if policy.rerollCost then policy.name else "standard"
 end
 
--- Seat i's strategy: with 8 players, seats 1-4 are standard (cycled), 5-6 reroll 1-cost, 7 reroll
--- 2-cost and 8 reroll 3-cost. Other player counts use standard bots only.
+-- The standard strategies for 8-player sims: every one but "no copies", whose seat the trait bot
+-- takes.
+local STANDARD_FOR_EIGHT = {}
+for _, policy in Bot.policies do
+	if policy.name ~= "no copies" then
+		table.insert(STANDARD_FOR_EIGHT, policy)
+	end
+end
+
+-- Seat i's strategy: with 8 players, seats 1-3 are standard (cycled, without "no copies"), seat 4
+-- is the trait bot, 5-6 reroll 1-cost, 7 reroll 2-cost and 8 reroll 3-cost. Other player counts use
+-- standard bots only.
 local function policyFor(seat: number, matchIndex: number)
-	if PLAYERS == 8 and seat >= 5 then
-		return Bot.rerollPolicies[if seat <= 6 then 1 elseif seat == 7 then 2 else 3]
+	if PLAYERS == 8 then
+		if seat >= 5 then
+			return Bot.rerollPolicies[if seat <= 6 then 1 elseif seat == 7 then 2 else 3]
+		elseif seat == 4 then
+			return Bot.traitPolicy
+		end
+		return STANDARD_FOR_EIGHT[(seat + matchIndex) % #STANDARD_FOR_EIGHT + 1]
 	end
 	return Bot.policies[(seat + matchIndex) % #Bot.policies + 1]
+end
+
+-- Trait bot, per committed trait: seats that committed to it (first or second trait), and for each
+-- step (level) the seats whose board reached it and their summed final placement.
+local traitBot = {}
+
+local function recordTraitBot(policy, memory, placement: number)
+	if not policy.traitFocus then
+		return
+	end
+	for order, trait in memory.focus do
+		local entry = traitBot[trait] or { first = 0, second = 0, reached = {}, placementSum = {} }
+		if order == 1 then
+			entry.first += 1
+		else
+			entry.second += 1
+		end
+		for level = 1, memory.traitSteps[trait] or 0 do
+			entry.reached[level] = (entry.reached[level] or 0) + 1
+			entry.placementSum[level] = (entry.placementSum[level] or 0) + placement
+		end
+		traitBot[trait] = entry
+	end
 end
 
 -- Records the copies a rerolling bot holds of each target it has not finished, and the copies of it
@@ -477,6 +578,7 @@ local function playMatch(matchIndex: number)
 			units = 0,
 			rerolls = 0,
 			xp = 0,
+			crew = 0,
 		}
 		PlayerState.grantStartingUnits(states[i])
 		policies[i] = policyFor(i, matchIndex)
@@ -556,6 +658,7 @@ local function playMatch(matchIndex: number)
 				recordFight(result)
 				recordSupport(result)
 				Mechanics.record(result)
+				recordTraitEffects(result, { boards[fight.a], enemyBoard(fight, boards, match) })
 				recordTimeoutData({ boards[fight.a], enemyBoard(fight, boards, match) }, result.timedOut)
 				stats.fights += 1
 				if result.timedOut then
@@ -568,6 +671,7 @@ local function playMatch(matchIndex: number)
 				winner = result.winner,
 				survivors = result.survivors,
 				healthPercent = result.healthPercent,
+				traitGold = { result.traitResults[1].gold, result.traitResults[2].gold },
 			})
 		end
 		local combatSeconds = longestTicks / CombatConfig.ticksPerSecond
@@ -578,6 +682,11 @@ local function playMatch(matchIndex: number)
 		local summary = Match.applyResults(match, results)
 		for id, outcome in summary.outcomes do
 			PlayerState.recordCombat(states[id], outcome)
+		end
+		-- Crew takedown gold, paid after PvP fights as the server does (RoundService).
+		for id, gold in summary.traitGold do
+			PlayerState.grantGold(states[id], gold)
+			ledgers[states[id]].crew += gold
 		end
 		for _, result in results do
 			local reward = summary.pve[result.fight.a]
@@ -642,6 +751,7 @@ local function playMatch(matchIndex: number)
 		end
 	end
 	for id, player in match.players do
+		recordTraitBot(policies[id], memories[id], player.placement)
 		local name = groupOf(policies[id])
 		local group = groups[name] or { seats = 0, placementSum = 0, wins = 0, rerollGold = 0 }
 		group.seats += 1
@@ -814,6 +924,35 @@ for _, name in traitNames do
 	end
 	print(string.format("  %-10s %s", name, table.concat(parts, " | ")))
 end
+print("Bonds in the final five rounds: share of boards with the bond active, average final placement")
+print("of players who had it (players)")
+local BondConfig = require("../src/shared/BondConfig")
+for _, bond in BondConfig do
+	local players = bondUse.players[bond.id] or 0
+	print(
+		string.format(
+			"  %-12s (%s + %s) %.1f%%, %s (%d)",
+			bond.id,
+			bond.units[1],
+			bond.units[2],
+			(bondUse.active[bond.id] or 0) / math.max(1, bondUse.boards) * 100,
+			if players > 0 then string.format("%.2f", bondUse.placementSum[bond.id] / players) else "-",
+			players
+		)
+	)
+end
+print("Fight-time trait effects (PvP fights), per side with the trait active:")
+for _, name in { "Hunters", "Shinobi", "Assassin", "Heroes", "Crew" } do
+	local entry = traitEffects[name]
+	local parts = {}
+	for key, value in entry do
+		if key ~= "sides" then
+			table.insert(parts, string.format("%s %.2f", key, if entry.sides > 0 then value / entry.sides else 0))
+		end
+	end
+	table.sort(parts)
+	print(string.format("  %-9s %s  [%d sides]", name, table.concat(parts, ", "), entry.sides))
+end
 print("Rerolling bots by the cost they chase (completed = made at least one 3-star of that cost):")
 for cost = 1, 5 do
 	local entry = committed[cost]
@@ -896,6 +1035,33 @@ for _, name in groupNames do
 		)
 	)
 end
+-- Trait bot: per trait it committed to, how often its board reached each step and its average
+-- final placement when it did.
+print("Trait bot by committed trait: seats (first / second trait); per step, share of those seats")
+print("whose board reached it, and their average final placement")
+local traitBotNames = {}
+for name in traitBot do
+	table.insert(traitBotNames, name)
+end
+table.sort(traitBotNames)
+for _, name in traitBotNames do
+	local entry = traitBot[name]
+	local seats = entry.first + entry.second
+	local parts = {}
+	for level, breakpoint in TraitConfig[name].breakpoints do
+		local reached = entry.reached[level] or 0
+		table.insert(
+			parts,
+			string.format(
+				"%d: %.0f%%, %s",
+				breakpoint.count,
+				reached / math.max(1, seats) * 100,
+				if reached > 0 then string.format("%.2f", entry.placementSum[level] / reached) else "-"
+			)
+		)
+	end
+	print(string.format("  %-9s %d / %d seats | %s", name, entry.first, entry.second, table.concat(parts, " | ")))
+end
 -- Rerolling bots while rolling (at the roll level with a locked target), per bot per match.
 print("Rerolling bots while rolling (per bot per match; rolling = at the roll level with a locked target):")
 local rollNames = {}
@@ -956,7 +1122,15 @@ print(
 
 -- Diagnostic 1-star damage per fight by cost, for tanks/supports and for carries
 -- (docs/design/world-and-traits.md, Base stat bands). Characters with the Guardian or Support
--- class use the tank/support band; everyone else uses the carry band.
+-- class use the tank/support band; everyone else uses the carry band. BAND_OVERRIDES picks the
+-- band for damage-dealing tanks: redline_cut is measured as a carry, and three tanks against a
+-- "bruiser" band halfway between the support and carry bands of their cost.
+local BAND_OVERRIDES = {
+	redline_cut = "carry",
+	skyboulder = "bruiser",
+	titanheart = "bruiser",
+	elastic_wardrum = "bruiser",
+}
 local SUPPORT_CLASSES = { Guardian = true, Support = true }
 local function isSupport(unit): boolean
 	for _, class in unit.classes do
@@ -973,6 +1147,12 @@ local BANDS = {
 	{ support = { 500, 1100 }, carry = { 1600, 2200 } },
 	{ support = { 700, 1400 }, carry = { 2200, 3200 } },
 }
+for _, band in BANDS do
+	band.bruiser = {
+		(band.support[1] + band.carry[1]) / 2,
+		(band.support[2] + band.carry[2]) / 2,
+	}
+end
 
 print("1-star characters (per fight they appeared in): average damage dealt against the diagnostic band,")
 print("casts, seconds survived (share of the fight), and for dashers how often a cast's dash moved them")
@@ -987,7 +1167,7 @@ local outliers = {}
 for _, name in names do
 	local stats = unitStats[name]
 	local unit = UnitConfig[name]
-	local bucket = if isSupport(unit) then "support" else "carry"
+	local bucket = BAND_OVERRIDES[name] or (if isSupport(unit) then "support" else "carry")
 	local band = BANDS[unit.cost][bucket]
 	local damage = stats.damage / stats.fights
 	local verdict = "in"
@@ -1076,18 +1256,24 @@ end
 local function perPlayer(key: string): number
 	return if goldTotals.players > 0 then goldTotals[key] / goldTotals.players else 0
 end
-local earned = perPlayer("base") + perPlayer("interest") + perPlayer("streak") + perPlayer("win") + perPlayer("pve")
+local earned = perPlayer("base")
+	+ perPlayer("interest")
+	+ perPlayer("streak")
+	+ perPlayer("win")
+	+ perPlayer("pve")
+	+ perPlayer("crew")
 local spent = perPlayer("units") + perPlayer("rerolls") + perPlayer("xp")
 print(string.format("Gold per player per match (starting gold %.0f not included):", perPlayer("starting")))
 print(
 	string.format(
-		"  earned %.1f: base income %.1f, interest %.1f, streaks %.1f, win bonus %.1f, PvE %.1f",
+		"  earned %.1f: base income %.1f, interest %.1f, streaks %.1f, win bonus %.1f, PvE %.1f, Crew takedowns %.1f",
 		earned,
 		perPlayer("base"),
 		perPlayer("interest"),
 		perPlayer("streak"),
 		perPlayer("win"),
-		perPlayer("pve")
+		perPlayer("pve"),
+		perPlayer("crew")
 	)
 )
 print(

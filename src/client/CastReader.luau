@@ -1,12 +1,16 @@
--- Works out two things the combat event list does not carry, by matching each cast's events
--- against the caster's ability data (Abilities applies effects in listed order, all within the
--- cast's tick):
+-- Works out two things for playback:
 --   * the damage type of every Attack and Damage event (basic attacks are always physical), and
---   * the center cell and radius of every AREA_DAMAGE effect.
+--   * the areas each cast hit.
+-- Since Overhaul 1 the server's events carry both: Damage events have their damageType, and every
+-- AREA_DAMAGE emits an Area event (circle, line or cone, with its cells). Those are used whenever
+-- present, including for hits outside a cast (delayed hits, follow-ups, splash, auras). For event
+-- lists without them (older recordings, hand-written test events) it falls back to matching each
+-- cast's events against the caster's ability data (Abilities applies effects in listed order, all
+-- within the cast's tick).
 -- Presentation only. Pure Luau: no Roblox APIs, so it runs in Lune tests.
 --
--- Limitation: an AREA_DAMAGE effect claims every Damage event after it in the cast, so a DAMAGE
--- effect listed after an AREA_DAMAGE effect would be read as area damage. No ability does that.
+-- Fallback limitation: an AREA_DAMAGE effect claims every Damage event after it in the cast, so a
+-- DAMAGE effect listed after an AREA_DAMAGE effect would be read as area damage.
 
 local HexGrid = if script
 	then require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HexGrid"))
@@ -34,15 +38,47 @@ local EVENT_FOR_EFFECT = {
 local MANY_EVENTS = { AREA_DAMAGE = true, AREA_STUN = true, SUMMON = true, DAMAGE_OVER_TIME = true }
 
 -- Events inside a cast that carry another unit's index rather than the caster's (a hit can make
--- its target change form).
-local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true, Form = true }
+-- its target change form; a recall ends summons).
+local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true, Form = true, SummonEnd = true }
 
-export type Area = { column: number, row: number, radius: number }
+-- A circle (radius) or a set of cells (lines and cones). `inferred` marks a circle worked out by
+-- matching (no Area event); playback pulses those at the cast and pulses Area events as they come.
+export type Area = {
+	column: number,
+	row: number,
+	radius: number?,
+	cells: { { number } }?,
+	inferred: boolean?,
+}
 
 export type Reading = {
 	damageTypes: { [number]: string }, -- event index -> damage type, for Attack and Damage events
 	areas: { [number]: { Area } }, -- index of a Cast event -> the areas that cast hit
+	areaEvents: { [number]: Area }, -- index of an Area event -> its area
 }
+
+-- The area an Area event describes.
+function CastReader.areaOf(event): Area
+	return {
+		column = event.column,
+		row = event.row,
+		radius = event.radius,
+		cells = event.cells,
+	}
+end
+
+-- True if the cell lies inside `area`.
+function CastReader.contains(area: Area, column: number, row: number): boolean
+	if area.cells then
+		for _, cell in area.cells do
+			if cell[1] == column and cell[2] == row then
+				return true
+			end
+		end
+		return false
+	end
+	return HexGrid.distance(area.column, area.row, column, row) <= (area.radius or 0)
+end
 
 local function valueAt(value: any, starLevel: number): number
 	if type(value) == "table" then
@@ -57,6 +93,7 @@ end
 function CastReader.read(units: { any }, events: { any }, abilityOf: (number, string?) -> any?): Reading
 	local damageTypes = {}
 	local areas = {}
+	local areaEvents = {}
 
 	local cells = {}
 	local starLevels = {}
@@ -65,8 +102,12 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number, st
 		starLevels[unit.index] = unit.starLevel or 1
 	end
 
-	-- Called once the cast's last event has been read, before anyone else moves.
+	-- Called once the cast's last event has been read, before anyone else moves. Casts whose areas
+	-- came as Area events need no inference.
 	local function finish(cast)
+		if cast.hasAreaEvents then
+			return
+		end
 		for _, area in cast.areas do
 			local center = nil
 			if area.selector == "SELF" then
@@ -93,7 +134,10 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number, st
 			end
 			if center then
 				areas[cast.castIndex] = areas[cast.castIndex] or {}
-				table.insert(areas[cast.castIndex], { column = center[1], row = center[2], radius = area.radius })
+				table.insert(
+					areas[cast.castIndex],
+					{ column = center[1], row = center[2], radius = area.radius, inferred = true }
+				)
 			end
 		end
 	end
@@ -183,15 +227,28 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number, st
 				finish(cast)
 			end
 			cast = newCast(event.unit, event.tick, index, abilityOf(event.unit, event.ability))
+		elseif event.kind == "Area" then
+			-- The server described the area: no matching needed.
+			local area = CastReader.areaOf(event)
+			areaEvents[index] = area
+			if cast and event.unit == cast.caster then
+				cast.hasAreaEvents = true
+				areas[cast.castIndex] = areas[cast.castIndex] or {}
+				table.insert(areas[cast.castIndex], area)
+			end
 		elseif cast and event.unit == cast.caster then
 			cast = match(cast, index, event)
+		end
+		-- Hits that carry their damage type are read as such, wherever they happen.
+		if event.kind == "Damage" and event.damageType then
+			damageTypes[index] = event.damageType
 		end
 
 		if event.kind == "Move" or event.kind == "Dash" then
 			cells[event.unit] = { event.column, event.row }
 		elseif event.kind == "Summon" then
 			cells[event.summon] = { event.column, event.row }
-		elseif event.kind == "Pull" then
+		elseif event.kind == "Pull" or event.kind == "Knockback" then
 			cells[event.target] = { event.column, event.row }
 		end
 	end
@@ -199,7 +256,7 @@ function CastReader.read(units: { any }, events: { any }, abilityOf: (number, st
 		finish(cast)
 	end
 
-	return { damageTypes = damageTypes, areas = areas }
+	return { damageTypes = damageTypes, areas = areas, areaEvents = areaEvents }
 end
 
 return CastReader

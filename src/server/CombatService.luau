@@ -3,8 +3,10 @@
 -- practice match the scripted enemy board for the round (CombatConfig.enemyBoardsByRound). In a
 -- PvE round (`fight.pve`) side 2 is the match theme's creeps or boss (Pve.enemyBoard), simulated
 -- with the theme's unit types added to UnitConfig.
--- Traits apply to every side the same way, ghosts and practice enemies included; each fight's
--- payload carries both sides' trait summaries (Traits.summary) for display.
+-- Traits and bonds apply to every side the same way, ghosts and practice enemies included
+-- (Traits.combatParams: combat-start bonuses and TraitCombat effects); each fight's payload carries
+-- both sides' trait summaries (Traits.summary) for display. Each result carries both sides' Crew
+-- gold (traitGold), which Match.applyResults pays to real players after PvP fights.
 -- Spectators and eliminated players receive no fight.
 
 local Players = game:GetService("Players")
@@ -83,6 +85,7 @@ function CombatService.runRound(
 
 		local seed = seedRandom:NextInteger(1, 2 ^ 31 - 2)
 		local sides = { boards[fight.a] or {}, sideB or {} }
+		local startBonuses, traitSetups = Traits.combatParams(sides[1], sides[2], fight.pve ~= nil)
 		local result = CombatSim.run({
 			boards = sides,
 			columns = BoardConfig.columns,
@@ -92,10 +95,8 @@ function CombatService.runRound(
 			maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
 			timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
 			seed = seed,
-			startBonuses = {
-				Traits.bonuses(sides[1]),
-				if fight.pve then {} else Traits.bonuses(sides[2]),
-			},
+			startBonuses = startBonuses,
+			traits = traitSetups,
 		})
 		longestTicks = math.max(longestTicks, result.endTick)
 		table.insert(results, {
@@ -103,6 +104,7 @@ function CombatService.runRound(
 			winner = result.winner,
 			survivors = result.survivors,
 			healthPercent = result.healthPercent,
+			traitGold = { result.traitResults[1].gold, result.traitResults[2].gold },
 		})
 
 		local sideUserIds = { fight.a, sideBUserId }

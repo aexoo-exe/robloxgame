@@ -145,8 +145,14 @@ local function playRound(match: Match.Match, names: { [number]: string })
 
 	local summary = Match.applyResults(match, results)
 	PlayerService.recordOutcomes(summary.outcomes)
+	PlayerService.grantTraitGold(summary.traitGold)
 	for userId, outcome in summary.outcomes do
-		setPlayerAttribute(userId, "LastResult", resultText(outcome, summary.damage[userId]))
+		local text = resultText(outcome, summary.damage[userId])
+		local crewGold = summary.traitGold[userId]
+		if crewGold then
+			text ..= string.format(", +%d gold (Crew)", crewGold)
+		end
+		setPlayerAttribute(userId, "LastResult", text)
 		setPlayerAttribute(userId, "LastOutcome", outcome)
 		setPlayerAttribute(userId, "LastDamage", summary.damage[userId] or 0)
 	end

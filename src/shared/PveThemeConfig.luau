@@ -78,11 +78,12 @@ local themes = {
 
 			-- boss(HP, AD, armor, MR, attack speed, max mana, slam damage, slam stun seconds, look)
 			-- Health is final combat health, set from the sim's boss calibration report (tuning pass
-			-- 1B; was 6496 / 11832 / 20300 / 26100). Damage, armor and the slam are unchanged.
-			placeholder_boss_stage2 = boss(24500, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
-			placeholder_boss_stage3 = boss(30000, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
-			placeholder_boss_stage4 = boss(32000, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
-			placeholder_boss_stage5 = boss(33000, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
+			-- 1B; was 6496 / 11832 / 20300 / 26100; Overhaul 1 tuning A, was 24500 / 30000 / 32000 /
+			-- 33000). Damage, armor and the slam are unchanged.
+			placeholder_boss_stage2 = boss(28700, 55, 30, 30, 0.70, 150, 120, 0.75, BOSS_LOOK),
+			placeholder_boss_stage3 = boss(33800, 80, 45, 45, 0.70, 150, 220, 1.0, BOSS_LOOK),
+			placeholder_boss_stage4 = boss(36400, 110, 60, 60, 0.70, 150, 350, 1.0, BOSS_LOOK),
+			placeholder_boss_stage5 = boss(37600, 145, 75, 75, 0.70, 150, 500, 1.25, BOSS_LOOK),
 		},
 
 		-- Opening creep rounds, by round number. Every player fights the same lineup.

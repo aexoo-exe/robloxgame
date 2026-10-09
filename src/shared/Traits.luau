@@ -9,17 +9,29 @@
 --     together, per stat. MEMBERS effects go to every placed unit with the trait (copies included),
 --     ALL_ALLIES effects to every placed unit.
 -- Bonuses are plain data; CombatSim applies them at combat start (Battle.applyStartBonus).
+-- Effects during the fight (marks, takedown boosts, meters, dummies, bonds) come from
+-- Traits.fightSetup, which CombatSim hands to TraitCombat.
+-- Bonds (BondConfig) are active when both their characters are placed.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
+local BondConfig = if script then require(script.Parent.BondConfig) else require("./BondConfig")
 local TraitConfig = if script then require(script.Parent.TraitConfig) else require("./TraitConfig")
 local UnitConfig = if script then require(script.Parent.UnitConfig) else require("./UnitConfig")
 
 local Traits = {}
 
--- A unit's combat-start bonus: summed stat changes, and shields to apply.
+-- A unit's combat-start bonus: summed stat changes, shields to apply and starting mana.
 export type Bonus = {
 	stats: { [string]: { flat: number, percent: number } },
 	shields: { { amount: number, duration: number, source: string } },
+	mana: number,
+}
+
+-- One side's traits and bonds for TraitCombat: each active trait's level, params and members (unit
+-- ids), and each active bond with its members.
+export type FightSetup = {
+	traits: { [string]: { level: number, params: any?, members: { [string]: boolean } } },
+	bonds: { { bond: any, members: { [string]: boolean } } },
 }
 
 -- One trait on a board, for display and reports.
@@ -33,9 +45,13 @@ export type TraitState = {
 	active: boolean,
 }
 
--- Trait names of one character: its origin, then its classes.
+-- Trait names of one character: its origin, then its classes. Unit types that are not
+-- characters (creeps, bosses) have none.
 function Traits.traitsOf(unitType: string): { string }
 	local unit = UnitConfig[unitType]
+	if not unit then
+		return {}
+	end
 	local names = { unit.origin }
 	for _, class in unit.classes do
 		table.insert(names, class)
@@ -116,7 +132,17 @@ function Traits.summary(units: { any }, config: { [string]: any }?): { TraitStat
 end
 
 local function newBonus(): Bonus
-	return { stats = {}, shields = {} }
+	return { stats = {}, shields = {}, mana = 0 }
+end
+
+-- True if an effect with `target` reaches a unit, given whether it has the trait.
+local function reaches(target: string, member: boolean): boolean
+	if target == "ALL_ALLIES" then
+		return true
+	elseif target == "NON_MEMBERS" then
+		return not member
+	end
+	return member
 end
 
 -- Combat-start bonuses for `units` (each with an id and a unitType): unit id -> Bonus. Units with
@@ -136,9 +162,8 @@ function Traits.bonuses(units: { any }, config: { [string]: any }?): { [string]:
 		if level > 0 then
 			for _, effect in (config :: any)[trait].breakpoints[level].effects do
 				for _, unit in units do
-					local receives = effect.target == "ALL_ALLIES"
-						or table.find(Traits.traitsOf(unit.unitType), trait) ~= nil
-					if receives then
+					local member = table.find(Traits.traitsOf(unit.unitType), trait) ~= nil
+					if reaches(effect.target, member) then
 						local bonus = result[unit.id] or newBonus()
 						result[unit.id] = bonus
 						if effect.type == "BUFF" then
@@ -151,6 +176,8 @@ function Traits.bonuses(units: { any }, config: { [string]: any }?): { [string]:
 								bonus.shields,
 								{ amount = effect.amount, duration = effect.duration, source = trait }
 							)
+						elseif effect.type == "MANA" then
+							bonus.mana += effect.amount
 						end
 					end
 				end
@@ -158,6 +185,107 @@ function Traits.bonuses(units: { any }, config: { [string]: any }?): { [string]:
 		end
 	end
 	return result
+end
+
+-- Bonds (BondConfig) active among `units`: both characters placed. Returns the bond entries.
+function Traits.bonds(units: { any }, bondConfig: { any }?): { any }
+	local placed = {}
+	for _, unit in units do
+		placed[unit.unitType] = true
+	end
+	local active = {}
+	for _, bond in bondConfig or BondConfig do
+		if placed[bond.units[1]] and placed[bond.units[2]] then
+			table.insert(active, bond)
+		end
+	end
+	return active
+end
+
+-- The fight setup of one side (Traits.FightSetup) for TraitCombat: active traits with their
+-- breakpoint's params and their members' unit ids, and active bonds with their members (every copy
+-- of the two characters).
+function Traits.fightSetup(units: { any }, config: { [string]: any }?, bondConfig: { any }?): FightSetup
+	config = config or TraitConfig
+	local counts = Traits.count(units, config)
+	local setup = { traits = {}, bonds = {} }
+	for trait, count in counts do
+		local level = Traits.levelFor(trait, count, config)
+		if level > 0 then
+			local memberIds = {}
+			for _, unit in units do
+				if table.find(Traits.traitsOf(unit.unitType), trait) then
+					memberIds[unit.id] = true
+				end
+			end
+			setup.traits[trait] = {
+				level = level,
+				params = (config :: any)[trait].breakpoints[level].params,
+				members = memberIds,
+			}
+		end
+	end
+	for _, bond in Traits.bonds(units, bondConfig) do
+		local memberIds = {}
+		for _, unit in units do
+			if unit.unitType == bond.units[1] or unit.unitType == bond.units[2] then
+				memberIds[unit.id] = true
+			end
+		end
+		table.insert(setup.bonds, { bond = bond, members = memberIds })
+	end
+	return setup
+end
+
+-- Everything CombatSim needs for traits on both sides of a fight: startBonuses and traits params.
+-- `pveSide2` leaves side 2 without traits (creeps and bosses).
+function Traits.combatParams(side1: { any }, side2: { any }, pveSide2: boolean?)
+	return { Traits.bonuses(side1), if pveSide2 then {} else Traits.bonuses(side2) }, {
+		Traits.fightSetup(side1),
+		if pveSide2 then { traits = {}, bonds = {} } else Traits.fightSetup(side2),
+	}
+end
+
+local EFFECT_TYPES = { BUFF = true, SHIELD = true, MANA = true }
+local TARGETS = { MEMBERS = true, ALL_ALLIES = true, NON_MEMBERS = true }
+
+-- Checks a trait config's shape: kinds, ascending whole breakpoint counts, and known effects and
+-- targets. `statFields` (Battle.StatFields) checks buff stats when given. Returns true, or false
+-- and a reason.
+function Traits.validate(config: { [string]: any }, statFields: { [string]: any }?): (boolean, string?)
+	for name, trait in config do
+		if trait.kind ~= "origin" and trait.kind ~= "class" then
+			return false, name .. ": kind must be origin or class"
+		end
+		if type(trait.breakpoints) ~= "table" or #trait.breakpoints == 0 then
+			return false, name .. ": needs breakpoints"
+		end
+		local last = 0
+		for index, breakpoint in trait.breakpoints do
+			local where = string.format("%s breakpoint %d", name, index)
+			local count = breakpoint.count
+			if type(count) ~= "number" or count ~= math.floor(count) or count <= last then
+				return false, where .. ": counts must be whole and ascending"
+			end
+			last = count
+			for _, effect in breakpoint.effects or {} do
+				if not EFFECT_TYPES[effect.type] or not TARGETS[effect.target] then
+					return false, where .. ": unknown effect or target"
+				end
+				if effect.type == "BUFF" then
+					if statFields and not statFields[effect.stat] then
+						return false, where .. ": unknown stat " .. tostring(effect.stat)
+					end
+					if effect.flat == nil and effect.percent == nil then
+						return false, where .. ": a buff needs flat or percent"
+					end
+				elseif type(effect.amount) ~= "number" then
+					return false, where .. ": needs an amount"
+				end
+			end
+		end
+	end
+	return true
 end
 
 return Traits
