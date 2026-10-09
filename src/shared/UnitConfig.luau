@@ -28,8 +28,10 @@
 local AbilityConfig = if script then require(script.Parent.AbilityConfig) else require("./AbilityConfig")
 local FormConfig = if script then require(script.Parent.FormConfig) else require("./FormConfig")
 
+-- Freezes a table and every table inside it. Tables that are already frozen (shared between
+-- entries, or frozen by another config module) are left as they are.
 local function freezeAll(value)
-	if type(value) == "table" then
+	if type(value) == "table" and not table.isfrozen(value) then
 		for _, child in value do
 			freezeAll(child)
 		end
