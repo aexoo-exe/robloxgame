@@ -11,6 +11,8 @@
 -- effects; Crew takedown gold paid after PvP fights). The report adds bond use, fight-time trait
 -- effects, Crew gold, and (Mechanics) form changes for every unit with forms and the Overhaul 1
 -- pieces (areas by shape, bounces, knockbacks, debuffs, executes, ...).
+-- Items (docs/items.md) are offered after the item rounds; bots pick and equip (sim/Bot.luau) and the
+-- report has an item section.
 -- With 8 players, seat 4 is the trait bot (Bot.traitPolicy, in place of the "no copies" bot); the
 -- report shows it under results by strategy and per committed trait (steps reached, placement). PvE fights are left out of the
 -- per-character, mechanics and timeout reports (those measure the roster against itself) and are
@@ -35,6 +37,115 @@ local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
 local UnitPool = require("../src/shared/UnitPool")
+local ItemConfig = require("../src/shared/ItemConfig")
+local Items = require("../src/shared/Items")
+
+-- Items (docs/items.md). Per item: times offered and picked, final placements of players who held
+-- it, and the damage, healing and shielding its effect caused (events tagged `item`).
+local itemStats = {}
+for _, id in Items.ids() do
+	itemStats[id] = { offered = 0, picked = 0, holders = 0, placementSum = 0, damage = 0, heal = 0, shield = 0 }
+end
+local itemsByRound = {} -- round -> { items, players }
+local fightsByItems = {} -- bucket name -> { fights, seconds }
+local bossByItems = {} -- bucket name -> { boards, damage }
+local clockMarksmen = { with = { units = 0, damage = 0 }, without = { units = 0, damage = 0 } }
+local allDamage = 0
+
+-- Buckets of equipped item counts.
+local function itemBucket(count: number): string
+	if count == 0 then
+		return "0"
+	elseif count <= 2 then
+		return "1-2"
+	elseif count <= 5 then
+		return "3-5"
+	elseif count <= 9 then
+		return "6-9"
+	end
+	return "10+"
+end
+local ITEM_BUCKETS = { "0", "1-2", "3-5", "6-9", "10+" }
+
+local function equippedCount(board): number
+	local count = 0
+	for _, unit in board do
+		count += #(unit.items or {})
+	end
+	return count
+end
+
+-- Items a player holds: inventory and everything on their units.
+local function heldItems(state): { [string]: boolean }
+	local held = {}
+	for _, id in state.inventory do
+		held[id] = true
+	end
+	for _, unit in state.board.units do
+		for _, id in unit.items or {} do
+			held[id] = true
+		end
+	end
+	return held
+end
+
+local function heldCount(state): number
+	local count = #state.inventory
+	for _, unit in state.board.units do
+		count += #(unit.items or {})
+	end
+	return count
+end
+
+-- Picks, counted by wrapping PlayerState.pickItem (the bots' behavior is unchanged).
+do
+	local original = PlayerState.pickItem
+	PlayerState.pickItem = function(state, index)
+		local offer = state.itemOffer
+		local accepted, reason = original(state, index)
+		if accepted and offer and itemStats[offer[index]] then
+			itemStats[offer[index]].picked += 1
+		end
+		return accepted, reason
+	end
+end
+
+-- A PvP fight's item numbers: length by equipped items, item effect totals, and Runaway Clock on
+-- Marksman units.
+local function recordItemFight(result, sides)
+	local bucket = itemBucket(equippedCount(sides[1]) + equippedCount(sides[2]))
+	local entry = fightsByItems[bucket] or { fights = 0, seconds = 0 }
+	entry.fights += 1
+	entry.seconds += result.endTick / result.ticksPerSecond
+	fightsByItems[bucket] = entry
+
+	local dealt = {}
+	for _, event in result.events do
+		if event.kind == "Attack" or event.kind == "Damage" then
+			allDamage += event.damage
+			dealt[event.unit] = (dealt[event.unit] or 0) + event.damage
+		end
+		local stats = event.item and itemStats[event.item]
+		if stats then
+			if event.kind == "Attack" or event.kind == "Damage" then
+				stats.damage += event.damage
+			elseif event.kind == "Heal" then
+				stats.heal += event.amount
+			elseif event.kind == "Shield" then
+				stats.shield += event.shield
+			end
+		end
+	end
+	for _, unit in result.units do
+		if table.find(UnitConfig[unit.unitType] and UnitConfig[unit.unitType].classes or {}, "Marksman") then
+			local group = if table.find(unit.items or {}, "runaway_clock")
+				then clockMarksmen.with
+				else clockMarksmen.without
+			group.units += 1
+			group.damage += dealt[unit.index] or 0
+		end
+	end
+end
 
 local MATCHES = tonumber(process.args[1]) or 200
 local PLAYERS = tonumber(process.args[2]) or 8
@@ -329,6 +440,11 @@ local function calibrateBoss(board, match, seed: number)
 	end
 	local entry = bossCalibration[match.round] or { damages = {}, seconds = 0, bossHealth = boss.maxHealth }
 	table.insert(entry.damages, dealt)
+	local bucket = itemBucket(equippedCount(board))
+	local withItems = bossByItems[bucket] or { boards = 0, damage = 0 }
+	withItems.boards += 1
+	withItems.damage += dealt
+	bossByItems[bucket] = withItems
 	entry.seconds += result.endTick / result.ticksPerSecond
 	bossCalibration[match.round] = entry
 end
@@ -593,6 +709,7 @@ local function playMatch(matchIndex: number)
 	local seenThreeStar = {} -- unit ids already counted
 	local matchHasThreeStar = {}
 	local roundBoards = {}
+	local finalItems = {} -- items each eliminated player held when eliminated
 	local completedRound = {} -- rerolling bots: round of their first 3-star at their cost
 	local rollStartRound = {} -- rerolling bots: round of their first roll at the roll level
 
@@ -620,6 +737,10 @@ local function playMatch(matchIndex: number)
 				boards[id] = Board.getPlacedUnits(states[id].board)
 			end
 			lastBoards[id] = boards[id]
+			local count = itemsByRound[round] or { items = 0, players = 0 }
+			count.items += heldCount(states[id])
+			count.players += 1
+			itemsByRound[round] = count
 			for cost = 1, 5 do
 				if UnitPool.tierRemaining(pool, cost) == 0 then
 					tierEmptied[cost] = true
@@ -658,6 +779,7 @@ local function playMatch(matchIndex: number)
 				recordFight(result)
 				recordSupport(result)
 				Mechanics.record(result)
+				recordItemFight(result, { boards[fight.a], enemyBoard(fight, boards, match) })
 				recordTraitEffects(result, { boards[fight.a], enemyBoard(fight, boards, match) })
 				recordTimeoutData({ boards[fight.a], enemyBoard(fight, boards, match) }, result.timedOut)
 				stats.fights += 1
@@ -699,7 +821,18 @@ local function playMatch(matchIndex: number)
 		end
 		for _, id in summary.eliminated do
 			recordFailedTargets(states[id], policies[id], memories[id])
+			finalItems[id] = heldItems(states[id])
 			PlayerState.releaseAll(states[id])
+		end
+		-- Item choices after the round-3 creep fight and every boss fight (as RoundService does).
+		local offerSize = Items.offerSize(match.round)
+		if offerSize > 0 and not match.finished then
+			for _, id in Match.activeIds(match) do
+				PlayerState.offerItems(states[id], offerSize)
+				for _, itemId in states[id].itemOffer or {} do
+					itemStats[itemId].offered += 1
+				end
+			end
 		end
 		assert(match.round < 200, "match did not end")
 	end
@@ -710,6 +843,12 @@ local function playMatch(matchIndex: number)
 	local placements = {}
 	for id, player in match.players do
 		placements[id] = player.placement
+	end
+	for id, placement in placements do
+		for itemId in finalItems[id] or heldItems(states[id]) do
+			itemStats[itemId].holders += 1
+			itemStats[itemId].placementSum += placement
+		end
 	end
 	recordTraitUse(roundBoards, match.round, placements)
 	for id, placement in placements do
@@ -1219,6 +1358,64 @@ end
 print(string.format("Outside the band: %d of %d. Worst: %s", #outliers, #names, table.concat(worst, ", ")))
 Mechanics.report()
 
+-- Items (docs/items.md).
+print("Items: pick rate (picked / offered), average final placement of players who held it at the end")
+print("(holders), and what its effect did over all PvP fights (damage, healing, shielding; share of all damage)")
+for _, id in Items.ids() do
+	local stats = itemStats[id]
+	print(
+		string.format(
+			"  %-20s %-9s picked %5.1f%% (%d/%d), placement %s (%d), damage %.0f (%.2f%%), heal %.0f, shield %.0f",
+			id,
+			ItemConfig.items[id].category,
+			if stats.offered > 0 then stats.picked / stats.offered * 100 else 0,
+			stats.picked,
+			stats.offered,
+			if stats.holders > 0 then string.format("%.2f", stats.placementSum / stats.holders) else "-",
+			stats.holders,
+			stats.damage,
+			if allDamage > 0 then stats.damage / allDamage * 100 else 0,
+			stats.heal,
+			stats.shield
+		)
+	)
+end
+local roundNumbers = {}
+for round in itemsByRound do
+	table.insert(roundNumbers, round)
+end
+table.sort(roundNumbers)
+local roundParts = {}
+for _, round in roundNumbers do
+	local entry = itemsByRound[round]
+	table.insert(roundParts, string.format("r%d %.2f", round, entry.items / math.max(1, entry.players)))
+end
+print("Items held per player by round: " .. table.concat(roundParts, ", "))
+local lengthParts, bossParts = {}, {}
+for _, bucket in ITEM_BUCKETS do
+	local fights = fightsByItems[bucket]
+	if fights then
+		table.insert(
+			lengthParts,
+			string.format("%s items %.1fs (%d)", bucket, fights.seconds / fights.fights, fights.fights)
+		)
+	end
+	local boss = bossByItems[bucket]
+	if boss then
+		table.insert(bossParts, string.format("%s items %.0f (%d)", bucket, boss.damage / boss.boards, boss.boards))
+	end
+end
+print("PvP fight length by equipped items (both boards): " .. table.concat(lengthParts, ", "))
+print("Boss calibration damage per board by equipped items: " .. table.concat(bossParts, ", "))
+print(
+	string.format(
+		"Marksman units, damage per fight: with runaway_clock %.0f (%d), without %.0f (%d)",
+		clockMarksmen.with.damage / math.max(1, clockMarksmen.with.units),
+		clockMarksmen.with.units,
+		clockMarksmen.without.damage / math.max(1, clockMarksmen.without.units),
+		clockMarksmen.without.units
+	)
+)
 -- PvE rounds: per round, how often players won and the gold paid; for boss rounds the average share
 -- of boss health removed and the kill rate.
 print(
