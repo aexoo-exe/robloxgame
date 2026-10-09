@@ -21,6 +21,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local ItemSkinConfig = require(Shared:WaitForChild("ItemSkinConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local Figure = require(script.Parent.Figure)
@@ -120,6 +122,7 @@ export type Options = {
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
 	starPips: boolean?, -- show star pips (default true; creeps, bosses and summons pass false)
 	clock: (() -> number)?, -- time source for every animation (default os.clock)
+	items: { string }?, -- equipped item ids: a row of small item pips over the health bar
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -151,6 +154,35 @@ local function bar(parent: Instance, top: number, height: number): Frame
 	stroke.Thickness = 1
 	stroke.Parent = frame
 	return frame
+end
+
+-- Item pips: one small square per equipped item in its category's color, left-aligned (just over
+-- the left end of the health bar).
+local function itemPips(parent: Instance, items: { string }, height: number)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.fromScale(1, height)
+	row.BackgroundTransparency = 1
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Padding = UDim.new(0.03, 0)
+	layout.Parent = row
+	for _, itemId in items do
+		local entry = ItemConfig.items[itemId]
+		local rgb = entry and ItemSkinConfig.categoryColors[entry.category] or { 150, 150, 150 }
+		local pip = Instance.new("Frame")
+		pip.Size = UDim2.fromScale(0.85, 0.85)
+		pip.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		pip.BackgroundColor3 = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+		pip.BorderSizePixel = 0
+		pip.Parent = row
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = OVERHEAD.barBackground
+		stroke.Thickness = 1
+		stroke.Parent = pip
+	end
+	row.Parent = parent
 end
 
 -- Star pips: one small diamond per star, centered, in the star level's color.
@@ -251,6 +283,9 @@ function UnitView.new(
 	if options.maxFormHealth then
 		table.insert(rows, { kind = "form", height = OVERHEAD.formBarHeight })
 	end
+	if options.items and #options.items > 0 then
+		table.insert(rows, { kind = "items", height = OVERHEAD.itemPipHeight })
+	end
 	table.insert(rows, { kind = "health", height = OVERHEAD.healthBarHeight })
 	table.insert(rows, { kind = "mana", height = OVERHEAD.manaBarHeight })
 	local boardHeight = 0
@@ -270,6 +305,13 @@ function UnitView.new(
 		local height = row.height / boardHeight
 		if row.kind == "pips" then
 			starPips(infoBoard, starLevel, height)
+		elseif row.kind == "items" then
+			local holder = Instance.new("Frame")
+			holder.Position = UDim2.fromScale(0, top)
+			holder.Size = UDim2.fromScale(1, height)
+			holder.BackgroundTransparency = 1
+			holder.Parent = infoBoard
+			itemPips(holder, options.items :: { string }, 1)
 		elseif row.kind == "form" then
 			formBar = bar(infoBoard, top, height)
 			formFill = fill(formBar :: Frame, RenderConfig.formHealthColor)

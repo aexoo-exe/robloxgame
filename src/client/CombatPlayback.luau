@@ -131,10 +131,12 @@ local function play(playback)
 				formLook = formLook(form),
 				starPips = character, -- creeps and bosses have no star level to show
 				clock = fightNow,
+				items = unit.items,
 			})
 		-- For the hover tooltip and the unit info panel.
 		views[unit.index].part:SetAttribute("UnitType", unit.unitType)
 		views[unit.index].part:SetAttribute("StarLevel", unit.starLevel)
+		views[unit.index].part:SetAttribute("Items", table.concat(unit.items or {}, ","))
 	end
 
 	-- Boss abilities get a callout; ordinary casts only glow.

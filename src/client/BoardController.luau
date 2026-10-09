@@ -17,6 +17,8 @@
 -- Selecting a unit, or tapping any unit during a fight, inspects it: callbacks registered with
 -- BoardController.onInspect get its type and star level (the unit info panel listens). Units
 -- whose star level went up since the last snapshot are reported to BoardController.onUpgrade.
+-- While an item is picked up (ItemSelection), a tap on one of the player's units goes to the unit
+-- tap handler (BoardController.setUnitTapHandler) instead of selecting it.
 
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -52,7 +54,14 @@ local requestSellUnit: RemoteEvent
 
 -- A unit being inspected: its type, star level and, for the player's own units, its id and whether
 -- it is on the bench.
-export type Inspected = { unitType: string, starLevel: number, unitId: string?, onBench: boolean? }
+export type Inspected = {
+	unitType: string,
+	starLevel: number,
+	unitId: string?,
+	onBench: boolean?,
+	items: { string }?, -- equipped item ids
+}
+local unitTapHandler: ((string) -> boolean)? = nil
 local inspectCallbacks: { (Inspected?) -> () } = {}
 local upgradeCallbacks: { (any) -> () } = {}
 local dragCallbacks: { (string?, boolean) -> () } = {}
@@ -81,7 +90,25 @@ local function canAct(): boolean
 end
 
 local function infoOf(unit): Inspected
-	return { unitType = unit.unitType, starLevel = unit.starLevel, unitId = unit.id, onBench = unit.slot ~= nil }
+	return {
+		unitType = unit.unitType,
+		starLevel = unit.starLevel,
+		unitId = unit.id,
+		onBench = unit.slot ~= nil,
+		items = unit.items,
+	}
+end
+
+-- The item ids a fighting unit's view carries (the Items attribute, comma-separated).
+local function itemsAttribute(part: Instance): { string }
+	local text = part:GetAttribute("Items")
+	local items = {}
+	if type(text) == "string" then
+		for id in string.gmatch(text, "[^,]+") do
+			table.insert(items, id)
+		end
+	end
+	return items
 end
 
 local function unitById(unitId: string)
@@ -209,8 +236,10 @@ local function render()
 			formLook = if form then RenderConfig.formLooks[form.name] else nil,
 			formHealth = formPool,
 			maxFormHealth = formPool,
+			items = unit.items,
 		})
 		view.part:SetAttribute("UnitId", unit.id)
+		view.part:SetAttribute("Items", table.concat(unit.items or {}, ","))
 		-- For the hover tooltip and the unit info panel.
 		view.part:SetAttribute("UnitType", unit.unitType)
 		view.part:SetAttribute("StarLevel", unit.starLevel)
@@ -278,7 +307,12 @@ local function onClick(screenPosition: Vector2)
 	if not unitId and unitType and UnitConfig[unitType] then
 		-- A fighting unit: inspect it.
 		selectUnit(nil)
-		inspect({ unitType = unitType, starLevel = part:GetAttribute("StarLevel") or 1 })
+		inspect({ unitType = unitType, starLevel = part:GetAttribute("StarLevel") or 1, items = itemsAttribute(part) })
+		return
+	end
+	-- An item is picked up: the tap places it on this unit.
+	if unitId and unitTapHandler and unitTapHandler(unitId) then
+		selectUnit(nil)
 		return
 	end
 	if unitId and (selectedId == nil or unitId == selectedId) then
@@ -402,6 +436,17 @@ local function onFrame(now: number, dt: number)
 	end
 end
 
+-- While `handler` is set, a tap on one of the player's units calls handler(unitId) first; if it
+-- returns true the tap is used up (placing an item). nil removes it.
+function BoardController.setUnitTapHandler(handler: ((string) -> boolean)?)
+	unitTapHandler = handler
+end
+
+-- One of the player's units from the latest snapshot (with its items), or nil.
+function BoardController.getUnit(unitId: string): any?
+	return unitById(unitId)
+end
+
 -- The selected unit's id, used by the sell button.
 function BoardController.getSelectedUnitId(): string?
 	return selectedId
@@ -489,7 +534,11 @@ function BoardController.start()
 			local hit = Arena.raycast(position)
 			local unitType = if hit then hit.Instance:GetAttribute("UnitType") else nil
 			if unitType and UnitConfig[unitType] then
-				inspect({ unitType = unitType, starLevel = hit.Instance:GetAttribute("StarLevel") or 1 })
+				inspect({
+					unitType = unitType,
+					starLevel = hit.Instance:GetAttribute("StarLevel") or 1,
+					items = itemsAttribute(hit.Instance),
+				})
 			else
 				inspect(nil)
 			end
@@ -499,6 +548,10 @@ function BoardController.start()
 		-- A press on a unit (with nothing else selected) may become a drag; decide on release.
 		local hit = Arena.raycast(position)
 		local unitId = if hit then hit.Instance:GetAttribute("UnitId") else nil
+		-- With an item picked up, a press on a unit is a tap for the item, never a drag.
+		if unitId and unitTapHandler and unitTapHandler(unitId) then
+			return
+		end
 		if unitId and (selectedId == nil or unitId == selectedId) and not press then
 			press = { unitId = unitId, start = position, input = input }
 			return

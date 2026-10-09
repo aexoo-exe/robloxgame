@@ -21,6 +21,7 @@ return table.freeze({
 	overhead = table.freeze({
 		width = 3.2,
 		pipHeight = 0.34,
+		itemPipHeight = 0.24, -- the row of equipped-item pips over the health bar
 		formBarHeight = 0.18,
 		healthBarHeight = 0.3,
 		manaBarHeight = 0.11,
