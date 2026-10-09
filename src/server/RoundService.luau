@@ -26,6 +26,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Economy = require(ReplicatedStorage.Shared.Economy)
+local Items = require(ReplicatedStorage.Shared.Items)
 local Match = require(ReplicatedStorage.Shared.Match)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local MatchRules = require(ReplicatedStorage.Shared.MatchRules)
@@ -182,6 +183,11 @@ local function playRound(match: Match.Match, names: { [number]: string })
 		print(string.format("[RoundService] %s eliminated, placement %d", names[userId], placement or 0))
 	end
 	publishPlayers(match)
+	-- Item choices after the round-3 creep fight and every boss fight, won or not (ItemConfig.offers).
+	local offer = Items.offerSize(round)
+	if offer > 0 and not match.finished then
+		PlayerService.offerItems(offer)
+	end
 
 	setPhase(Phase.Results, MatchConfig.resultsDuration)
 	task.wait(MatchConfig.resultsDuration)

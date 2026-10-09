@@ -154,4 +154,82 @@ table.insert(tests, {
 	end,
 })
 
+-- Item choices -------------------------------------------------------------------------------------
+
+local Items = require("../src/shared/Items")
+local SeededRandom = require("../src/shared/SeededRandom")
+
+table.insert(tests, {
+	name = "item choices: rounds 3, 8, 12, 16 offer 3 items and round 20 offers 4",
+	run = function()
+		for round = 1, 25 do
+			local expected = if round == 20
+				then 4
+				elseif round == 3 or round == 8 or round == 12 or round == 16 then 3
+				else 0
+			expectEqual(Items.offerSize(round), expected, "round " .. round)
+		end
+	end,
+})
+
+table.insert(tests, {
+	name = "item choices: one offensive, one ability, one defensive, no duplicates, seeded",
+	run = function()
+		local Category = ItemConfig.Category
+		for seed = 1, 50 do
+			for _, count in { 3, 4 } do
+				local offer = Items.rollOffer(SeededRandom.new(seed), count)
+				expectEqual(#offer, count, "offer size")
+				local seen = {}
+				for i, id in offer do
+					assert(Items.isItem(id), "unknown item " .. tostring(id))
+					assert(not seen[id], "duplicate in an offer")
+					seen[id] = true
+					local wanted = ({ Category.Offensive, Category.Ability, Category.Defensive })[i]
+					if wanted then
+						expectEqual(ItemConfig.items[id].category, wanted, "slot " .. i .. " category")
+					end
+				end
+				local again = Items.rollOffer(SeededRandom.new(seed), count)
+				expectEqual(table.concat(again, ","), table.concat(offer, ","), "same seed, same offer")
+			end
+		end
+		expectEqual(#Items.ids(), 15, "fifteen items")
+	end,
+})
+
+table.insert(tests, {
+	name = "item choices: pick one; unpicked, the first is taken when Preparation ends",
+	run = function()
+		local state = newPlayer()
+		PlayerState.offerItems(state, 3)
+		local offer = table.clone(state.itemOffer)
+		assert(PlayerState.pickItem(state, 2), "pick the second")
+		expectEqual(state.inventory[1], offer[2], "picked into the inventory")
+		expectEqual(state.itemOffer, nil, "the choice closes")
+		local ok, reason = PlayerState.pickItem(state, 1)
+		assert(not ok and reason == PlayerState.Refusal.NoItemOffer, "nothing left to pick")
+
+		PlayerState.offerItems(state, 3)
+		local second = table.clone(state.itemOffer)
+		expectEqual(PlayerState.getView(state).itemOffer[1], second[1], "the view shows the choice")
+		PlayerState.startCombat(state)
+		expectEqual(state.inventory[2], second[1], "the first item taken at the end of Preparation")
+		expectEqual(state.itemOffer, nil, "closed")
+	end,
+})
+
+table.insert(tests, {
+	name = "item choices: a full inventory refuses the pick",
+	run = function()
+		local state = newPlayer()
+		for i = 1, ItemConfig.rules.inventoryCap do
+			state.inventory[i] = "x" .. i
+		end
+		PlayerState.offerItems(state, 3)
+		local ok, reason = PlayerState.pickItem(state, 1)
+		assert(not ok and reason == PlayerState.Refusal.InventoryFull, "full")
+	end,
+})
+
 return tests

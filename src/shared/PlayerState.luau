@@ -28,6 +28,7 @@ local Board = if script then require(script.Parent.Board) else require("./Board"
 local BoardConfig = if script then require(script.Parent.BoardConfig) else require("./BoardConfig")
 local Economy = if script then require(script.Parent.Economy) else require("./Economy")
 local ItemConfig = if script then require(script.Parent.ItemConfig) else require("./ItemConfig")
+local Items = if script then require(script.Parent.Items) else require("./Items")
 local EconomyConfig = if script then require(script.Parent.EconomyConfig) else require("./EconomyConfig")
 local LevelConfig = if script then require(script.Parent.LevelConfig) else require("./LevelConfig")
 local PveConfig = if script then require(script.Parent.PveConfig) else require("./PveConfig")
@@ -47,6 +48,7 @@ PlayerState.Refusal = table.freeze({
 	MaxLevel = "Already at max level",
 	BoardLocked = "Board is locked during combat",
 	ItemsLocked = "Items can't change during combat",
+	NoItemOffer = "No item to pick",
 	ItemSlotsFull = "That unit has no free item slot",
 	DuplicateItem = "A unit can't hold two of the same item",
 	InventoryFull = "Item inventory is full",
@@ -128,8 +130,10 @@ function PlayerState.new(seed: number, pool: UnitPool.Pool?): PlayerState
 	return state
 end
 
--- Combat starts: the board locks and merges needing a board copy wait.
+-- Combat starts (Preparation is over): an open item choice takes its first item, the board locks
+-- and merges needing a board copy wait.
 function PlayerState.startCombat(state: PlayerState)
+	PlayerState.resolveItemOffer(state)
 	state.boardLocked = true
 	state.holdBoardMerges = true
 end
@@ -391,6 +395,48 @@ function PlayerState.moveItem(state: PlayerState, unitId: any, slotIndex: any, t
 	table.remove(from.items, slotIndex)
 	table.insert(to.items, item)
 	return true
+end
+
+-- Opens an item choice of `count` items (Items.rollOffer, from the player's own item generator). An
+-- older choice still open takes its first item first.
+function PlayerState.offerItems(state: PlayerState, count: number)
+	PlayerState.resolveItemOffer(state)
+	if count > 0 then
+		state.itemOffer = Items.rollOffer(state.itemRng, count)
+	end
+end
+
+-- Picks item `offerIndex` of the open item choice into the inventory. Refused without an open
+-- choice, or when the inventory is full.
+function PlayerState.pickItem(state: PlayerState, offerIndex: any): (boolean, string?)
+	local offer = state.itemOffer
+	if not offer then
+		return false, PlayerState.Refusal.NoItemOffer
+	end
+	if not isIndex(offerIndex, #offer) then
+		return false
+	end
+	if #state.inventory >= ItemConfig.rules.inventoryCap then
+		return false, PlayerState.Refusal.InventoryFull
+	end
+	table.insert(state.inventory, offer[offerIndex])
+	state.itemOffer = nil
+	return true
+end
+
+-- Closes an open item choice by taking its first item (lost if the inventory is full). Called when
+-- Preparation ends (startCombat) and before a new choice opens. Returns the item taken, if any.
+function PlayerState.resolveItemOffer(state: PlayerState): string?
+	local offer = state.itemOffer
+	if not offer then
+		return nil
+	end
+	state.itemOffer = nil
+	if #state.inventory < ItemConfig.rules.inventoryCap and offer[1] then
+		table.insert(state.inventory, offer[1])
+		return offer[1]
+	end
+	return nil
 end
 
 function PlayerState.getView(state: PlayerState): View
