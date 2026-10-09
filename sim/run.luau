@@ -10,7 +10,9 @@
 -- Traits and bonds work as on the server (Traits.combatParams: combat-start bonuses and TraitCombat
 -- effects; Crew takedown gold paid after PvP fights). The report adds bond use, fight-time trait
 -- effects, Crew gold, and (Mechanics) form changes for every unit with forms and the Overhaul 1
--- pieces (areas by shape, bounces, knockbacks, debuffs, executes, ...). PvE fights are left out of the
+-- pieces (areas by shape, bounces, knockbacks, debuffs, executes, ...).
+-- With 8 players, seat 4 is the trait bot (Bot.traitPolicy, in place of the "no copies" bot); the
+-- report shows it under results by strategy and per committed trait (steps reached, placement). PvE fights are left out of the
 -- per-character, mechanics and timeout reports (those measure the roster against itself) and are
 -- reported in their own section.
 
@@ -486,16 +488,57 @@ local function recordTraitUse(roundBoards, finalRound: number, placements)
 end
 
 local function groupOf(policy): string
+	if policy.traitFocus then
+		return "trait"
+	end
 	return if policy.rerollCost then policy.name else "standard"
 end
 
--- Seat i's strategy: with 8 players, seats 1-4 are standard (cycled), 5-6 reroll 1-cost, 7 reroll
--- 2-cost and 8 reroll 3-cost. Other player counts use standard bots only.
+-- The standard strategies for 8-player sims: every one but "no copies", whose seat the trait bot
+-- takes.
+local STANDARD_FOR_EIGHT = {}
+for _, policy in Bot.policies do
+	if policy.name ~= "no copies" then
+		table.insert(STANDARD_FOR_EIGHT, policy)
+	end
+end
+
+-- Seat i's strategy: with 8 players, seats 1-3 are standard (cycled, without "no copies"), seat 4
+-- is the trait bot, 5-6 reroll 1-cost, 7 reroll 2-cost and 8 reroll 3-cost. Other player counts use
+-- standard bots only.
 local function policyFor(seat: number, matchIndex: number)
-	if PLAYERS == 8 and seat >= 5 then
-		return Bot.rerollPolicies[if seat <= 6 then 1 elseif seat == 7 then 2 else 3]
+	if PLAYERS == 8 then
+		if seat >= 5 then
+			return Bot.rerollPolicies[if seat <= 6 then 1 elseif seat == 7 then 2 else 3]
+		elseif seat == 4 then
+			return Bot.traitPolicy
+		end
+		return STANDARD_FOR_EIGHT[(seat + matchIndex) % #STANDARD_FOR_EIGHT + 1]
 	end
 	return Bot.policies[(seat + matchIndex) % #Bot.policies + 1]
+end
+
+-- Trait bot, per committed trait: seats that committed to it (first or second trait), and for each
+-- step (level) the seats whose board reached it and their summed final placement.
+local traitBot = {}
+
+local function recordTraitBot(policy, memory, placement: number)
+	if not policy.traitFocus then
+		return
+	end
+	for order, trait in memory.focus do
+		local entry = traitBot[trait] or { first = 0, second = 0, reached = {}, placementSum = {} }
+		if order == 1 then
+			entry.first += 1
+		else
+			entry.second += 1
+		end
+		for level = 1, memory.traitSteps[trait] or 0 do
+			entry.reached[level] = (entry.reached[level] or 0) + 1
+			entry.placementSum[level] = (entry.placementSum[level] or 0) + placement
+		end
+		traitBot[trait] = entry
+	end
 end
 
 -- Records the copies a rerolling bot holds of each target it has not finished, and the copies of it
@@ -708,6 +751,7 @@ local function playMatch(matchIndex: number)
 		end
 	end
 	for id, player in match.players do
+		recordTraitBot(policies[id], memories[id], player.placement)
 		local name = groupOf(policies[id])
 		local group = groups[name] or { seats = 0, placementSum = 0, wins = 0, rerollGold = 0 }
 		group.seats += 1
@@ -990,6 +1034,33 @@ for _, name in groupNames do
 			group.seats
 		)
 	)
+end
+-- Trait bot: per trait it committed to, how often its board reached each step and its average
+-- final placement when it did.
+print("Trait bot by committed trait: seats (first / second trait); per step, share of those seats")
+print("whose board reached it, and their average final placement")
+local traitBotNames = {}
+for name in traitBot do
+	table.insert(traitBotNames, name)
+end
+table.sort(traitBotNames)
+for _, name in traitBotNames do
+	local entry = traitBot[name]
+	local seats = entry.first + entry.second
+	local parts = {}
+	for level, breakpoint in TraitConfig[name].breakpoints do
+		local reached = entry.reached[level] or 0
+		table.insert(
+			parts,
+			string.format(
+				"%d: %.0f%%, %s",
+				breakpoint.count,
+				reached / math.max(1, seats) * 100,
+				if reached > 0 then string.format("%.2f", entry.placementSum[level] / reached) else "-"
+			)
+		)
+	end
+	print(string.format("  %-9s %d / %d seats | %s", name, entry.first, entry.second, table.concat(parts, " | ")))
 end
 -- Rerolling bots while rolling (at the roll level with a locked target), per bot per match.
 print("Rerolling bots while rolling (per bot per match; rolling = at the roll level with a locked target):")

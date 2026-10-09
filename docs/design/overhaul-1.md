@@ -327,4 +327,7 @@ combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16
   support and carry ranges (1c 475-800, 2c 550-950, 3c 775-1250, 4c 1050-1650, 5c 1450-2300).- Trims (attack damage and ability scaled by the same factor, target / measured, so the measured
   split stays): burst_vector AD 67 -> 52, area 105/165/265 -> 80/130/205; orbit_breaker AD 68 ->
   54, hit 110/180/285 -> 85/140/225, bounce 50/80/125 -> 40/65/100; severing_temple AD 98 -> 74,
-  area 450/720/1150 -> 340/545/875, damage over time 35/55/90 -> 27/42/68 per second.
+  area 450/720/1150 -> 340/545/875, damage over time 35/55/90 -> 27/42/68 per second.- Trait bot (sim only): with 8 players, seat 4 is a "trait" strategy (sim/Bot.luau header) in place
+  of the "no copies" bot. It commits to the trait it holds most of, buys and fields toward its top
+  step, then a second trait, and completes bonds. The report adds it to results by strategy and
+  lists, per committed trait, how often its board reached each step and its average placement.
