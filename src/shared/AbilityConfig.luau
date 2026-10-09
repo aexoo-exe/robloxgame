@@ -20,6 +20,4 @@ return table.freeze({
 	bloomingAidHealBelowPercent = 70,
 	-- flare_kick: hexes around him searched for the lowest-health enemy.
 	flareKickRange = 2,
-	-- starless_burst: hexes around an enemy counted for the largest cluster.
-	starlessBurstClusterRadius = 2,
 })

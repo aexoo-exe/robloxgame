@@ -331,3 +331,10 @@ combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16
   of the "no copies" bot. It commits to the trait it holds most of, buys and fields toward its top
   step, then a second trait, and completes bonds. The report adds it to results by strategy and
   lists, per committed trait, how often its board reached each step and its average placement.
+## 9. Items 1: starless_burst rework
+
+- starless_burst [Archmage] (replaces the cluster blast and self-stun): a LINE beam of magic from her
+  through her current target and up to 3 hexes past it, 870/1400/2245, +25% per earlier cast this
+  fight (new CASTS bonus: the bonus grows with every cast and lasts the fight); then a shield of
+  250/400/640 for 4s. Mana 20/160 kept. No self-stun; LARGEST_CLUSTER is no longer used by any
+  character (the selector stays in the engine). `AbilityConfig.starlessBurstClusterRadius` removed.

@@ -81,6 +81,8 @@
 --                TARGET_STATUS   1 if the victim has `status` (Battle.Status), else 0
 --                STACKS          the caster's attack stacks when the cast began
 --                RECALLED        summons recalled earlier in this cast
+--                CASTS           the caster's earlier casts this fight (a bonus that grows with
+--                                every cast, for the rest of the fight)
 --
 -- Ability-level options (all optional):
 --   castTime          seconds the caster cannot act after casting (default CombatConfig.castTime;
@@ -181,6 +183,7 @@ Abilities.Bonus = table.freeze({
 	TargetStatus = "TARGET_STATUS",
 	Stacks = "STACKS",
 	Recalled = "RECALLED",
+	Casts = "CASTS",
 })
 
 local Effect = Abilities.Effect
@@ -557,6 +560,8 @@ local function bonusMultiplier(battle, caster, effect, victim, starLevel: number
 		factor = context.stacks
 	elseif bonus.type == Bonus.Recalled then
 		factor = context.recalled
+	elseif bonus.type == Bonus.Casts then
+		factor = math.max(0, (caster.casts or 1) - 1)
 	end
 	return 1 + factor * valueAt(bonus.percent, starLevel) / 100
 end

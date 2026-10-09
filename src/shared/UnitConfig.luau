@@ -517,13 +517,12 @@ roster.elastic_wardrum.forms = {
 		}),
 	},
 }
--- A much longer mana bar: one huge blast on the largest enemy cluster, then she cannot act.
-add(
-	"starless_burst",
-	unit(4, "Arcane", { "Caster", "Marksman" }, 830, 67, 28, 48, 0.80, 4, 1.0, 20, 160),
-	{ area("LARGEST_CLUSTER", 2, "MAGIC", { 370, 595, 955 }) },
-	{ selfStun = 2, clusterRadius = AbilityConfig.starlessBurstClusterRadius }
-)
+-- A long mana bar: a beam from her through her current target and up to 3 hexes past it, 25%
+-- stronger for each earlier cast this fight (CASTS bonus), then a shield.
+add("starless_burst", unit(4, "Arcane", { "Caster", "Marksman" }, 830, 67, 28, 48, 0.80, 4, 1.0, 20, 160), {
+	with(line("CURRENT_TARGET", "MAGIC", { 870, 1400, 2245 }, 3), { bonus = { type = "CASTS", percent = 25 } }),
+	shield("SELF", { 250, 400, 640 }, 4),
+})
 -- A projectile at his current target that becomes a radius-2 area hitting four times over about a
 -- second (clones are drawn around him while he casts; RenderConfig.castClones).
 local echoHit = function(delay)
