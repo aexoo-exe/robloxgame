@@ -561,17 +561,22 @@ add("cyclone_edge", unit(4, "Corps", { "Blade", "Assassin" }, 860, 90, 30, 30, 0
 		},
 	},
 })
--- Each cast summons one curse that stays until killed. With three curses up, the cast recalls them
--- instead and fires a line through his current target, stronger per curse recalled.
-local curses = { type = "SUMMONS_ALIVE", atLeast = AbilityConfig.nightParadeRecallAt }
+-- A cast counter (AbilityConfig.nightParadeCycle = 3): casts 1 and 2 summon a curse that stays until
+-- killed; cast 3 recalls every living curse (even none) and fires a line through his current target
+-- with its base damage plus a bonus per curse recalled; then the count starts over.
+local function paradeCast(fires: boolean)
+	return {
+		type = "CAST_CYCLE",
+		every = AbilityConfig.nightParadeCycle,
+		at = AbilityConfig.nightParadeCycle,
+		negate = not fires,
+	}
+end
 add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 110), {
-	with(
-		lastingSummon(1, { 35, 40, 45 }, { 40, 50, 60 }, 45, 85, 1, 1.0),
-		{ condition = { type = curses.type, atLeast = curses.atLeast, negate = true } }
-	),
-	{ type = "RECALL", condition = curses },
+	with(lastingSummon(1, { 35, 40, 45 }, { 40, 50, 60 }, 45, 85, 1, 1.0), { condition = paradeCast(false) }),
+	{ type = "RECALL", condition = paradeCast(true) },
 	with(line("CURRENT_TARGET", "MAGIC", { 120, 190, 305 }), {
-		condition = curses,
+		condition = paradeCast(true),
 		bonus = { type = "RECALLED", percent = 100 },
 	}),
 })

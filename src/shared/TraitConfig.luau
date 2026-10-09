@@ -52,12 +52,12 @@ return table.freeze({
 			step(4, nil, { bonusPercent = 35, healPercent = 10 }),
 		},
 	},
-	-- A Corps takedown gives all Corps units attack speed briefly. Step 4: the whole team.
+	-- A Corps takedown gives all Corps units attack speed briefly. Step 3: the whole team.
 	Corps = {
 		kind = "origin",
 		breakpoints = {
 			step(2, nil, { attackSpeedPercent = 25, seconds = 3, wholeTeam = false }),
-			step(4, nil, { attackSpeedPercent = 35, seconds = 4, wholeTeam = true }),
+			step(3, nil, { attackSpeedPercent = 35, seconds = 4, wholeTeam = true }),
 		},
 	},
 	-- Spirit units start with a shield. Step 4: bigger, and when it breaks the unit attacks faster.
@@ -79,20 +79,20 @@ return table.freeze({
 			step(6, nil, { dummies = 2, dummyHealth = 800, dummyResist = 35, cursePercent = 25, curseSeconds = 4 }),
 		},
 	},
-	-- Arcane units start with bonus mana. Step 4: the whole team does.
+	-- Arcane units start with bonus mana. Step 3: the whole team does.
 	Arcane = {
 		kind = "origin",
 		breakpoints = {
 			step(2, { mana(20) }),
-			step(4, { mana(30, "ALL_ALLIES") }),
+			step(3, { mana(30, "ALL_ALLIES") }),
 		},
 	},
-	-- Bonus max health. Step 4: also health regeneration (a share of max health every second).
+	-- Bonus max health. Step 3: also health regeneration (a share of max health every second).
 	Titans = {
 		kind = "origin",
 		breakpoints = {
 			step(2, { buff("MaxHealth", 15, true) }),
-			step(4, { buff("MaxHealth", 25, true) }, { regenPercent = 1.5, regenInterval = 1 }),
+			step(3, { buff("MaxHealth", 25, true) }, { regenPercent = 1.5, regenInterval = 1 }),
 		},
 	},
 	-- Once per fight, below a health threshold, a Shinobi vanishes (untargetable, not acting) for a
@@ -112,12 +112,12 @@ return table.freeze({
 		},
 	},
 	-- Each Crew takedown gives every Crew unit a small boost for the fight (attack damage percent and
-	-- ability power, stacking). After a PvP fight the takedowns pay gold, up to a cap per round.
+	-- ability power, stacking). After a PvP fight the takedowns pay gold, up to a cap per round (1, step 3: 2).
 	Crew = {
 		kind = "origin",
 		breakpoints = {
 			step(2, nil, { attackDamagePercent = 5, abilityPower = 5, goldCap = 1 }),
-			step(4, nil, { attackDamagePercent = 8, abilityPower = 8, goldCap = 2 }),
+			step(3, nil, { attackDamagePercent = 8, abilityPower = 8, goldCap = 2 }),
 		},
 	},
 	-- A shared meter advances one point per Hero cast. While it is in its first half the team takes
@@ -126,8 +126,8 @@ return table.freeze({
 	Heroes = {
 		kind = "origin",
 		breakpoints = {
-			step(2, nil, { meterMax = 6, damageTakenPercent = 10, damageDealtPercent = 10, lockWhenFull = false }),
-			step(4, nil, { meterMax = 6, damageTakenPercent = 18, damageDealtPercent = 18, lockWhenFull = true }),
+			step(2, nil, { meterMax = 4, damageTakenPercent = 10, damageDealtPercent = 10, lockWhenFull = false }),
+			step(4, nil, { meterMax = 4, damageTakenPercent = 18, damageDealtPercent = 18, lockWhenFull = true }),
 		},
 	},
 

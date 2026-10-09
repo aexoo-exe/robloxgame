@@ -171,13 +171,13 @@ local tests = {}
 -- Overhaul 1 breakpoints: faction and class -> member counts.
 local BREAKPOINTS = {
 	Hunters = "2,4",
-	Corps = "2,4",
+	Corps = "2,3",
 	Spirit = "2,4",
 	Cursed = "2,4,6",
-	Arcane = "2,4",
-	Titans = "2,4",
+	Arcane = "2,3",
+	Titans = "2,3",
 	Shinobi = "2,4",
-	Crew = "2,4",
+	Crew = "2,3",
 	Heroes = "2,4",
 	Blade = "2,4,6",
 	Assassin = "2,4,6",

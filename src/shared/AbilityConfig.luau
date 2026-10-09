@@ -11,8 +11,10 @@ return table.freeze({
 	shadePackResummon = true,
 	-- shade_pack: mana the caster gains for each wolf basic attack.
 	shadePackManaPerHit = 4,
-	-- night_parade: curses alive when he casts that make him recall them and fire the line.
-	nightParadeRecallAt = 3,
+	-- night_parade: cast cycle length. Each cast before the last of the cycle summons a curse; the
+	-- last cast recalls every living curse (any number, even none) and fires the line; then the
+	-- count starts over.
+	nightParadeCycle = 3,
 	-- blooming_aid: heals only if an ally (her included) is below this health percentage;
 	-- otherwise she hits her current target.
 	bloomingAidHealBelowPercent = 70,

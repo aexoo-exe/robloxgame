@@ -73,6 +73,8 @@
 --                ALLY_BELOW      healthPercent: a living ally (the caster included) is below it
 --                SUMMONS_ALIVE   atLeast: the caster has at least that many living summons
 --                ENEMY_HAS_CAST  a living enemy has cast an ability this fight
+--                CAST_CYCLE      every, at: this is cast number `at` of each cycle of `every` casts
+--                                (casts 1..every, then the count starts over)
 --   bonus      { type, percent, status? } (Abilities.Bonus): damage effects deal
 --              amount x (1 + factor x percent / 100), with factor:
 --                MISSING_HEALTH  the caster's missing health fraction (0 to 1)
@@ -171,6 +173,7 @@ Abilities.Condition = table.freeze({
 	AllyBelow = "ALLY_BELOW",
 	SummonsAlive = "SUMMONS_ALIVE",
 	EnemyHasCast = "ENEMY_HAS_CAST",
+	CastCycle = "CAST_CYCLE",
 })
 
 Abilities.Bonus = table.freeze({
@@ -936,6 +939,9 @@ local function conditionAtStart(battle, caster, condition): boolean
 			end
 		end
 		return false
+	elseif kind == Condition.CastCycle then
+		-- The caster's casts this fight, counted 1, 2, ..., every, then from 1 again.
+		return ((caster.casts or 1) - 1) % condition.every + 1 == condition.at
 	end
 	return true
 end
@@ -1116,6 +1122,11 @@ local function validateCommon(effect, where: string): (boolean, string?)
 			end
 		elseif condition.type == Condition.SummonsAlive and not isWhole(condition.atLeast) then
 			return false, where .. ": SUMMONS_ALIVE needs a whole atLeast of at least 1"
+		elseif condition.type == Condition.CastCycle then
+			local every, at = condition.every, condition.at
+			if not isWhole(every) or every < 2 or not isWhole(at) or at > every then
+				return false, where .. ": CAST_CYCLE needs whole every (at least 2) and at (1 to every)"
+			end
 		end
 	end
 	local bonus = effect.bonus
@@ -1439,6 +1450,7 @@ function Abilities.cast(battle, caster)
 	caster.mana = 0
 	caster.castEndsTick = battle.tick + Battle.seconds(battle, ability.castTime or CombatConfig.castTime)
 	caster.lastCastTick = battle.tick
+	caster.casts = (caster.casts or 0) + 1
 	Battle.emit(battle, { kind = "Cast", unit = caster.index, ability = ability.name })
 	local context = newContext(1, ability.name, false, caster.stacks or 0)
 	applyAbility(battle, caster, ability, starLevel, context)

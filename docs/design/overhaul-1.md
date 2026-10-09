@@ -62,7 +62,7 @@ All are data, validated by `Abilities.validate`, `Abilities.validateUnit`, `Form
 | Missing-health scaling | `bonus = { type = "MISSING_HEALTH", percent }` |
 | Bonus vs a status | `bonus = { type = "TARGET_STATUS", status, percent }` |
 | "No ally needs healing" fallback | `condition = { type = "ALLY_BELOW", healthPercent, negate = true }` |
-| Other conditions | `SUMMONS_ALIVE atLeast`, `ENEMY_HAS_CAST` (all but KILLED are checked at cast start) |
+| Other conditions | `SUMMONS_ALIVE atLeast`, `ENEMY_HAS_CAST`, `CAST_CYCLE every, at` (cast number `at` of each cycle of `every`); all but KILLED are checked at cast start |
 | N lowest-health allies | selectors `LOWEST_HP_ALLIES` / `LOWEST_HP_OTHER_ALLIES` with `count` |
 | Heal per enemy hit | `AREA_DAMAGE healPerHit`; lifesteal `healPercentOfDamage` |
 | Heal a form pool | `HEAL pool = true` |
@@ -154,10 +154,11 @@ unchanged. Values are 1/2/3-star. "New" marks a placeholder chosen for this pass
   HP, 45/50/55% AD, 50% armor/MR, 90% AS, melee, move 1.1); each wolf hit gives him 4 mana. Then
   form **Pack Out**: magic area radius 1 on current target 180/290/460, area stun radius 1
   0.75/1/1.25s, and dead wolves return (`shadePackResummon` = on). Ranged attack: tongue visual.
-- **night_parade** [Keto]: each cast summons 1 curse that lasts until killed (35/40/45% HP,
-  40/50/60% AD, 45% armor/MR, 85% AS, melee, move 1.0). With 3 alive (`nightParadeRecallAt`), the
-  cast instead recalls them and fires a LINE from him through current target to the board edge:
-  magic 120/190/305, +100% per curse recalled (x4 at 3: 480/760/1220). Then the cycle restarts.
+- **night_parade** [Keto]: a cast counter (`nightParadeCycle` = 3, CAST_CYCLE condition). Casts 1
+  and 2 each summon a curse that lasts until killed (35/40/45% HP, 40/50/60% AD, 45% armor/MR, 85%
+  AS, melee, move 1.0). Cast 3 recalls every living curse (even none) and fires a LINE from him
+  through current target to the board edge: magic 120/190/305, +100% per curse recalled. Then the
+  count starts over. (Tuning A: was "with 3 curses alive", which never happened.)
 
 ### Arcane
 - **bitter_vapor** [Meow-Meow]: unchanged, and the poison now WEAKENs: victims deal 20/25/30% less
@@ -222,14 +223,14 @@ Steps count different characters on the board.
 | Trait | Step | Effect (placeholders) |
 | --- | --- | --- |
 | Hunters | 2 / 4 | mark the enemy with the most health; Hunters +20% / +35% damage to it; at 4 Hunters heal 10% max health when it dies; the mark moves |
-| Corps | 2 / 4 | a Corps takedown: Corps units (4: whole team) +25% / +35% AS for 3s / 4s |
+| Corps | 2 / 3 | a Corps takedown: Corps units (3: whole team) +25% / +35% AS for 3s / 4s |
 | Spirit | 2 / 4 | Spirit units start with a 150 / 300 shield (8s); at 4 a broken trait shield gives +30% AS for 4s |
 | Cursed | 2 / 4 / 6 | 1 / 1 / 2 passive dummies in front at fight start (450 / 800 / 800 health, 20 / 35 / 35 armor and MR); at 4+ whoever destroys one is cursed: -25% damage dealt for 4s |
-| Arcane | 2 / 4 | +20 starting mana for Arcane / +30 for the whole team |
-| Titans | 2 / 4 | +15% / +25% max health; at 4 regenerate 1.5% max health per second |
+| Arcane | 2 / 3 | +20 starting mana for Arcane / +30 for the whole team |
+| Titans | 2 / 3 | +15% / +25% max health; at 3 regenerate 1.5% max health per second |
 | Shinobi | 2 / 4 | once per fight below 30% health: vanish 1s, return with a 150 / 300 shield (4s); at 4 also +40% AS for 3s |
-| Crew | 2 / 4 | each Crew takedown: every Crew unit +5% / +8% AD and +5 / +8 AP for the fight (stacking); after a PvP fight takedowns pay 1 gold each, capped at 1 / 2 per round |
-| Heroes | 2 / 4 | meter of 6, +1 per Hero cast; below half the team takes 10% / 18% less damage, from half it deals 10% / 18% more; full: starts over (2) or both for the rest of the fight (4) |
+| Crew | 2 / 3 | each Crew takedown: every Crew unit +5% / +8% AD and +5 / +8 AP for the fight (stacking); after a PvP fight takedowns pay 1 gold each, capped at 1 / 2 per round |
+| Heroes | 2 / 4 | meter of 4, +1 per Hero cast; below half the team takes 10% / 18% less damage, from half it deals 10% / 18% more; full: starts over (2) or both for the rest of the fight (4) |
 | Blade | 2 / 4 / 6 | +10% / 20% / 32% AD |
 | Assassin | 2 / 4 / 6 | +10 / 15 / 20 points crit chance, +0.15 / 0.25 / 0.35 crit damage; at 4 jump to the nearest free enemy back-row hex at fight start; at 6 attacks execute enemies below 12% health (never bosses) |
 | Brawler | 2 / 4 / 6 | +15% / 25% / 40% max health |
@@ -267,7 +268,7 @@ pieces; the Forms lines already cover every unit with forms.
 - frozen_moment and zero_field: the hit lands at the stun's nominal end, even if the stun was
   extended by another stun or ended by a form change.
 - shade_pack, night_parade: each caster counts all of its own living summons.
-- night_parade: at exactly 3 curses the cast only recalls and fires (no summon on that cast).
+- night_parade: the firing cast (cast 3 of each cycle) only recalls and fires; it summons nothing.
 - mirror_script: "most recently cast" is among living enemies; copying a formOnly ability does
   nothing.
 - echo_legion: the projectile is not drawn separately; the area pulses show the landing.

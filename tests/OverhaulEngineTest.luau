@@ -660,6 +660,10 @@ table.insert(tests, {
 			},
 			{ name = "recall", effects = { { type = "RECALL", target = "SELF" } } },
 			{ name = "count", effects = { { type = "HEAL", target = "LOWEST_HP_ALLIES", amount = 1 } } },
+			{
+				name = "cycle",
+				effects = { trueHit("SELF", 1, { condition = { type = "CAST_CYCLE", every = 3, at = 4 } }) },
+			},
 		}
 		for _, ability in bad do
 			assert(not Abilities.validate(ability), ability.name .. " should be rejected")
@@ -722,29 +726,50 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "roster: night_parade summons a curse per cast, then recalls three for a stronger line",
+	name = "roster: night_parade summons on casts 1 and 2, fires on cast 3 (even with no curses), then restarts",
 	run = function()
+		local cycle = AbilityConfig.nightParadeCycle
 		local battle, units = newBattle(rosterTypes(), { { "night_parade", 1, 4, 2 }, { "Dummy", 2, 4, 6 } })
 		local unit = units[1]
 		unit.target = units[2]
-		for casts = 1, AbilityConfig.nightParadeRecallAt do
+		for casts = 1, cycle - 1 do
 			Abilities.cast(battle, unit)
 			expectEqual(#Battle.summonsOf(battle, unit), casts, "curses after cast " .. casts)
 		end
 		local before = #eventsOfKind(battle, "Damage")
 		Abilities.cast(battle, unit)
-		expectEqual(#Battle.summonsOf(battle, unit), 0, "recalled")
+		expectEqual(#Battle.summonsOf(battle, unit), 0, "recalled on the last cast of the cycle")
 		local recalled = 0
 		for _, event in eventsOfKind(battle, "SummonEnd") do
 			if event.recalled then
 				recalled += 1
 			end
 		end
-		expectEqual(recalled, AbilityConfig.nightParadeRecallAt, "three recalled")
-		local hits = eventsOfKind(battle, "Damage")
-		assert(#hits > before, "the line hit")
+		expectEqual(recalled, cycle - 1, "every living curse recalled")
+		assert(#eventsOfKind(battle, "Damage") > before, "the line hit")
 		Abilities.cast(battle, unit)
 		expectEqual(#Battle.summonsOf(battle, unit), 1, "the cycle restarts")
+
+		-- The line fires even when every curse died first.
+		local lonely, more = newBattle(rosterTypes(), { { "night_parade", 1, 4, 2 }, { "Dummy", 2, 4, 6 } })
+		local caster = more[1]
+		caster.target = more[2]
+		for _ = 1, cycle - 1 do
+			Abilities.cast(lonely, caster)
+		end
+		for _, curse in Battle.summonsOf(lonely, caster) do
+			Battle.damage(lonely, more[2], curse, 1e6, "TRUE", "Damage")
+		end
+		local hitsBefore = #eventsOfKind(lonely, "Damage")
+		Abilities.cast(lonely, caster)
+		local lines = 0
+		for _, event in eventsOfKind(lonely, "Area") do
+			if event.shape == "LINE" then
+				lines += 1
+			end
+		end
+		expectEqual(lines, 1, "the line fired with no curses alive")
+		assert(#eventsOfKind(lonely, "Damage") > hitsBefore, "and hit")
 	end,
 })
 

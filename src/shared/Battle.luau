@@ -104,6 +104,7 @@ export type Unit = {
 	passive: boolean?, -- never acts (the Cursed trait's dummy)
 	flags: { [string]: boolean }, -- per-fight switches (bonds unlock form triggers with them)
 	lastCastTick: number?, -- when it last cast (LAST_CASTER_ENEMY)
+	casts: number?, -- casts this fight (CAST_CYCLE); set by Abilities.cast
 	stacks: number, -- attack stacks (stats.attackStacks): basic attacks on one target build them
 	stackTarget: Unit?, -- the target the stacks were built on
 	followUp: any?, -- an active onTargetKilled follow-up (Abilities)
