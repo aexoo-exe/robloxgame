@@ -7,9 +7,11 @@
 --
 -- Every bot buys copies of the units it fielded last round whenever it can afford them.
 --
--- Standard bots also prefer traits: after buying XP, they spend gold above their keepGold on units
--- that share a trait with one they fielded last round, while they hold fewer than level + 3 units;
--- and when choosing what to field, shared traits break ties between equally strong units.
+-- Standard bots also value traits and bonds: after buying XP, they spend gold above their keepGold
+-- on units that would add to last round's board (Bot.traitGain: shared traits, the next
+-- breakpoint of a trait, completing a bond), best gain first, while they hold fewer than level + 3
+-- units; a unit that reaches a breakpoint or completes a bond may dip a little below keepGold. When
+-- choosing what to field, shared traits break ties between equally strong units.
 --
 -- Rerolling bots (policies with `rerollCost`) chase 3-star units of one cost:
 --   * Roll level: the level where that cost's shop odds are highest, among levels of at least
@@ -30,11 +32,13 @@
 -- Rerolling bots also count what happens while they roll (memory.stats) for the sim report.
 
 local Board = require("../src/shared/Board")
+local BondConfig = require("../src/shared/BondConfig")
 local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local Shop = require("../src/shared/Shop")
 local ShopConfig = require("../src/shared/ShopConfig")
 local StarLevel = require("../src/shared/StarLevel")
+local TraitConfig = require("../src/shared/TraitConfig")
 local Traits = require("../src/shared/Traits")
 local UnitConfig = require("../src/shared/UnitConfig")
 local UnitPool = require("../src/shared/UnitPool")
@@ -304,17 +308,44 @@ local function prefersTraits(policy: Policy): boolean
 	return policy.rerollCost == nil
 end
 
--- True if `unitType` shares a trait with a different character the bot fielded last round.
-local function sharesFieldedTrait(memory: Memory, unitType: string): boolean
+-- How much `unitType` would add to the traits and bonds of the board the bot fielded last round:
+-- 1 per trait it shares with a different fielded character, 2 more per trait whose next
+-- breakpoint (TraitConfig) it would reach, and 2 per bond (BondConfig) it would complete.
+-- 0 for a character already fielded (copies do not count toward traits).
+local function traitGain(memory: Memory, unitType: string): number
+	if memory.fielded[unitType] then
+		return 0
+	end
+	local counts = {}
+	for fielded in memory.fielded do
+		for _, trait in Traits.traitsOf(fielded) do
+			counts[trait] = (counts[trait] or 0) + 1
+		end
+	end
+	local gain = 0
 	for _, trait in Traits.traitsOf(unitType) do
-		for fielded in memory.fielded do
-			if fielded ~= unitType and table.find(Traits.traitsOf(fielded), trait) then
-				return true
+		local count = counts[trait] or 0
+		if count > 0 then
+			gain += 1
+			for _, breakpoint in (TraitConfig[trait] and TraitConfig[trait].breakpoints) or {} do
+				if breakpoint.count == count + 1 then
+					gain += 2
+				end
 			end
 		end
 	end
-	return false
+	for _, bond in BondConfig do
+		local partner = if bond.units[1] == unitType
+			then bond.units[2]
+			elseif bond.units[2] == unitType then bond.units[1]
+			else nil
+		if partner and memory.fielded[partner] then
+			gain += 2
+		end
+	end
+	return gain
 end
+Bot.traitGain = traitGain
 
 -- Traits `unitType` shares with other characters among `owned`.
 local function sharedTraitCount(owned, unitType: string): number
@@ -483,19 +514,38 @@ end
 -- before leveling locked gold on the bench (trimBench keeps up to level + 3 units), so the bots
 -- bought less XP and earned less interest; cheap trait units on the bench also drew copy purchases
 -- in later rounds.
+-- Offers are taken in order of trait gain (traitGain), highest first; an offer that reaches a
+-- breakpoint or completes a bond (gain of 3 or more) may dip BREAKPOINT_DIP gold below keepGold.
+local BREAKPOINT_DIP = 10
 local function traitPass(state, policy: Policy, memory: Memory)
 	if not prefersTraits(policy) or memory.weakestFielded == nil then
 		return
 	end
+	local offers = {}
 	for slot, unitType in state.shop do
+		if unitType then
+			local gain = traitGain(memory, unitType)
+			if gain > 0 then
+				table.insert(offers, { slot = slot, unitType = unitType, gain = gain })
+			end
+		end
+	end
+	table.sort(offers, function(a, b)
+		if a.gain ~= b.gain then
+			return a.gain > b.gain
+		end
+		return a.slot < b.slot
+	end)
+	for _, offer in offers do
+		local cost = UnitConfig[offer.unitType].cost
+		local floor = if offer.gain >= 3 then policy.keepGold - BREAKPOINT_DIP else policy.keepGold
 		if
-			unitType
-			and UnitConfig[unitType].cost >= memory.weakestFielded
-			and state.gold - UnitConfig[unitType].cost >= policy.keepGold
+			state.shop[offer.slot] == offer.unitType
+			and cost >= memory.weakestFielded
+			and state.gold - cost >= floor
 			and #Board.getUnits(state.board) < state.level + 3
-			and sharesFieldedTrait(memory, unitType)
 		then
-			PlayerState.buyUnit(state, slot)
+			PlayerState.buyUnit(state, offer.slot)
 		end
 	end
 end

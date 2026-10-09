@@ -6,7 +6,11 @@
 -- Playback, + padding) + Results per round.
 -- Lobby and final-placement screens are excluded.
 -- PvE rounds (creeps and bosses) are played like the server plays them: starting units at match
--- start, no Preparation in round 1, PvE rewards paid at Results. PvE fights are left out of the
+-- start, no Preparation in round 1, PvE rewards paid at Results.
+-- Traits and bonds work as on the server (Traits.combatParams: combat-start bonuses and TraitCombat
+-- effects; Crew takedown gold paid after PvP fights). The report adds bond use, fight-time trait
+-- effects, Crew gold, and (Mechanics) form changes for every unit with forms and the Overhaul 1
+-- pieces (areas by shape, bounces, knockbacks, debuffs, executes, ...). PvE fights are left out of the
 -- per-character, mechanics and timeout reports (those measure the roster against itself) and are
 -- reported in their own section.
 
@@ -235,6 +239,7 @@ local goldTotals = {
 	units = 0,
 	rerolls = 0,
 	xp = 0,
+	crew = 0, -- Crew takedown gold after PvP fights (TraitCombat)
 }
 local ledgers = setmetatable({}, { __mode = "k" }) -- PlayerState -> this match's ledger
 
@@ -329,6 +334,37 @@ end
 -- Trait use in each match's final five rounds: boards (one per player per round) with each
 -- "Trait level" active, and the final placements of players who had it at least once.
 local traitUse = { boards = 0, active = {}, placementSum = {}, players = {} }
+
+-- Bonds in each match's final five rounds: boards with each bond active, and the final placements
+-- of players who had it at least once.
+local bondUse = { boards = 0, active = {}, placementSum = {}, players = {} }
+
+-- Fight-time trait effects (TraitCombat results), PvP fights only: per trait, the sides that had it
+-- active and what it did there.
+local traitEffects = {
+	Hunters = { sides = 0, marks = 0 },
+	Shinobi = { sides = 0, vanishes = 0 },
+	Assassin = { sides = 0, executes = 0 },
+	Heroes = { sides = 0, meterFills = 0 },
+	Crew = { sides = 0, crewTakedowns = 0, gold = 0 },
+}
+
+local function recordTraitEffects(result, sides)
+	for side, board in sides do
+		local outcome = result.traitResults[side]
+		for _, state in Traits.summary(board) do
+			local entry = traitEffects[state.name]
+			if entry and state.active then
+				entry.sides += 1
+				for key in entry do
+					if key ~= "sides" then
+						entry[key] += outcome[key]
+					end
+				end
+			end
+		end
+	end
+end
 
 -- Rerolling bots by the cost they chase: seats, how many made a 3-star of that cost, the round
 -- they first did, and final placements split by whether they did.
@@ -429,6 +465,24 @@ local function recordTraitUse(roundBoards, finalRound: number, placements)
 			traitUse.placementSum[key] = (traitUse.placementSum[key] or 0) + placements[id]
 		end
 	end
+
+	local hadBond = {}
+	for round = math.max(1, finalRound - 4), finalRound do
+		for id, board in roundBoards[round] or {} do
+			bondUse.boards += 1
+			for _, bond in Traits.bonds(board) do
+				bondUse.active[bond.id] = (bondUse.active[bond.id] or 0) + 1
+				hadBond[bond.id] = hadBond[bond.id] or {}
+				hadBond[bond.id][id] = true
+			end
+		end
+	end
+	for bondId, ids in hadBond do
+		for id in ids do
+			bondUse.players[bondId] = (bondUse.players[bondId] or 0) + 1
+			bondUse.placementSum[bondId] = (bondUse.placementSum[bondId] or 0) + placements[id]
+		end
+	end
 end
 
 local function groupOf(policy): string
@@ -481,6 +535,7 @@ local function playMatch(matchIndex: number)
 			units = 0,
 			rerolls = 0,
 			xp = 0,
+			crew = 0,
 		}
 		PlayerState.grantStartingUnits(states[i])
 		policies[i] = policyFor(i, matchIndex)
@@ -560,6 +615,7 @@ local function playMatch(matchIndex: number)
 				recordFight(result)
 				recordSupport(result)
 				Mechanics.record(result)
+				recordTraitEffects(result, { boards[fight.a], enemyBoard(fight, boards, match) })
 				recordTimeoutData({ boards[fight.a], enemyBoard(fight, boards, match) }, result.timedOut)
 				stats.fights += 1
 				if result.timedOut then
@@ -572,6 +628,7 @@ local function playMatch(matchIndex: number)
 				winner = result.winner,
 				survivors = result.survivors,
 				healthPercent = result.healthPercent,
+				traitGold = { result.traitResults[1].gold, result.traitResults[2].gold },
 			})
 		end
 		local combatSeconds = longestTicks / CombatConfig.ticksPerSecond
@@ -582,6 +639,11 @@ local function playMatch(matchIndex: number)
 		local summary = Match.applyResults(match, results)
 		for id, outcome in summary.outcomes do
 			PlayerState.recordCombat(states[id], outcome)
+		end
+		-- Crew takedown gold, paid after PvP fights as the server does (RoundService).
+		for id, gold in summary.traitGold do
+			PlayerState.grantGold(states[id], gold)
+			ledgers[states[id]].crew += gold
 		end
 		for _, result in results do
 			local reward = summary.pve[result.fight.a]
@@ -817,6 +879,35 @@ for _, name in traitNames do
 		)
 	end
 	print(string.format("  %-10s %s", name, table.concat(parts, " | ")))
+end
+print("Bonds in the final five rounds: share of boards with the bond active, average final placement")
+print("of players who had it (players)")
+local BondConfig = require("../src/shared/BondConfig")
+for _, bond in BondConfig do
+	local players = bondUse.players[bond.id] or 0
+	print(
+		string.format(
+			"  %-12s (%s + %s) %.1f%%, %s (%d)",
+			bond.id,
+			bond.units[1],
+			bond.units[2],
+			(bondUse.active[bond.id] or 0) / math.max(1, bondUse.boards) * 100,
+			if players > 0 then string.format("%.2f", bondUse.placementSum[bond.id] / players) else "-",
+			players
+		)
+	)
+end
+print("Fight-time trait effects (PvP fights), per side with the trait active:")
+for _, name in { "Hunters", "Shinobi", "Assassin", "Heroes", "Crew" } do
+	local entry = traitEffects[name]
+	local parts = {}
+	for key, value in entry do
+		if key ~= "sides" then
+			table.insert(parts, string.format("%s %.2f", key, if entry.sides > 0 then value / entry.sides else 0))
+		end
+	end
+	table.sort(parts)
+	print(string.format("  %-9s %s  [%d sides]", name, table.concat(parts, ", "), entry.sides))
 end
 print("Rerolling bots by the cost they chase (completed = made at least one 3-star of that cost):")
 for cost = 1, 5 do
@@ -1080,18 +1171,24 @@ end
 local function perPlayer(key: string): number
 	return if goldTotals.players > 0 then goldTotals[key] / goldTotals.players else 0
 end
-local earned = perPlayer("base") + perPlayer("interest") + perPlayer("streak") + perPlayer("win") + perPlayer("pve")
+local earned = perPlayer("base")
+	+ perPlayer("interest")
+	+ perPlayer("streak")
+	+ perPlayer("win")
+	+ perPlayer("pve")
+	+ perPlayer("crew")
 local spent = perPlayer("units") + perPlayer("rerolls") + perPlayer("xp")
 print(string.format("Gold per player per match (starting gold %.0f not included):", perPlayer("starting")))
 print(
 	string.format(
-		"  earned %.1f: base income %.1f, interest %.1f, streaks %.1f, win bonus %.1f, PvE %.1f",
+		"  earned %.1f: base income %.1f, interest %.1f, streaks %.1f, win bonus %.1f, PvE %.1f, Crew takedowns %.1f",
 		earned,
 		perPlayer("base"),
 		perPlayer("interest"),
 		perPlayer("streak"),
 		perPlayer("win"),
-		perPlayer("pve")
+		perPlayer("pve"),
+		perPlayer("crew")
 	)
 )
 print(

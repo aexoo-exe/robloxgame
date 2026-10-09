@@ -1,5 +1,9 @@
 BLOCK 1 — STRUCTURE / TRAITS / ENGINE CONTRACT v1.1
 
+NOTE (Overhaul 1): the ORIGINS, CLASSES and DUOS sections below are superseded. The current
+traits, bonds, memberships, engine building blocks and the radius-2 stun rule (now The Strongest
+and Za Warudo) are in docs/design/overhaul-1.md. The rest is kept as the v1.1 record.
+
 LEGEND
 [H] hard rule | [T] tunable | [?] validate
 

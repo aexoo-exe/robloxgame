@@ -5,8 +5,9 @@ AP baseline 100; crit baseline 25%/140% [H].
 Ability values [T].
 
 Overhaul 1 changed factions (ORIGIN), classes and three stat lines; this block shows the
-current values. The abilities below are the v1.1 originals: the 30 reworked abilities are in
-docs/design/overhaul-1.md, which replaces them where they differ.
+current values (MANA here is v1.1: spurshot now 0/80 and casts at full spin stacks, flare_kick
+15/50, starless_burst 20/160). The abilities below are the v1.1 originals: the 30 reworked
+abilities are in docs/design/overhaul-1.md, which replaces them where they differ.
 
 NAME            C ORIGIN   CLASS(ES)          HP   AD ARM MR AS   RNG MOV MANA
 Lightitsu       1 Hunters  Blade/Assassin     560 63 20 20 .78   1 1.1 20/90

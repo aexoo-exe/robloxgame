@@ -172,33 +172,24 @@ return table.freeze({
 	Guardian = {
 		kind = "class",
 		breakpoints = {
-			step(
-				2,
-				{
-					buff("Armor", 15),
-					buff("MR", 15),
-					buff("Armor", 5, false, "NON_MEMBERS"),
-					buff("MR", 5, false, "NON_MEMBERS"),
-				}
-			),
-			step(
-				4,
-				{
-					buff("Armor", 30),
-					buff("MR", 30),
-					buff("Armor", 10, false, "NON_MEMBERS"),
-					buff("MR", 10, false, "NON_MEMBERS"),
-				}
-			),
-			step(
-				6,
-				{
-					buff("Armor", 50),
-					buff("MR", 50),
-					buff("Armor", 15, false, "NON_MEMBERS"),
-					buff("MR", 15, false, "NON_MEMBERS"),
-				}
-			),
+			step(2, {
+				buff("Armor", 15),
+				buff("MR", 15),
+				buff("Armor", 5, false, "NON_MEMBERS"),
+				buff("MR", 5, false, "NON_MEMBERS"),
+			}),
+			step(4, {
+				buff("Armor", 30),
+				buff("MR", 30),
+				buff("Armor", 10, false, "NON_MEMBERS"),
+				buff("MR", 10, false, "NON_MEMBERS"),
+			}),
+			step(6, {
+				buff("Armor", 50),
+				buff("MR", 50),
+				buff("Armor", 15, false, "NON_MEMBERS"),
+				buff("MR", 15, false, "NON_MEMBERS"),
+			}),
 		},
 	},
 	-- Attack speed that builds with each basic attack, up to a number of stacks, for the fight.

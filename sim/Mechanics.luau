@@ -22,7 +22,23 @@ local totals = {
 	-- unitType with forms -> { present, left (fights it left its starting form), leftSeconds (sum of
 	-- when), poolDamage (damage taken by form health pools), entered = { form name -> times } }
 	forms = {},
+	-- Overhaul 1 engine pieces: how often each happened (event counts over all fights).
+	pieces = {},
 }
+
+-- Event kinds (and tagged hits) counted for the Overhaul 1 pieces line.
+local PIECE_OF = {
+	Bounce = "bounces",
+	Knockback = "knockbacks",
+	FollowUp = "follow-ups",
+	Vanish = "vanishes",
+	Mark = "marks",
+	Meter = "meter steps",
+}
+
+local function countPiece(name: string)
+	totals.pieces[name] = (totals.pieces[name] or 0) + 1
+end
 
 local function typeStats(unitType: string)
 	local stats = totals.byType[unitType]
@@ -114,6 +130,21 @@ function Mechanics.record(result)
 
 	for _, event in result.events do
 		local kind = event.kind
+		if PIECE_OF[kind] then
+			countPiece(PIECE_OF[kind])
+		elseif kind == "Area" then
+			countPiece("areas " .. event.shape)
+		elseif kind == "SummonEnd" and event.recalled then
+			countPiece("recalls")
+		elseif kind == "Damage" and event.execute then
+			countPiece("executes")
+		elseif kind == "Damage" and event.splash then
+			countPiece("splash hits")
+		elseif kind == "Damage" and event.stunEnd then
+			countPiece("stun-end hits")
+		elseif kind == "Buff" and event.status then
+			countPiece("debuffs " .. event.status)
+		end
 		if
 			copy
 			and not (
@@ -441,6 +472,12 @@ function Mechanics.report()
 			)
 		)
 	end
+
+	local pieces = {}
+	for _, name in sortedKeys(totals.pieces) do
+		table.insert(pieces, string.format("%s %.2f", name, totals.pieces[name] / math.max(1, totals.fights)))
+	end
+	print("Overhaul 1 pieces per fight: " .. (if #pieces > 0 then table.concat(pieces, ", ") else "none"))
 
 	for _, unitType in sortedKeys(totals.forms) do
 		local entry = totals.forms[unitType]
