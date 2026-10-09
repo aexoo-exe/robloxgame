@@ -300,6 +300,15 @@ local function play(playback)
 			)
 		elseif kind == "Vanish" and view then
 			UnitView.vanish(view, event.duration)
+		elseif kind == "Mana" and view then
+			UnitView.setMana(view, event.mana)
+		elseif kind == "Mark" and view and fresh then
+			UnitView.callout(view, RenderConfig.markLabel, RenderConfig.traitTextColor)
+		elseif kind == "Meter" and view and fresh then
+			local label = RenderConfig.meterLabels[event.phase]
+			if label then
+				UnitView.callout(view, label, RenderConfig.traitTextColor)
+			end
 		elseif
 			fresh
 			and targetView

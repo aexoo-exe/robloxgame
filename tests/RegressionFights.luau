@@ -70,6 +70,7 @@ end
 function RegressionFights.fingerprint(seed: number): string
 	local sides = boards(seed)
 	local withTraits = seed % 2 == 1
+	local startBonuses, traitSetups = Traits.combatParams(sides[1], sides[2])
 	local result = CombatSim.run({
 		boards = sides,
 		columns = 7,
@@ -79,7 +80,8 @@ function RegressionFights.fingerprint(seed: number): string
 		maxTicks = 20 * 50,
 		timeoutDrawMargin = 0.01,
 		seed = seed,
-		startBonuses = if withTraits then { Traits.bonuses(sides[1]), Traits.bonuses(sides[2]) } else nil,
+		startBonuses = if withTraits then startBonuses else nil,
+		traits = if withTraits then traitSetups else nil,
 	})
 	local text = serialize({
 		winner = result.winner,

@@ -115,6 +115,9 @@ return table.freeze({
 		POISON = "Poisoned",
 	}),
 	statusTextColor = Color3.fromRGB(200, 170, 255),
+	-- Trait moments: a hunter mark, and the shared meter's phase after each step (TraitCombat).
+	markLabel = "Marked",
+	meterLabels = table.freeze({ GUARD = "Guard", FURY = "Fury!", BOTH = "Guard + Fury!" }),
 	vanishTransparency = 0.75, -- untargetable units (Vanish events)
 	bounceColor = Color3.fromRGB(255, 240, 160), -- the projectile between bounce targets
 	bounceFlightTime = 0.2,

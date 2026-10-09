@@ -916,6 +916,13 @@ end
 
 Battle.refreshMaxHealth = refreshMaxHealth
 
+-- Gives `unit` mana outside a hit (a bond's reward) and emits a Mana event with its new mana.
+function Battle.giveMana(battle: Battle, unit: Unit, amount: number)
+	if gainMana(unit, amount) > 0 then
+		Battle.emit(battle, { kind = "Mana", unit = unit.index, mana = unit.mana })
+	end
+end
+
 -- Applies a combat-start bonus (Traits.Bonus) that lasts the whole fight. Stat changes become one
 -- permanent buff per stat, separate from ability buffs and stacking with them (Battle.stat adds
 -- every buff's flat and percent changes). Shields come after, so they scale with the unit's ability

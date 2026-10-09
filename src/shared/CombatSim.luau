@@ -29,6 +29,7 @@ local CombatConfig = if script then require(script.Parent.CombatConfig) else req
 local CombatMath = if script then require(script.Parent.CombatMath) else require("./CombatMath")
 local HexGrid = if script then require(script.Parent.HexGrid) else require("./HexGrid")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
+local TraitCombat = if script then require(script.Parent.TraitCombat) else require("./TraitCombat")
 
 local CombatSim = {}
 
@@ -54,6 +55,9 @@ export type Params = {
 	-- Combat-start bonuses (traits; see Traits.bonuses), per side, by unit id. Applied before the
 	-- first tick and kept for the whole fight. Omitted or empty: no bonuses.
 	startBonuses: { { [string]: any } }?,
+	-- Trait and bond effects during the fight (Traits.fightSetup per side; TraitCombat). Omitted:
+	-- none. Traits.combatParams builds both this and startBonuses.
+	traits: { any }?,
 }
 
 -- Starting state of a unit, in field coordinates. `index` identifies the unit in events.
@@ -130,6 +134,9 @@ export type Result = {
 	seed: number,
 	units: { UnitSummary },
 	events: { Event },
+	-- What each side's traits did (TraitCombat.SideResult): Crew `gold` (paid after PvP fights),
+	-- takedowns, marks, meter fills, vanishes, executes.
+	traitResults: { any },
 }
 
 local function findNearestEnemy(battle, unit)
@@ -334,6 +341,8 @@ function CombatSim.run(params: Params): Result
 			maxFormHealth = unit.maxFormHealth,
 		})
 	end
+	-- After the summaries: trait dummies are summons and appear as Summon events, not summaries.
+	TraitCombat.setup(battle, params.traits)
 
 	while battle.tick < params.maxTicks and sideAlive(battle, 1) and sideAlive(battle, 2) do
 		CombatSim.step(battle)
@@ -382,6 +391,7 @@ function CombatSim.run(params: Params): Result
 		seed = params.seed,
 		units = summaries,
 		events = battle.events,
+		traitResults = TraitCombat.results(battle),
 	}
 end
 

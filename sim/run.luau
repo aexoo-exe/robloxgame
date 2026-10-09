@@ -45,9 +45,10 @@ end
 
 local function runFight(fight, boards, seed, match)
 	local sideB = enemyBoard(fight, boards, match)
-	local bonusB = if fight.pve then {} else Traits.bonuses(sideB)
+	local startBonuses, traitSetups = Traits.combatParams(boards[fight.a], sideB, fight.pve ~= nil)
 	return CombatSim.run({
-		startBonuses = if TRAITS_ON then { Traits.bonuses(boards[fight.a]), bonusB } else nil,
+		startBonuses = if TRAITS_ON then startBonuses else nil,
+		traits = if TRAITS_ON then traitSetups else nil,
 		boards = { boards[fight.a], sideB },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
@@ -290,8 +291,10 @@ local function calibrateBoss(board, match, seed: number)
 		end
 		return final, manaGained
 	end
+	local bossBoard = Pve.enemyBoard(match.theme, match.round)
+	local startBonuses, traitSetups = Traits.combatParams(board, bossBoard, true)
 	local ok, result = pcall(CombatSim.run, {
-		boards = { board, Pve.enemyBoard(match.theme, match.round) },
+		boards = { board, bossBoard },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
 		unitTypes = Pve.unitTypes(match.theme),
@@ -299,7 +302,8 @@ local function calibrateBoss(board, match, seed: number)
 		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
 		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
 		seed = seed,
-		startBonuses = if TRAITS_ON then { Traits.bonuses(board), {} } else nil,
+		startBonuses = if TRAITS_ON then startBonuses else nil,
+		traits = if TRAITS_ON then traitSetups else nil,
 	})
 	Battle.damage = original
 	assert(ok, result)

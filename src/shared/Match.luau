@@ -51,6 +51,7 @@ export type FightResult = {
 	winner: number?,
 	survivors: { number },
 	healthPercent: { number }?, -- CombatSim healthPercent per side; boss rewards need it
+	traitGold: { number }?, -- per side: gold its Crew takedowns earned (TraitCombat), capped
 }
 
 export type RoundSummary = {
@@ -58,6 +59,7 @@ export type RoundSummary = {
 	outcomes: { [number]: string }, -- Economy.Outcome per real player who fought a PvP fight
 	pve: { [number]: Pve.Reward }, -- per player who fought a PvE fight: the gold it earned
 	eliminated: { number }, -- players eliminated this round, best placement first
+	traitGold: { [number]: number }, -- per real player after a PvP fight: Crew takedown gold (> 0 only)
 }
 
 function Match.new(ids: { number }, seed: number): Match
@@ -146,7 +148,7 @@ end
 -- Applies a round's fight results at Results: player damage, leaver HP loss, eliminations,
 -- placements and the winner. Only real players take damage; ghost and practice opponents never do.
 function Match.applyResults(match: Match, results: { FightResult }): RoundSummary
-	local summary = { damage = {}, outcomes = {}, pve = {}, eliminated = {} }
+	local summary = { damage = {}, outcomes = {}, pve = {}, eliminated = {}, traitGold = {} }
 	local active = Match.activeIds(match)
 	local healthBefore = {}
 	for _, id in active do
@@ -171,12 +173,19 @@ function Match.applyResults(match: Match, results: { FightResult }): RoundSummar
 			continue
 		end
 		summary.outcomes[fight.a] = outcomeFor(result.winner, 1)
+		local gold = result.traitGold
+		if gold and gold[1] > 0 then
+			summary.traitGold[fight.a] = gold[1]
+		end
 		if result.winner == 2 then
 			hurt(fight.a, MatchRules.playerDamage(match.round, result.survivors[2]))
 		end
 		if fight.b then
 			match.players[fight.b].lastSurvivors = result.survivors[2]
 			summary.outcomes[fight.b] = outcomeFor(result.winner, 2)
+			if gold and gold[2] > 0 then
+				summary.traitGold[fight.b] = gold[2]
+			end
 			if result.winner == 1 then
 				hurt(fight.b, MatchRules.playerDamage(match.round, result.survivors[1]))
 			end

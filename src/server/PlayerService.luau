@@ -172,6 +172,18 @@ function PlayerService.recordPve(rewards: { [number]: any })
 	end
 end
 
+-- Pays each player their trait gold (Crew takedowns after a PvP fight; Match.applyResults).
+function PlayerService.grantTraitGold(golds: { [number]: number })
+	for userId, gold in golds do
+		local state = states[userId]
+		if state and gold > 0 then
+			PlayerState.grantGold(state, gold)
+			print(string.format("[PlayerService] %d +%d gold (Crew takedowns)", userId, gold))
+			sendState(userId)
+		end
+	end
+end
+
 function PlayerService.start()
 	boardUpdated = Remotes.create(RemoteNames.BoardUpdated)
 	playerStateUpdated = Remotes.create(RemoteNames.PlayerStateUpdated)
