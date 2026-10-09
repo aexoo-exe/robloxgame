@@ -71,7 +71,8 @@ return table.freeze({
 	reelbreaker = skin("Freaks", "Reelbreaker", HUNTERS),
 	elastic_wardrum = skin("Rubber Man", "Elastic Wardrum", CREW),
 	starless_burst = skin("Archmage", "Starless Burst", ARCANE),
-	echo_legion = skin("Fish Cake", "Echo Legion", SHINOBI),
+	-- Ability name is a placeholder (Overhaul 1 rework): flagged for the director to rename.
+	echo_legion = skin("Fish Cake", "Echo Barrage", SHINOBI),
 	night_command = skin("Leveler", "Night Command", ARCANE),
 	frozen_moment = skin("Za Warudo", "Frozen Moment", SPIRIT),
 	cyclone_edge = skin("Revi", "Cyclone Edge", CORPS),

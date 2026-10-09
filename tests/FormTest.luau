@@ -158,14 +158,16 @@ table.insert(tests, {
 			expectEqual(mounted.stats.AD.flat, mount.mountedBonusDamage, id .. " mounted bonus damage")
 			expectEqual(mounted.trigger.type, "FORM_HEALTH_DEPLETED", id .. " dismount trigger")
 			expectEqual(dismounted.health, nil, id .. " dismounted has no pool")
-			if mount.remountEnabled then
-				expectEqual(dismounted.trigger.type, "TAKEDOWN", id .. " remount trigger")
-				expectEqual(dismounted.trigger.to, "Mounted", id .. " remounts")
-				expectEqual(dismounted.trigger.healthPercent, mount.remountHorseHealthPercent, id .. " remount pool")
-				expectEqual(dismounted.trigger.maxUses, mount.remountsPerFight, id .. " remounts per fight")
-			else
-				expectEqual(dismounted.trigger, nil, id .. " cannot remount while remounting is off")
-			end
+			expectEqual(dismounted.trigger.type, "TAKEDOWN", id .. " remount trigger")
+			expectEqual(dismounted.trigger.to, "Mounted", id .. " remounts")
+			expectEqual(dismounted.trigger.healthPercent, mount.remountHorseHealthPercent, id .. " remount pool")
+			expectEqual(dismounted.trigger.maxUses, mount.remountsPerFight, id .. " remounts per fight")
+			-- With remounting off, only riders with the remount flag (their bond) can remount.
+			expectEqual(
+				dismounted.trigger.unlockedBy,
+				if mount.remountEnabled then nil else mount.remountFlag,
+				id .. " remount needs the flag while remounting is off"
+			)
 			expectEqual(UnitConfig[id].moveSpeed, 1.0, id .. " base move speed")
 		end
 	end,
@@ -241,7 +243,7 @@ table.insert(tests, {
 						{ id = "b", unitType = "orbit_breaker", column = 5, row = 1 },
 					},
 					{
-						{ id = "c", unitType = "elastic_wardrum", column = 3, row = 4, starLevel = 2 },
+						{ id = "c", unitType = "reelbreaker", column = 3, row = 4, starLevel = 2 },
 						{ id = "d", unitType = "cyclone_edge", column = 5, row = 4, starLevel = 2 },
 					},
 				},

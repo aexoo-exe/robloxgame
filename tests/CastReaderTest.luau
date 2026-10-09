@@ -178,13 +178,13 @@ table.insert(tests, {
 			{ index = 3, side = 2, column = 4, row = 5, starLevel = 1 },
 		}
 		local events = {
-			{ tick = 9, kind = "Cast", unit = 1, ability = "flare_kick" },
+			{ tick = 9, kind = "Cast", unit = 1, ability = "cinder_arc" },
 			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 180, health = 0, shield = 0 },
 			{ tick = 9, kind = "Death", unit = 2 },
 			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 80, health = 500, shield = 0 },
 		}
 		local reading = CastReader.read(units, events, function()
-			return UnitConfig.flare_kick.ability
+			return UnitConfig.cinder_arc.ability
 		end)
 		assert(reading.damageTypes[2] == "PHYSICAL", "the punch is physical")
 		assert(reading.damageTypes[4] == "MAGIC", "the area is magic")
@@ -204,7 +204,7 @@ table.insert(tests, {
 		}
 		local events = {
 			{ tick = 9, kind = "Cast", unit = 1, ability = "Mirror" },
-			{ tick = 9, kind = "Copy", unit = 1, target = 2, ability = "flare_kick" },
+			{ tick = 9, kind = "Copy", unit = 1, target = 2, ability = "cinder_arc" },
 			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 144, health = 500, shield = 0 },
 			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 64, health = 500, shield = 0 },
 			{
@@ -220,7 +220,7 @@ table.insert(tests, {
 			},
 		}
 		local reading = CastReader.read(units, events, function(index)
-			return if index == 1 then copier else UnitConfig.flare_kick.ability
+			return if index == 1 then copier else UnitConfig.cinder_arc.ability
 		end)
 		expectEqual(reading.damageTypes[3], "PHYSICAL", "copied punch")
 		expectEqual(reading.damageTypes[4], "MAGIC", "copied area")
@@ -239,13 +239,13 @@ table.insert(tests, {
 			{ index = 3, side = 2, column = 4, row = 5, starLevel = 1 },
 		}
 		local events = {
-			{ tick = 9, kind = "Cast", unit = 1, ability = "flare_kick" },
+			{ tick = 9, kind = "Cast", unit = 1, ability = "cinder_arc" },
 			{ tick = 9, kind = "Damage", unit = 1, target = 2, damage = 180, health = 700, shield = 0, formHealth = 0 },
 			{ tick = 9, kind = "Form", unit = 2, form = "Dismounted", formIndex = 2, health = 700 },
 			{ tick = 9, kind = "Damage", unit = 1, target = 3, damage = 80, health = 500, shield = 0 },
 		}
 		local reading = CastReader.read(units, events, function()
-			return UnitConfig.flare_kick.ability
+			return UnitConfig.cinder_arc.ability
 		end)
 		expectEqual(reading.damageTypes[2], "PHYSICAL", "the punch")
 		expectEqual(reading.damageTypes[4], "MAGIC", "the area after the dismount")

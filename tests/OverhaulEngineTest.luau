@@ -673,4 +673,107 @@ table.insert(tests, {
 	end,
 })
 
+-- Reworked roster characters --------------------------------------------------------------------
+
+local UnitConfig = require("../src/shared/UnitConfig")
+local AbilityConfig = require("../src/shared/AbilityConfig")
+
+local function rosterTypes()
+	local types = table.clone(UnitConfig)
+	types.Dummy = unitType({ health = 100000 })
+	return types
+end
+
+table.insert(tests, {
+	name = "roster: ripcord_frenzy, elastic_wardrum and ascending_core move up a form per cast",
+	run = function()
+		for id, path in
+			{
+				ripcord_frenzy = { "Unarmed", "Chainsaw", "Chainsaw" },
+				elastic_wardrum = { "Gear 1", "Gear 2", "Gear 3", "Gear 3" },
+				ascending_core = { "Core I", "Core II", "Core III", "Core III" },
+			}
+		do
+			local battle, units = newBattle(rosterTypes(), { { id, 1, 4, 4 }, { "Dummy", 2, 4, 5 } })
+			local unit = units[1]
+			expectEqual(unit.form.name, path[1], id .. " starting form")
+			for casts = 2, #path do
+				Abilities.cast(battle, unit)
+				expectEqual(unit.form.name, path[casts], string.format("%s after %d cast(s)", id, casts - 1))
+			end
+		end
+	end,
+})
+
+table.insert(tests, {
+	name = "roster: titanheart becomes a titan below half health once, and returns when the pool is empty",
+	run = function()
+		local battle, units = newBattle(rosterTypes(), { { "titanheart", 1, 4, 4 }, { "Dummy", 2, 4, 5 } })
+		local unit, dummy = units[1], units[2]
+		expectEqual(unit.form.name, "Human", "starts human")
+		Battle.damage(battle, dummy, unit, unit.maxHealth * 0.6, "TRUE", "Damage")
+		expectEqual(unit.form.name, "Titan", "a titan below half")
+		assert(unit.formHealth and unit.formHealth > 0, "the titan has its own pool")
+		Battle.damage(battle, dummy, unit, 1e6, "TRUE", "Damage")
+		expectEqual(unit.form.name, "Human", "back to human when the pool breaks")
+		Battle.damage(battle, dummy, unit, 1, "TRUE", "Damage")
+		expectEqual(unit.form.name, "Human", "only once per fight")
+	end,
+})
+
+table.insert(tests, {
+	name = "roster: night_parade summons a curse per cast, then recalls three for a stronger line",
+	run = function()
+		local battle, units = newBattle(rosterTypes(), { { "night_parade", 1, 4, 2 }, { "Dummy", 2, 4, 6 } })
+		local unit = units[1]
+		unit.target = units[2]
+		for casts = 1, AbilityConfig.nightParadeRecallAt do
+			Abilities.cast(battle, unit)
+			expectEqual(#Battle.summonsOf(battle, unit), casts, "curses after cast " .. casts)
+		end
+		local before = #eventsOfKind(battle, "Damage")
+		Abilities.cast(battle, unit)
+		expectEqual(#Battle.summonsOf(battle, unit), 0, "recalled")
+		local recalled = 0
+		for _, event in eventsOfKind(battle, "SummonEnd") do
+			if event.recalled then
+				recalled += 1
+			end
+		end
+		expectEqual(recalled, AbilityConfig.nightParadeRecallAt, "three recalled")
+		local hits = eventsOfKind(battle, "Damage")
+		assert(#hits > before, "the line hit")
+		Abilities.cast(battle, unit)
+		expectEqual(#Battle.summonsOf(battle, unit), 1, "the cycle restarts")
+	end,
+})
+
+table.insert(tests, {
+	name = "roster: spurshot fires at four stacks on one target and heals its horse",
+	run = function()
+		local battle, units = newBattle(rosterTypes(), { { "spurshot", 1, 4, 4 }, { "Dummy", 2, 4, 5 } })
+		local rider = units[1]
+		expectEqual(rider.mana, 0, "no starting mana: the bar shows stacks")
+		for _ = 1, 20 * 6 do
+			CombatSim.step(battle)
+			if #eventsOfKind(battle, "Cast") > 0 then
+				break
+			end
+		end
+		expectEqual(#eventsOfKind(battle, "Cast"), 1, "cast once the stacks were full")
+		local attacks = 0
+		for _, event in eventsOfKind(battle, "Attack") do
+			if event.unit == rider.index then
+				attacks += 1
+			end
+		end
+		expectEqual(attacks, UnitConfig.spurshot.attackStacks.max, "after exactly max attacks")
+		local poolHeal = false
+		for _, event in eventsOfKind(battle, "Heal") do
+			poolHeal = poolHeal or event.pool == true
+		end
+		assert(poolHeal, "the mounted shot heals the horse")
+	end,
+})
+
 return tests
