@@ -29,6 +29,7 @@ local CombatConfig = if script then require(script.Parent.CombatConfig) else req
 local CombatMath = if script then require(script.Parent.CombatMath) else require("./CombatMath")
 local HexGrid = if script then require(script.Parent.HexGrid) else require("./HexGrid")
 local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
+local ItemCombat = if script then require(script.Parent.ItemCombat) else require("./ItemCombat")
 local TraitCombat = if script then require(script.Parent.TraitCombat) else require("./TraitCombat")
 
 local CombatSim = {}
@@ -122,6 +123,8 @@ export type UnitSummary = {
 --             maxFormHealth (the new form's pool; nil without one), health (the unit's own),
 --             cleansed (true when the change ended its stun and damage over time)
 --   Vanish    duration: the unit is untargetable and does not act (Battle.vanish)
+--   Immune    the unit ignored a stun (an item)
+--   Events caused by an item (heals, shields, damage, damage over time ticks) carry `item`.
 --   Trait events (TraitCombat): Mark (target), Meter (trait, value, max, phase), TraitSummon is a
 --             Summon with source
 export type Event = { [string]: any }
@@ -324,6 +327,8 @@ function CombatSim.run(params: Params): Result
 			end
 		end
 	end
+	-- Items: stats and effects, before the summaries so they show item health and mana.
+	ItemCombat.setup(battle)
 	local summaries = {}
 	for _, unit in battle.units do
 		table.insert(summaries, {

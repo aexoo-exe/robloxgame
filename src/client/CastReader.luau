@@ -39,7 +39,7 @@ local MANY_EVENTS = { AREA_DAMAGE = true, AREA_STUN = true, SUMMON = true, DAMAG
 
 -- Events inside a cast that carry another unit's index rather than the caster's (a hit can make
 -- its target change form; a recall ends summons).
-local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true, Form = true, SummonEnd = true }
+local OTHER_UNIT_EVENTS = { Death = true, MaxHealth = true, Form = true, SummonEnd = true, Immune = true }
 
 -- A circle (radius) or a set of cells (lines and cones). `inferred` marks a circle worked out by
 -- matching (no Area event); playback pulses those at the cast and pulses Area events as they come.

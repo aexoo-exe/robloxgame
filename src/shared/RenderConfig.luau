@@ -113,7 +113,10 @@ return table.freeze({
 		CURSE = "Hexed",
 		BURN = "Burning",
 		POISON = "Poisoned",
+		SHRED = "Shredded",
+		WOUND = "Wounded",
 	}),
+	immuneLabel = "Immune", -- a stun ignored (Immune events)
 	statusTextColor = Color3.fromRGB(200, 170, 255),
 	-- Trait moments: a hunter mark, and the shared meter's phase after each step (TraitCombat).
 	markLabel = "Marked",

@@ -47,6 +47,7 @@ local STAT_FIELDS = table.freeze({
 	DamageTaken = "damageTaken", -- multiplies all damage the unit takes
 	MagicDamageTaken = "magicDamageTaken", -- multiplies magic damage the unit takes
 	HealPower = "healPower", -- multiplies the unit's ability heals and shields
+	HealingReceived = "healingReceived", -- multiplies every heal the unit receives (not shields)
 	CritChance = "critChance", -- basic-attack crit chance (0-1)
 	CritDamage = "critDamage", -- crit raw damage multiplier
 })
@@ -58,6 +59,7 @@ local STAT_DEFAULTS = table.freeze({
 	DamageTaken = 1,
 	MagicDamageTaken = 1,
 	HealPower = 1,
+	HealingReceived = 1,
 	CritDamage = CombatConfig.critDamage,
 })
 
@@ -70,6 +72,8 @@ Battle.Status = table.freeze({
 	Curse = "CURSE", -- damage dealt down (the Cursed trait's dummy)
 	Burn = "BURN", -- damage over time
 	Poison = "POISON", -- damage over time
+	Shred = "SHRED", -- armor down (an item)
+	Wound = "WOUND", -- healing received down (an item)
 })
 
 -- A unit in combat. `stats` are the unit type's stats with star scaling applied.
@@ -112,6 +116,8 @@ export type Unit = {
 	auraCount: number?, -- units with an aura: enemies inside at the last pulse
 	untargetableUntilTick: number, -- while above the tick: no one can target or hit it, and it cannot act
 	shieldSource: string?, -- the trait that gave the current shield (nil for ability shields)
+	stunImmuneUntilTick: number, -- while above the tick, stuns do nothing (an item)
+	abilityCrit: boolean?, -- its abilities can crit (an item)
 	items: { string }, -- equipped item ids (ItemCombat applies them; summons carry none)
 	-- Forms (units whose type lists `forms` only; all nil otherwise):
 	form: any?, -- the current form (Forms data)
@@ -134,6 +140,7 @@ export type Dot = {
 	manaLeft: number, -- mana the victim can still gain from this application
 	cancelled: boolean?, -- ended early by a form change (FormConfig.rules.statusEffectsCarryThrough)
 	status: string?, -- Battle.Status (BURN, POISON) or nil
+	item: string?, -- the item that applied it (its tick events carry it), or nil
 }
 
 -- Something that happens later (Battle.schedule): `run` is called at `tick` unless `owner` died.
@@ -211,6 +218,7 @@ function Battle.new(params): Battle
 				flags = {},
 				stacks = 0,
 				untargetableUntilTick = 0,
+				stunImmuneUntilTick = 0,
 				items = if placed.items then table.clone(placed.items) else {},
 			}
 			-- Units that cast at full attack stacks show their stacks as mana instead (see gainMana).
@@ -348,6 +356,8 @@ end
 --                                             summoner)
 --   damaged(battle, unit, source)             a unit took a hit and survived it
 --   shieldBroken(battle, unit)                damage used up a unit's whole shield
+--   hit(battle, source, target, final, event) a hit landed (after its event; before deaths are
+--                                             handled); `event` is its Attack or Damage event
 --   tick(battle)                              every tick, before units act
 function Battle.addHook(battle: Battle, name: string, hook: (...any) -> any)
 	battle.hooks[name] = battle.hooks[name] or {}
@@ -565,6 +575,7 @@ function Battle.damage(
 		event[key] = value
 	end
 	Battle.emit(battle, event)
+	Battle.runHooks(battle, "hit", source, target, final, event)
 
 	if shieldBefore > 0 and target.shield <= 0 and absorbed > 0 then
 		Battle.runHooks(battle, "shieldBroken", target)
@@ -606,14 +617,14 @@ function Battle.execute(battle: Battle, source: Unit, target: Unit)
 	die(battle, target, source)
 end
 
--- Restores health, capped at max health. Amounts are rounded to whole numbers. Form health pools
--- are not healed unless FormConfig.rules.healingRestoresFormHealth allows it: then healing beyond
--- the unit's missing health refills the pool.
+-- Restores health, capped at max health. Amounts are rounded to whole numbers, after the target's
+-- HealingReceived. Form health pools are not healed unless FormConfig.rules.healingRestoresFormHealth
+-- allows it: then healing beyond the unit's missing health refills the pool.
 function Battle.heal(battle: Battle, source: Unit, target: Unit, amount: number)
 	if target.dead then
 		return
 	end
-	local rounded = math.round(amount)
+	local rounded = math.round(amount * Battle.stat(battle, target, "HealingReceived"))
 	local healed = math.min(target.maxHealth - target.health, rounded)
 	target.health += healed
 	if target.formHealth and target.maxFormHealth and Forms.rule(target.form, "healingRestoresFormHealth") then
@@ -637,7 +648,8 @@ function Battle.healFormPool(battle: Battle, source: Unit, target: Unit, amount:
 	if target.dead or not target.formHealth or not target.maxFormHealth then
 		return
 	end
-	local healed = math.max(0, math.min(target.maxFormHealth - target.formHealth, math.round(amount)))
+	local received = amount * Battle.stat(battle, target, "HealingReceived")
+	local healed = math.max(0, math.min(target.maxFormHealth - target.formHealth, math.round(received)))
 	target.formHealth += healed
 	Battle.emit(battle, {
 		kind = "Heal",
@@ -738,9 +750,14 @@ function Battle.shield(battle: Battle, source: Unit, target: Unit, amount: numbe
 	})
 end
 
--- Stuns for `seconds`. Overlapping stuns do not add up; the later end time wins.
+-- Stuns for `seconds`. Overlapping stuns do not add up; the later end time wins. A unit immune to
+-- stuns (stunImmuneUntilTick) is not stunned; an Immune event shows it.
 function Battle.stun(battle: Battle, source: Unit, target: Unit, seconds: number)
 	if target.dead or Battle.isUntargetable(battle, target) then
+		return
+	end
+	if battle.tick < target.stunImmuneUntilTick then
+		Battle.emit(battle, { kind = "Immune", unit = target.index })
 		return
 	end
 	target.stunnedUntilTick = math.max(target.stunnedUntilTick, battle.tick + Battle.seconds(battle, seconds))
@@ -919,9 +936,10 @@ end
 
 Battle.refreshMaxHealth = refreshMaxHealth
 
--- Gives `unit` mana outside a hit (a bond's reward) and emits a Mana event with its new mana.
-function Battle.giveMana(battle: Battle, unit: Unit, amount: number)
-	if gainMana(unit, amount) > 0 then
+-- Gives `unit` mana outside a hit (a bond's reward, an item) and emits a Mana event with its new
+-- mana unless `silent` (the next event that carries its mana shows it).
+function Battle.giveMana(battle: Battle, unit: Unit, amount: number, silent: boolean?)
+	if gainMana(unit, amount) > 0 and not silent then
 		Battle.emit(battle, { kind = "Mana", unit = unit.index, mana = unit.mana })
 	end
 end
@@ -1062,6 +1080,7 @@ function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
 		flags = {},
 		stacks = 0,
 		untargetableUntilTick = 0,
+		stunImmuneUntilTick = 0,
 		items = {},
 	}
 	table.insert(battle.units, unit)
@@ -1177,7 +1196,8 @@ function Battle.damageOverTime(
 	damageType: string,
 	interval: number,
 	seconds: number,
-	status: string?
+	status: string?,
+	item: string?
 )
 	if target.dead or Battle.isUntargetable(battle, target) then
 		return
@@ -1210,6 +1230,7 @@ function Battle.damageOverTime(
 		endTick = endTick,
 		manaLeft = CombatConfig.dotManaCap,
 		status = status,
+		item = item,
 	})
 	Battle.emit(battle, {
 		kind = "Dot",
@@ -1247,6 +1268,7 @@ function Battle.tickDots(battle: Battle)
 			if event then
 				event.dot = true
 				event.damageType = dot.damageType
+				event.item = dot.item
 			end
 			dot.nextTick += dot.intervalTicks
 		end

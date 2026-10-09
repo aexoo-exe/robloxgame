@@ -300,6 +300,8 @@ local function play(playback)
 			)
 		elseif kind == "Vanish" and view then
 			UnitView.vanish(view, event.duration)
+		elseif kind == "Immune" and view and fresh then
+			UnitView.statusText(view, RenderConfig.immuneLabel, RenderConfig.statusTextColor)
 		elseif kind == "Mana" and view then
 			UnitView.setMana(view, event.mana)
 		elseif kind == "Mark" and view and fresh then
