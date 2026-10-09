@@ -47,6 +47,8 @@ return table.freeze({
 	maxStunSeconds = 2.0, -- no STUN or AREA_STUN may last longer; enforced by Abilities.validate
 	maxEntitiesPerSide = 12, -- living board units plus summons on one side; SUMMON stops at this
 	dotManaCap = 10, -- most mana a victim gains from one DAMAGE_OVER_TIME application, over all its ticks
+	-- Overhaul 1 engine pieces (docs/design/overhaul-1.md).
+	auraManaCap = 2, -- most mana a victim gains from one passive aura pulse (placeholder)
 	-- COPY magnitude multiplier, by the copied unit's cost (1-5). Scales DAMAGE, AREA_DAMAGE, HEAL,
 	-- SHIELD and DAMAGE_OVER_TIME amounts only.
 	copyPowerByCost = table.freeze({ 0.80, 0.80, 0.80, 0.60, 0.45 }),

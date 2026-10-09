@@ -99,6 +99,11 @@ export type UnitView = {
 	shownMaterial: Enum.Material?,
 	shownTransparency: number,
 	baseTransparency: number, -- see-through for summons
+	figureLook: any, -- the Figure look, kept to rebuild the figure at another size
+	baseSize: Vector3, -- the hitbox size before any form scale
+	boardHeight: number, -- the overhead display's height in studs
+	formScale: number, -- the current form's size multiplier (RenderConfig.formLooks `scale`)
+	vanishUntil: number, -- see-through while untargetable (Vanish events)
 }
 
 export type Options = {
@@ -350,6 +355,11 @@ function UnitView.new(
 		shownMaterial = nil,
 		shownTransparency = baseTransparency,
 		baseTransparency = baseTransparency,
+		figureLook = look,
+		baseSize = part.Size,
+		boardHeight = boardHeight,
+		formScale = 1,
+		vanishUntil = 0,
 	}
 	UnitView.setMana(view, options.mana or 0)
 	if options.formLook or options.maxFormHealth then
@@ -370,11 +380,42 @@ function UnitView.setFormHealth(view: UnitView, formHealth: number?)
 	end
 end
 
+-- Rebuilds the figure `scale` times its normal size (a giant form), keeping it standing where it is.
+local function rescale(view: UnitView, scale: number)
+	if view.formScale == scale or view.dyingSince then
+		return
+	end
+	view.formScale = scale
+	local old = view.figure
+	for i = #old.pieces, 2, -1 do -- piece 1 is the hitbox itself
+		old.pieces[i].part:Destroy()
+	end
+	local oldHeight = view.part.Size.Y
+	view.part.Size = view.baseSize * scale
+	local lift = Vector3.new(0, (view.part.Size.Y - oldHeight) / 2, 0)
+	view.base += lift
+	view.moveFrom += lift
+	view.moveTo += lift
+	view.figure = Figure.new(view.figureLook, old.color, view.part.Size.Y, view.part, view.baseTransparency)
+	view.shownTransparency = -1 -- reapply on the next update
+	view.shownColor, view.shownMaterial = nil, nil
+	view.infoBoard.StudsOffset = Vector3.new(0, view.part.Size.Y / 2 + OVERHEAD.aboveHead + view.boardHeight / 2, 0)
+	if view.bubble then
+		local size = view.part.Size
+		view.bubble.Size = Vector3.one * math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale
+	end
+end
+
 -- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for none) and its health
 -- pool (nil if it has none). A look with a `mount` color puts the unit on a placeholder horse; any
--- other look removes the horse.
+-- other look removes the horse. A `scale` redraws the unit larger or smaller, and a `tint` recolors
+-- its body (placeholders for each form's art).
 function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFormHealth: number?)
 	local mount = if look and not view.dyingSince then look.mount else nil
+	rescale(view, if look and look.scale then look.scale else 1)
+	view.figure.color = if look and look.tint then look.tint else view.color
+	Figure.setTint(view.figure, nil)
+	view.shownColor, view.shownMaterial = nil, nil
 	Figure.setMount(view.figure, mount)
 	if maxFormHealth then
 		view.maxFormHealth = maxFormHealth
@@ -618,6 +659,16 @@ function UnitView.dotNumber(view: UnitView, amount: number, damageType: string?)
 	floatNumber(view, tostring(amount), color, RenderConfig.dotNumberSize)
 end
 
+-- A short status label (Slowed, Burning, ...) that floats up like a small number.
+function UnitView.statusText(view: UnitView, text: string, color: Color3)
+	floatNumber(view, text, color, RenderConfig.dotNumberSize)
+end
+
+-- The unit turns see-through for `seconds` while it is untargetable.
+function UnitView.vanish(view: UnitView, seconds: number)
+	view.vanishUntil = view.clock() + seconds
+end
+
 -- Sets a new max health (and current health), as after a MaxHealth bonus.
 function UnitView.setMaxHealth(view: UnitView, maxHealth: number, health: number)
 	view.maxHealth = maxHealth
@@ -791,6 +842,9 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	end
 
 	local transparency = view.baseTransparency
+	if now < view.vanishUntil then
+		transparency = math.max(transparency, RenderConfig.vanishTransparency)
+	end
 	if view.dyingSince then
 		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
 		transparency = view.baseTransparency + (1 - view.baseTransparency) * progress

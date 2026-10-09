@@ -365,11 +365,13 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "every ability is valid data, with no exceptions",
+	name = "every ability and passive (aura, attack stacks) is valid data, with no exceptions",
 	run = function()
 		for id, unit in UnitConfig do
 			local ok, reason = Abilities.validate(unit.ability)
 			assert(ok, id .. ": " .. tostring(reason))
+			ok, reason = Abilities.validateUnit(unit)
+			assert(ok, id .. " passives: " .. tostring(reason))
 		end
 	end,
 })

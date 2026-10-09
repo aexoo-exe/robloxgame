@@ -11,6 +11,15 @@
 -- Units whose type lists `forms` start in the first form and change form when its trigger fires
 -- (Battle.checkForm; data rules in Forms). While a form has a health pool, hits go to the pool
 -- instead of the unit's health (Battle.damage). Units without forms never touch any of this.
+--
+-- Engine pieces added for Overhaul 1 (docs/design/overhaul-1.md):
+--   * statuses: buffs and damage over time can carry a status (Battle.Status); a debuff is a buff
+--     with a negative percent and a status (Battle.debuff: SLOW, WEAKEN, CURSE)
+--   * multiplier stats: DamageDealt, DamageTaken, MagicDamageTaken and HealPower start at 1 and
+--     scale damage and healing; CritChance and CritDamage start at the battle's crit rules
+--   * hooks: other modules (traits, bonds) listen to battle moments with Battle.addHook
+--   * a scheduler for effects that land later (multi-hits, damage when a stun ends, follow-ups)
+--   * knockback, summon recall, summons that last until killed, passive auras, attack stacks
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local CombatConfig = if script then require(script.Parent.CombatConfig) else require("./CombatConfig")
@@ -24,6 +33,8 @@ local Battle = {}
 
 -- Stats a BUFF can change, mapped to the unit stat field they modify. MaxHealth is special: it
 -- changes `maxHealth` directly (see refreshMaxHealth) rather than being read through Battle.stat.
+-- The last six are not in UnitConfig; they start at STAT_DEFAULTS (CritChance at the battle's crit
+-- chance) and are changed by percent (multipliers) or flat amounts (crit).
 local STAT_FIELDS = table.freeze({
 	AD = "attackDamage",
 	AP = "abilityPower",
@@ -32,8 +43,34 @@ local STAT_FIELDS = table.freeze({
 	MR = "magicResist",
 	MoveSpeed = "moveSpeed",
 	MaxHealth = "maxHealth",
+	DamageDealt = "damageDealt", -- multiplies all damage the unit deals
+	DamageTaken = "damageTaken", -- multiplies all damage the unit takes
+	MagicDamageTaken = "magicDamageTaken", -- multiplies magic damage the unit takes
+	HealPower = "healPower", -- multiplies the unit's ability heals and shields
+	CritChance = "critChance", -- basic-attack crit chance (0-1)
+	CritDamage = "critDamage", -- crit raw damage multiplier
 })
 Battle.StatFields = STAT_FIELDS
+
+local STAT_DEFAULTS = table.freeze({
+	AP = CombatConfig.baseAbilityPower,
+	DamageDealt = 1,
+	DamageTaken = 1,
+	MagicDamageTaken = 1,
+	HealPower = 1,
+	CritDamage = CombatConfig.critDamage,
+})
+
+-- Statuses a buff or a damage over time can carry, so effects can check for them ("bonus against
+-- a burning target") and clients can show them. STUN is the unit's stun.
+Battle.Status = table.freeze({
+	Stun = "STUN",
+	Slow = "SLOW", -- attack speed and move speed down
+	Weaken = "WEAKEN", -- damage dealt down
+	Curse = "CURSE", -- damage dealt down (the Cursed trait's dummy)
+	Burn = "BURN", -- damage over time
+	Poison = "POISON", -- damage over time
+})
 
 -- A unit in combat. `stats` are the unit type's stats with star scaling applied.
 export type Unit = {
@@ -62,7 +99,18 @@ export type Unit = {
 	dead: boolean,
 	summoned: boolean?, -- true for summons
 	summoner: Unit?, -- summons: the unit that made it
-	expiresTick: number?, -- summons: when it vanishes
+	expiresTick: number?, -- summons: when it vanishes; nil lasts until killed
+	manaPerHit: number?, -- summons: mana its summoner gains for each of its basic attacks
+	passive: boolean?, -- never acts (the Cursed trait's dummy)
+	flags: { [string]: boolean }, -- per-fight switches (bonds unlock form triggers with them)
+	lastCastTick: number?, -- when it last cast (LAST_CASTER_ENEMY)
+	stacks: number, -- attack stacks (stats.attackStacks): basic attacks on one target build them
+	stackTarget: Unit?, -- the target the stacks were built on
+	followUp: any?, -- an active onTargetKilled follow-up (Abilities)
+	nextAuraTick: number?, -- units with an aura: when it next pulses
+	auraCount: number?, -- units with an aura: enemies inside at the last pulse
+	untargetableUntilTick: number, -- while above the tick: no one can target or hit it, and it cannot act
+	shieldSource: string?, -- the trait that gave the current shield (nil for ability shields)
 	-- Forms (units whose type lists `forms` only; all nil otherwise):
 	form: any?, -- the current form (Forms data)
 	formIndex: number?,
@@ -83,7 +131,11 @@ export type Dot = {
 	endTick: number,
 	manaLeft: number, -- mana the victim can still gain from this application
 	cancelled: boolean?, -- ended early by a form change (FormConfig.rules.statusEffectsCarryThrough)
+	status: string?, -- Battle.Status (BURN, POISON) or nil
 }
+
+-- Something that happens later (Battle.schedule): `run` is called at `tick` unless `owner` died.
+export type Scheduled = { tick: number, order: number, owner: Unit, run: () -> () }
 
 export type Battle = {
 	tick: number,
@@ -96,6 +148,10 @@ export type Battle = {
 	occupied: { [number]: Unit },
 	events: { any },
 	dots: { Dot },
+	scheduled: { Scheduled },
+	scheduleCount: number,
+	hooks: { [string]: { (...any) -> any } },
+	sideState: { { [string]: any } }, -- per side, for traits and bonds
 }
 
 -- Creates a battle. Side 2's units are rotated half a turn into the far half of the field.
@@ -112,6 +168,10 @@ function Battle.new(params): Battle
 		occupied = {},
 		events = {},
 		dots = {},
+		scheduled = {},
+		scheduleCount = 0,
+		hooks = {},
+		sideState = { {}, {} },
 	}
 	for side = 1, 2 do
 		for _, placed in params.boards[side] do
@@ -146,7 +206,17 @@ function Battle.new(params): Battle
 				moveCooldown = 0,
 				target = nil,
 				dead = false,
+				flags = {},
+				stacks = 0,
+				untargetableUntilTick = 0,
 			}
+			-- Units that cast at full attack stacks show their stacks as mana instead (see gainMana).
+			if stats.attackStacks and stats.attackStacks.castAtMax then
+				unit.mana = 0
+			end
+			if stats.aura then
+				unit.nextAuraTick = Battle.seconds(battle, stats.aura.interval)
+			end
 			table.insert(battle.units, unit)
 			battle.occupied[Battle.cellKey(battle, column, row)] = unit
 			if stats.forms then
@@ -183,11 +253,17 @@ function Battle.emit(battle: Battle, event)
 	table.insert(battle.events, event)
 end
 
--- Living units on the other side, in index order.
+-- True while `unit` cannot be targeted or hit (Battle.vanish).
+function Battle.isUntargetable(battle: Battle, unit: Unit): boolean
+	return battle.tick < unit.untargetableUntilTick
+end
+
+-- Living units on the other side that can be targeted, in index order. Every selector, area and
+-- basic attack finds its enemies here.
 function Battle.enemiesOf(battle: Battle, unit: Unit): { Unit }
 	local result = {}
 	for _, other in battle.units do
-		if other.side ~= unit.side and not other.dead then
+		if other.side ~= unit.side and not other.dead and battle.tick >= other.untargetableUntilTick then
 			table.insert(result, other)
 		end
 	end
@@ -226,13 +302,18 @@ function Battle.pickBest(battle: Battle, candidates: { Unit }, score: (Unit) -> 
 end
 
 -- A stat with active buffs and the current form's change applied:
--- (base + flat bonuses) x (1 + percent bonuses / 100).
--- `name` is a BUFF stat name (AD, AP, AttackSpeed, Armor, MR, MoveSpeed).
+-- (base + flat bonuses) x (1 + percent bonuses / 100), where the percent part never goes below 0
+-- (debuffs can at most cancel a stat out).
+-- `name` is a BUFF stat name (Battle.StatFields).
 function Battle.stat(battle: Battle, unit: Unit, name: string): number
 	local field = STAT_FIELDS[name]
 	local base = unit.stats[field]
 	if base == nil then
-		base = if name == "AP" then CombatConfig.baseAbilityPower else 0
+		if name == "CritChance" then
+			base = battle.critChance
+		else
+			base = STAT_DEFAULTS[name] or 0
+		end
 	end
 	local flat, percent = 0, 0
 	for _, buff in unit.buffs do
@@ -246,12 +327,85 @@ function Battle.stat(battle: Battle, unit: Unit, name: string): number
 		flat += formFlat
 		percent += formPercent
 	end
-	return (base + flat) * (1 + percent / 100)
+	return (base + flat) * math.max(0, 1 + percent / 100)
 end
 
--- Adds mana (never above max; units without max mana, such as summons, gain none). Returns the
--- mana actually gained.
+-- The unit's attack range now (its form's, if the form sets one).
+function Battle.range(unit: Unit): number
+	return Forms.range(unit.stats, unit.form)
+end
+
+-- Lets another module (traits, bonds) react to a battle moment. Hooks run in the order added:
+--   damageMultiplier(battle, source, target, damageType, kind) -> number  scales a hit's raw damage
+--   attack(battle, attacker, target)          after a basic attack (and its splash) landed
+--   cast(battle, caster)                      after an ability's effects applied
+--   death(battle, victim, killer)             a unit died (killer: the unit whose hit killed it)
+--   takedown(battle, killer, victim)          a board unit was killed by an enemy; `killer` is the
+--                                             board unit credited (a summon's kill goes to its
+--                                             summoner)
+--   damaged(battle, unit, source)             a unit took a hit and survived it
+--   shieldBroken(battle, unit)                damage used up a unit's whole shield
+--   tick(battle)                              every tick, before units act
+function Battle.addHook(battle: Battle, name: string, hook: (...any) -> any)
+	battle.hooks[name] = battle.hooks[name] or {}
+	table.insert(battle.hooks[name], hook)
+end
+
+function Battle.runHooks(battle: Battle, name: string, ...: any)
+	local hooks = battle.hooks[name]
+	if hooks then
+		for _, hook in hooks do
+			hook(battle, ...)
+		end
+	end
+end
+
+-- Schedules `run` for `ticks` ticks from now (at least 1). It is dropped if `owner` dies first.
+-- Due entries run at the start of the tick (CombatSim.step), in the order they were scheduled.
+function Battle.schedule(battle: Battle, ticks: number, owner: Unit, run: () -> ())
+	battle.scheduleCount += 1
+	table.insert(battle.scheduled, {
+		tick = battle.tick + math.max(1, ticks),
+		order = battle.scheduleCount,
+		owner = owner,
+		run = run,
+	})
+end
+
+-- Runs every scheduled entry that is due, oldest first. Entries scheduled while running wait for a
+-- later tick.
+function Battle.runScheduled(battle: Battle)
+	if #battle.scheduled == 0 then
+		return
+	end
+	local due, waiting = {}, {}
+	for _, entry in battle.scheduled do
+		table.insert(if entry.tick <= battle.tick then due else waiting, entry)
+	end
+	if #due == 0 then
+		return
+	end
+	battle.scheduled = waiting
+	table.sort(due, function(a, b)
+		if a.tick ~= b.tick then
+			return a.tick < b.tick
+		end
+		return a.order < b.order
+	end)
+	for _, entry in due do
+		if not entry.owner.dead then
+			entry.run()
+		end
+	end
+end
+
+-- Adds mana (never above max; units without max mana, such as summons, gain none, and units that
+-- cast at full attack stacks gain mana only from stacks). Returns the mana actually gained.
 local function gainMana(unit: Unit, amount: number): number
+	local attackStacks = unit.stats.attackStacks
+	if attackStacks and attackStacks.castAtMax then
+		return 0
+	end
 	if unit.maxMana and not unit.dead then
 		local before = unit.mana
 		unit.mana = math.min(unit.maxMana, unit.mana + amount)
@@ -260,14 +414,78 @@ local function gainMana(unit: Unit, amount: number): number
 	return 0
 end
 
--- Applies one hit: resistance, shield, health, mana for both sides, the event and any death.
--- `kind` is "Attack" for a basic attack (the attacker gains mana) or "Damage" for ability damage.
--- `manaCap` limits the mana the target gains from this hit (damage over time uses it).
--- `overTime` marks a damage-over-time tick.
+-- The raw damage of a hit after damage multipliers: the source's DamageDealt, the target's
+-- DamageTaken (and MagicDamageTaken for magic damage), and any damageMultiplier hooks (traits).
+local function multipliedRaw(
+	battle: Battle,
+	source: Unit,
+	target: Unit,
+	raw: number,
+	damageType: string,
+	kind: string
+): number
+	local multiplier = Battle.stat(battle, source, "DamageDealt") * Battle.stat(battle, target, "DamageTaken")
+	if damageType == CombatMath.DamageType.Magic then
+		multiplier *= Battle.stat(battle, target, "MagicDamageTaken")
+	end
+	local hooks = battle.hooks.damageMultiplier
+	if hooks then
+		for _, hook in hooks do
+			multiplier *= hook(battle, source, target, damageType, kind)
+		end
+	end
+	return raw * multiplier
+end
+
+-- The board unit credited with a summon's actions (itself for board units).
+function Battle.creditedUnit(unit: Unit): Unit
+	if unit.summoned and unit.summoner then
+		return unit.summoner
+	end
+	return unit
+end
+
+-- Handles a unit's death: frees its cell, emits the Death event, then follow-ups, form takedown
+-- triggers and the death and takedown hooks.
+local function die(battle: Battle, target: Unit, source: Unit)
+	target.dead = true
+	battle.occupied[Battle.cellKey(battle, target.column, target.row)] = nil
+	Battle.emit(battle, { kind = "Death", unit = target.index })
+	-- Follow-ups (Abilities, onTargetKilled): a unit whose current target just died repeats part of
+	-- its ability on the next tick, while its follow-up window lasts.
+	for _, unit in battle.units do
+		local followUp = unit.followUp
+		if
+			followUp
+			and not unit.dead
+			and unit.target == target
+			and battle.tick < followUp.untilTick
+			and followUp.remaining > 0
+		then
+			followUp.remaining -= 1
+			Battle.schedule(battle, 1, unit, followUp.run)
+		end
+	end
+	if source.form and not target.summoned and source.side ~= target.side then
+		Battle.checkForm(battle, source, Forms.Hook.Takedown)
+	end
+	Battle.runHooks(battle, "death", target, source)
+	if not target.summoned and source.side ~= target.side then
+		Battle.runHooks(battle, "takedown", Battle.creditedUnit(source), target)
+	end
+end
+
+-- Applies one hit: multipliers, resistance, shield, health, mana for both sides, the event and any
+-- death. `kind` is "Attack" for a basic attack (the attacker gains mana) or "Damage" for any other
+-- hit (abilities, splash, auras, damage over time).
+-- `manaCap` limits the mana the target gains from this hit (damage over time and auras use it).
+-- `overTime` marks a damage-over-time tick. `tags` are extra fields for the event (splash, aura,
+-- execute, ...). Damage events carry their damageType; Attack events are always physical.
 --
 -- A target whose form has a health pool takes the hit in the pool instead of its health; when the
 -- pool runs out, the rest of that hit is discarded and the form's trigger moves it on. Whether
 -- shields absorb first and whether damage over time reaches the pool are FormConfig rules.
+-- Untargetable units (Battle.vanish) take no damage.
 -- Returns the final damage after resistance and the mana the target gained.
 function Battle.damage(
 	battle: Battle,
@@ -278,11 +496,13 @@ function Battle.damage(
 	kind: string,
 	crit: boolean?,
 	manaCap: number?,
-	overTime: boolean?
+	overTime: boolean?,
+	tags: { [string]: any }?
 ): (number, number)
-	if target.dead then
+	if target.dead or Battle.isUntargetable(battle, target) then
 		return 0, 0
 	end
+	raw = multipliedRaw(battle, source, target, raw, damageType, kind)
 	local armor = Battle.stat(battle, target, "Armor")
 	local magicResist = Battle.stat(battle, target, "MR")
 	local final = CombatMath.finalDamage(raw, damageType, armor, magicResist)
@@ -292,6 +512,7 @@ function Battle.damage(
 		and target.formHealth > 0
 		and (not overTime or Forms.rule(form, "damageOverTimeHitsFormHealth"))
 	local absorbed = 0
+	local shieldBefore = target.shield
 	if not pooled or Forms.rule(form, "shieldsAbsorbBeforeFormHealth") then
 		absorbed = math.min(target.shield, final)
 		target.shield -= absorbed
@@ -313,11 +534,17 @@ function Battle.damage(
 		mana = math.min(mana, manaCap)
 	end
 	local manaGained = gainMana(target, mana)
+	local summonerMana = nil
 	if kind == "Attack" then
 		gainMana(source, CombatConfig.manaPerAttack)
+		-- Summons that feed their summoner (SUMMON manaPerHit).
+		if source.manaPerHit and source.summoner and not source.summoner.dead then
+			gainMana(source.summoner, source.manaPerHit)
+			summonerMana = source.summoner.mana
+		end
 	end
 
-	Battle.emit(battle, {
+	local event = {
 		kind = kind,
 		unit = source.index,
 		target = target.index,
@@ -328,19 +555,52 @@ function Battle.damage(
 		targetMana = target.mana,
 		crit = if crit then true else nil,
 		formHealth = target.formHealth,
-	})
+		damageType = if kind == "Attack" then nil else damageType,
+		summonerMana = summonerMana,
+	}
+	for key, value in tags or {} do
+		event[key] = value
+	end
+	Battle.emit(battle, event)
 
+	if shieldBefore > 0 and target.shield <= 0 and absorbed > 0 then
+		Battle.runHooks(battle, "shieldBroken", target)
+	end
 	if target.health <= 0 then
-		target.dead = true
-		battle.occupied[Battle.cellKey(battle, target.column, target.row)] = nil
-		Battle.emit(battle, { kind = "Death", unit = target.index })
-		if source.form and not target.summoned and source.side ~= target.side then
-			Battle.checkForm(battle, source, Forms.Hook.Takedown)
+		die(battle, target, source)
+	else
+		if form then
+			Battle.checkForm(battle, target, Forms.Hook.Damaged)
 		end
-	elseif form then
-		Battle.checkForm(battle, target, Forms.Hook.Damaged)
+		Battle.runHooks(battle, "damaged", target, source)
 	end
 	return final, manaGained
+end
+
+-- Kills `target` outright (an execute): a TRUE-damage hit for its remaining health and shield,
+-- ignoring multipliers and form pools. The event is a Damage event marked `execute`.
+function Battle.execute(battle: Battle, source: Unit, target: Unit)
+	if target.dead or Battle.isUntargetable(battle, target) then
+		return
+	end
+	local amount = target.health + target.shield
+	target.shield = 0
+	target.health = 0
+	target.formHealth = if target.formHealth then 0 else nil
+	Battle.emit(battle, {
+		kind = "Damage",
+		unit = source.index,
+		target = target.index,
+		damage = amount,
+		health = 0,
+		shield = 0,
+		mana = source.mana,
+		targetMana = target.mana,
+		formHealth = target.formHealth,
+		damageType = CombatMath.DamageType.True,
+		execute = true,
+	})
+	die(battle, target, source)
 end
 
 -- Restores health, capped at max health. Amounts are rounded to whole numbers. Form health pools
@@ -365,6 +625,25 @@ function Battle.heal(battle: Battle, source: Unit, target: Unit, amount: number)
 		amount = healed,
 		health = target.health,
 		formHealth = target.formHealth,
+	})
+end
+
+-- Restores a form's health pool (a rider's horse), capped at its maximum. Does nothing without a
+-- pool. The Heal event carries `pool = true`.
+function Battle.healFormPool(battle: Battle, source: Unit, target: Unit, amount: number)
+	if target.dead or not target.formHealth or not target.maxFormHealth then
+		return
+	end
+	local healed = math.max(0, math.min(target.maxFormHealth - target.formHealth, math.round(amount)))
+	target.formHealth += healed
+	Battle.emit(battle, {
+		kind = "Heal",
+		unit = source.index,
+		target = target.index,
+		amount = healed,
+		health = target.health,
+		formHealth = target.formHealth,
+		pool = true,
 	})
 end
 
@@ -446,6 +725,7 @@ function Battle.shield(battle: Battle, source: Unit, target: Unit, amount: numbe
 	end
 	target.shield = amount
 	target.shieldEndsTick = battle.tick + Battle.seconds(battle, seconds)
+	target.shieldSource = nil -- set again by trait shields (applyStartBonus)
 	Battle.emit(battle, {
 		kind = "Shield",
 		unit = source.index,
@@ -457,11 +737,44 @@ end
 
 -- Stuns for `seconds`. Overlapping stuns do not add up; the later end time wins.
 function Battle.stun(battle: Battle, source: Unit, target: Unit, seconds: number)
-	if target.dead then
+	if target.dead or Battle.isUntargetable(battle, target) then
 		return
 	end
 	target.stunnedUntilTick = math.max(target.stunnedUntilTick, battle.tick + Battle.seconds(battle, seconds))
 	Battle.emit(battle, { kind = "Stun", unit = source.index, target = target.index, duration = seconds })
+end
+
+-- True if `unit` has `status` (Battle.Status) right now: a stun, a debuff or a damage over time.
+function Battle.hasStatus(battle: Battle, unit: Unit, status: string): boolean
+	if status == Battle.Status.Stun then
+		return battle.tick < unit.stunnedUntilTick
+	end
+	for _, buff in unit.buffs do
+		if buff.status == status and battle.tick < buff.endsTick then
+			return true
+		end
+	end
+	for _, dot in battle.dots do
+		if dot.target == unit and dot.status == status and not dot.cancelled and battle.tick < dot.endTick then
+			return true
+		end
+	end
+	return false
+end
+
+-- Makes `unit` untargetable for `seconds` (Battle.isUntargetable): enemies drop it as a target,
+-- nothing can hit or stun it, and it does not act. Emits a Vanish event.
+function Battle.vanish(battle: Battle, unit: Unit, seconds: number)
+	if unit.dead then
+		return
+	end
+	unit.untargetableUntilTick = battle.tick + Battle.seconds(battle, seconds)
+	for _, other in battle.units do
+		if other.target == unit then
+			other.target = nil
+		end
+	end
+	Battle.emit(battle, { kind = "Vanish", unit = unit.index, duration = seconds })
 end
 
 -- Recomputes a unit's max health from its MaxHealth buffs: base x (1 + percents / 100) + flats,
@@ -484,8 +797,17 @@ local function refreshMaxHealth(battle: Battle, unit: Unit)
 	Battle.emit(battle, { kind = "MaxHealth", unit = unit.index, maxHealth = newMax, health = unit.health })
 end
 
--- Buffs one stat for `seconds`. Buffs from the same source to the same stat refresh (replace)
--- rather than stack; buffs from different sources stack.
+-- Options for Battle.buff.
+export type BuffOptions = {
+	key: string?, -- replaces the default key (source and stat), so unrelated buffs do not refresh each other
+	status: string?, -- Battle.Status carried by the buff (debuffs)
+	source: string?, -- a trait or bond name, copied to the event (nil for abilities)
+	silent: boolean?, -- no Buff event (an aura refreshing an unchanged buff)
+}
+
+-- Buffs one stat for `seconds` (math.huge: the rest of the fight; the event then has no duration
+-- and `permanent = true`). Buffs from the same source to the same stat refresh (replace) rather
+-- than stack; buffs from different sources stack. Negative values are debuffs.
 -- With `stackPerCast`, each application instead adds one stack of `flat`/`percent` up to
 -- `maxStacks`; every application (including one at the cap) refreshes the duration of all stacks.
 function Battle.buff(
@@ -497,12 +819,16 @@ function Battle.buff(
 	percent: number,
 	seconds: number,
 	stackPerCast: boolean?,
-	maxStacks: number?
+	maxStacks: number?,
+	options: BuffOptions?
 )
 	if target.dead then
 		return
 	end
-	local key = source.index .. ":" .. stat
+	local key = (options and options.key) or (source.index .. ":" .. stat)
+	if options and options.status and not options.key then
+		key = source.index .. ":" .. options.status .. ":" .. stat
+	end
 	local stacks = 1
 	if stackPerCast then
 		local existing = target.buffs[key]
@@ -510,25 +836,81 @@ function Battle.buff(
 			stacks = math.min((existing.stacks or 1) + 1, maxStacks or 1)
 		end
 	end
+	local permanent = seconds == math.huge
 	target.buffs[key] = {
 		stat = stat,
 		flat = flat * stacks,
 		percent = percent * stacks,
-		endsTick = battle.tick + Battle.seconds(battle, seconds),
+		endsTick = if permanent then math.huge else battle.tick + Battle.seconds(battle, seconds),
 		stacks = if stackPerCast then stacks else nil,
+		status = options and options.status,
 	}
-	Battle.emit(battle, {
-		kind = "Buff",
-		unit = source.index,
-		target = target.index,
-		stat = stat,
-		flat = flat,
-		percent = percent,
-		duration = seconds,
-		stacks = if stackPerCast then stacks else nil,
-	})
+	if not (options and options.silent) then
+		Battle.emit(battle, {
+			kind = "Buff",
+			unit = source.index,
+			target = target.index,
+			stat = stat,
+			flat = flat,
+			percent = percent,
+			duration = if permanent then nil else seconds,
+			permanent = if permanent then true else nil,
+			stacks = if stackPerCast then stacks else nil,
+			status = options and options.status,
+			source = options and options.source,
+		})
+	end
 	if stat == "MaxHealth" then
 		refreshMaxHealth(battle, target)
+	end
+end
+
+-- Removes a buff by key (a bond bonus that ends when its partner dies). Emits nothing.
+function Battle.removeBuff(battle: Battle, target: Unit, key: string)
+	local buff = target.buffs[key]
+	if buff then
+		target.buffs[key] = nil
+		if buff.stat == "MaxHealth" then
+			refreshMaxHealth(battle, target)
+		end
+	end
+end
+
+-- The stats each debuff status lowers by its percent.
+local DEBUFF_STATS = table.freeze({
+	[Battle.Status.Slow] = { "AttackSpeed", "MoveSpeed" },
+	[Battle.Status.Weaken] = { "DamageDealt" },
+	[Battle.Status.Curse] = { "DamageDealt" },
+})
+Battle.DebuffStats = DEBUFF_STATS
+
+-- Applies a debuff (Battle.DebuffStats): each listed stat goes down by `percent` for `seconds`.
+-- The same source re-applying the same debuff refreshes it. Untargetable units are unaffected.
+function Battle.debuff(
+	battle: Battle,
+	source: Unit,
+	target: Unit,
+	status: string,
+	percent: number,
+	seconds: number,
+	traitSource: string?
+)
+	if target.dead or Battle.isUntargetable(battle, target) then
+		return
+	end
+	for _, stat in DEBUFF_STATS[status] do
+		Battle.buff(
+			battle,
+			source,
+			target,
+			stat,
+			0,
+			-percent,
+			seconds,
+			nil,
+			nil,
+			{ status = status, source = traitSource }
+		)
 	end
 end
 
@@ -556,12 +938,17 @@ function Battle.applyStartBonus(battle: Battle, unit: Unit, bonus)
 	if bonus.stats.MaxHealth then
 		refreshMaxHealth(battle, unit)
 	end
+	-- Starting mana (Arcane), before the first tick, so the unit summary shows it.
+	if bonus.mana and bonus.mana > 0 then
+		gainMana(unit, bonus.mana)
+	end
 	for _, shield in bonus.shields do
 		local before = #battle.events
 		local amount = CombatMath.scaleByAbilityPower(shield.amount, Battle.stat(battle, unit, "AP"))
 		Battle.shield(battle, unit, unit, amount, shield.duration)
 		if #battle.events > before then
 			battle.events[#battle.events].source = shield.source
+			unit.shieldSource = shield.source
 		end
 	end
 end
@@ -607,15 +994,19 @@ local function nearestFreeCell(
 	return bestColumn, bestRow
 end
 
--- Creates one summon for `summoner` on the free cell nearest it, or returns nil (without error)
--- when there is no free cell or the side already has CombatConfig.maxEntitiesPerSide living units.
+-- Creates one summon for `summoner` on the free cell nearest it (or nearest `spec.near`, a
+-- { column, row }), or returns nil (without error) when there is no free cell or the side already
+-- has CombatConfig.maxEntitiesPerSide living units.
 -- `spec` holds absolute values: health, attackDamage, armor, magicResist, attacksPerSecond, range,
--- moveSpeed and duration (seconds).
+-- moveSpeed and duration (seconds; nil: it lasts until killed or recalled). Optional: manaPerHit
+-- (mana the summoner gains per basic attack of the summon), passive (it never acts: a dummy).
 function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
 	if Battle.livingCount(battle, summoner.side) >= CombatConfig.maxEntitiesPerSide then
 		return nil
 	end
-	local column, row = nearestFreeCell(battle, summoner.column, summoner.row)
+	local nearColumn = if spec.near then spec.near[1] else summoner.column
+	local nearRow = if spec.near then spec.near[2] else summoner.row
+	local column, row = nearestFreeCell(battle, nearColumn, nearRow)
 	if not column or not row then
 		return nil
 	end
@@ -655,7 +1046,12 @@ function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
 		dead = false,
 		summoned = true,
 		summoner = summoner,
-		expiresTick = battle.tick + Battle.seconds(battle, spec.duration),
+		expiresTick = if spec.duration then battle.tick + Battle.seconds(battle, spec.duration) else nil,
+		manaPerHit = spec.manaPerHit,
+		passive = spec.passive,
+		flags = {},
+		stacks = 0,
+		untargetableUntilTick = 0,
 	}
 	table.insert(battle.units, unit)
 	battle.occupied[Battle.cellKey(battle, column, row)] = unit
@@ -669,8 +1065,73 @@ function Battle.summon(battle: Battle, summoner: Unit, spec): Unit?
 		range = spec.range,
 		moveSpeed = spec.moveSpeed,
 		duration = spec.duration,
+		passive = spec.passive,
+		source = spec.source, -- a trait name for trait summons (the Cursed dummy)
 	})
 	return unit
+end
+
+-- Living summons made by `summoner`.
+function Battle.summonsOf(battle: Battle, summoner: Unit): { Unit }
+	local result = {}
+	for _, unit in battle.units do
+		if unit.summoned and unit.summoner == summoner and not unit.dead then
+			table.insert(result, unit)
+		end
+	end
+	return result
+end
+
+-- Recalls (removes) every living summon of `summoner`; each gets a SummonEnd event with
+-- `recalled = true`. Returns how many were recalled.
+function Battle.recall(battle: Battle, summoner: Unit): number
+	local summons = Battle.summonsOf(battle, summoner)
+	for _, unit in summons do
+		unit.dead = true
+		battle.occupied[Battle.cellKey(battle, unit.column, unit.row)] = nil
+		Battle.emit(battle, { kind = "SummonEnd", unit = unit.index, recalled = true })
+	end
+	return #summons
+end
+
+-- Knocks `target` one hex straight away from `source`, if that hex is on the field and free.
+-- "Straight away" is the neighboring hex one step farther from the source whose direction best
+-- matches the source-to-target direction (ties: the first neighbor in HexGrid order). Returns true
+-- if it moved; emits a Knockback event.
+function Battle.knockback(battle: Battle, source: Unit, target: Unit): boolean
+	if target.dead or Battle.isUntargetable(battle, target) then
+		return false
+	end
+	local distance = Battle.distance(source, target)
+	if distance == 0 then
+		return false
+	end
+	local sx, sy = HexGrid.point(source.column, source.row)
+	local tx, ty = HexGrid.point(target.column, target.row)
+	local dx, dy = tx - sx, ty - sy
+	local bestColumn, bestRow, bestScore = nil, nil, -math.huge
+	for _, cell in HexGrid.neighbors(target.column, target.row) do
+		local column, row = cell[1], cell[2]
+		if HexGrid.distance(source.column, source.row, column, row) == distance + 1 then
+			local cx, cy = HexGrid.point(column, row)
+			local score = (cx - tx) * dx + (cy - ty) * dy
+			if score > bestScore + 1e-9 then
+				bestColumn, bestRow, bestScore = column, row, score
+			end
+		end
+	end
+	if not bestColumn or not bestRow or not Battle.isFree(battle, bestColumn, bestRow) then
+		return false
+	end
+	Battle.relocate(battle, target, bestColumn, bestRow)
+	Battle.emit(battle, {
+		kind = "Knockback",
+		unit = source.index,
+		target = target.index,
+		column = bestColumn,
+		row = bestRow,
+	})
+	return true
 end
 
 -- Pulls `target` to the free cell adjacent to `caster` nearest the target's current cell. If the
@@ -694,7 +1155,8 @@ end
 -- Starts damage over time on `target`: `amount` raw damage of `damageType` every `interval`
 -- seconds for `seconds`, the first tick one interval from now. Applications from different
 -- sources (or abilities) stack. Re-applying the same `key` refreshes the duration, keeps the
--- stronger tick, and resets the mana cap; the next tick stays where it was.
+-- stronger tick, and resets the mana cap; the next tick stays where it was. `status` (BURN,
+-- POISON) marks the application for Battle.hasStatus.
 function Battle.damageOverTime(
 	battle: Battle,
 	source: Unit,
@@ -703,9 +1165,10 @@ function Battle.damageOverTime(
 	amount: number,
 	damageType: string,
 	interval: number,
-	seconds: number
+	seconds: number,
+	status: string?
 )
-	if target.dead then
+	if target.dead or Battle.isUntargetable(battle, target) then
 		return
 	end
 	local endTick = battle.tick + Battle.seconds(battle, seconds)
@@ -714,7 +1177,13 @@ function Battle.damageOverTime(
 			dot.endTick = endTick
 			dot.amount = math.max(dot.amount, amount)
 			dot.manaLeft = CombatConfig.dotManaCap
-			Battle.emit(battle, { kind = "Dot", unit = source.index, target = target.index, refreshed = true })
+			Battle.emit(battle, {
+				kind = "Dot",
+				unit = source.index,
+				target = target.index,
+				refreshed = true,
+				status = status,
+			})
 			return
 		end
 	end
@@ -729,8 +1198,15 @@ function Battle.damageOverTime(
 		nextTick = battle.tick + intervalTicks,
 		endTick = endTick,
 		manaLeft = CombatConfig.dotManaCap,
+		status = status,
 	})
-	Battle.emit(battle, { kind = "Dot", unit = source.index, target = target.index, damageType = damageType })
+	Battle.emit(battle, {
+		kind = "Dot",
+		unit = source.index,
+		target = target.index,
+		damageType = damageType,
+		status = status,
+	})
 end
 
 -- Deals every damage-over-time tick that is due, in application order, and drops finished ones.
@@ -768,6 +1244,73 @@ function Battle.tickDots(battle: Battle)
 		end
 	end
 	battle.dots = remaining
+end
+
+-- A per-star value: a list indexed by star level, or a constant.
+local function perStar(value: any, starLevel: number): any
+	if type(value) == "table" then
+		return value[starLevel]
+	end
+	return value
+end
+
+-- Passive auras (a unit type's `aura`; see Abilities.validateUnit): every `interval` seconds all
+-- fight, each living enemy within `radius` of the unit takes `amount` damage (magic scales with the
+-- unit's ability power; the victim gains at most CombatConfig.auraManaCap mana per pulse), and each
+-- `buffs` entry gives the unit `flatPerEnemy` of its stat per enemy inside, until the next pulse.
+-- Pulses keep going while the unit is stunned. Aura hits are Damage events marked dot and aura.
+function Battle.tickAuras(battle: Battle)
+	for _, unit in battle.units do
+		local aura = unit.stats.aura
+		if aura and not unit.dead and unit.nextAuraTick and battle.tick >= unit.nextAuraTick then
+			local intervalTicks = math.max(1, Battle.seconds(battle, aura.interval))
+			unit.nextAuraTick += intervalTicks
+			local victims = {}
+			for _, enemy in Battle.enemiesOf(battle, unit) do
+				if Battle.distance(unit, enemy) <= aura.radius then
+					table.insert(victims, enemy)
+				end
+			end
+			local amount = perStar(aura.amount, unit.starLevel)
+			if amount and amount > 0 then
+				if aura.damageType == CombatMath.DamageType.Magic then
+					amount = CombatMath.scaleByAbilityPower(amount, Battle.stat(battle, unit, "AP"))
+				end
+				for _, enemy in victims do
+					Battle.damage(
+						battle,
+						unit,
+						enemy,
+						amount,
+						aura.damageType,
+						"Damage",
+						nil,
+						CombatConfig.auraManaCap,
+						true,
+						{ dot = true, aura = true }
+					)
+				end
+			end
+			local changed = unit.auraCount ~= #victims
+			unit.auraCount = #victims
+			for _, buff in aura.buffs or {} do
+				local flat = (perStar(buff.flatPerEnemy, unit.starLevel) or 0) * #victims
+				-- Lasts a little past the next pulse, which refreshes it.
+				Battle.buff(
+					battle,
+					unit,
+					unit,
+					buff.stat,
+					flat,
+					0,
+					aura.interval * 1.5,
+					nil,
+					nil,
+					{ key = "aura:" .. buff.stat, silent = not changed }
+				)
+			end
+		end
+	end
 end
 
 -- Ends expired shields, buffs and summons. Called at the start of every tick.

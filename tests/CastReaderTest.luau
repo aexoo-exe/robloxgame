@@ -4,7 +4,6 @@
 local Battle = require("../src/shared/Battle")
 local CastReader = require("../src/client/CastReader")
 local CombatSim = require("../src/shared/CombatSim")
-local HexGrid = require("../src/shared/HexGrid")
 local SeededRandom = require("../src/shared/SeededRandom")
 local UnitConfig = require("../src/shared/UnitConfig")
 
@@ -43,9 +42,9 @@ local function recordedFight(seed: number)
 
 	local trueTypes = {}
 	local original = Battle.damage
-	Battle.damage = function(battle, source, target, raw, damageType, kind, crit, manaCap, overTime)
+	Battle.damage = function(battle, source, target, raw, damageType, kind, crit, manaCap, overTime, tags)
 		local before = #battle.events
-		local final, manaGained = original(battle, source, target, raw, damageType, kind, crit, manaCap, overTime)
+		local final, manaGained = original(battle, source, target, raw, damageType, kind, crit, manaCap, overTime, tags)
 		if #battle.events > before then
 			trueTypes[before + 1] = damageType
 		end
@@ -109,7 +108,7 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "every area hit lies within the area read for its cast",
+	name = "every area hit lies within the area of the Area event before it, and the reading has it",
 	run = function()
 		local areaCount = 0
 		for seed = 1, 40 do
@@ -119,30 +118,26 @@ table.insert(tests, {
 			for _, unit in result.units do
 				cells[unit.index] = { unit.column, unit.row }
 			end
-			local castAreas = nil
+			local lastArea = {} -- unit index -> the area of its latest Area event
 			for index, event in result.events do
-				if event.kind == "Cast" then
-					castAreas = reading.areas[index]
-					if castAreas then
-						areaCount += #castAreas
-					end
-				elseif event.kind == "Damage" and castAreas and not event.dot then
-					-- (Damage-over-time ticks are not part of any cast.)
+				if event.kind == "Area" then
+					areaCount += 1
+					lastArea[event.unit] = reading.areaEvents[index]
+					assert(lastArea[event.unit], string.format("seed %d event %d: Area event not read", seed, index))
+				elseif event.kind == "Damage" and event.area then
+					local area = lastArea[event.unit]
 					local cell = cells[event.target]
-					local inside = false
-					for _, area in castAreas do
-						inside = inside or HexGrid.distance(area.column, area.row, cell[1], cell[2]) <= area.radius
-					end
-					-- A single-target DAMAGE before an area (a punch) also hits the area's center, so this holds for all.
-					assert(inside, string.format("seed %d event %d: hit outside every area", seed, index))
-				elseif event.kind == "Attack" then
-					castAreas = nil
+					assert(area, string.format("seed %d event %d: area hit without an Area event", seed, index))
+					assert(
+						CastReader.contains(area, cell[1], cell[2]),
+						string.format("seed %d event %d: hit outside its area", seed, index)
+					)
 				end
 				if event.kind == "Move" or event.kind == "Dash" then
 					cells[event.unit] = { event.column, event.row }
 				elseif event.kind == "Summon" then
 					cells[event.summon] = { event.column, event.row }
-				elseif event.kind == "Pull" then
+				elseif event.kind == "Pull" or event.kind == "Knockback" then
 					cells[event.target] = { event.column, event.row }
 				end
 			end

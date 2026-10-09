@@ -51,6 +51,8 @@ local STALE_SECONDS = 0.5
 
 local views: { [number]: UnitView.UnitView } = {} -- living units, by unit index
 local dying: { [UnitView.UnitView]: boolean } = {} -- fading out; destroyed when the fade ends
+-- Cast clones (RenderConfig.castClones): client-only figures, not units, removed at `endsAt`.
+local clones: { { view: UnitView.UnitView, endsAt: number } } = {}
 local connection: RBXScriptConnection? = nil
 
 local function clear()
@@ -68,6 +70,10 @@ local function clear()
 		UnitView.destroy(view)
 	end
 	table.clear(dying)
+	for _, clone in clones do
+		UnitView.destroy(clone.view)
+	end
+	table.clear(clones)
 	CombatEffects.clear()
 end
 
@@ -147,8 +153,9 @@ local function play(playback)
 		local form = formOf(unit.unitType, unit.formIndex)
 		info[unit.index] = {
 			side = unit.side,
-			range = stats.range,
+			range = Forms.range(stats, form),
 			moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed"),
+			unitType = unit.unitType,
 		}
 	end
 	for _, event in result.events do
@@ -167,13 +174,25 @@ local function play(playback)
 		return if unit then Forms.abilityNamed(Pve.unitType(unit.unitType), name) else nil
 	end)
 
-	-- Pulses every field cell within the area's radius, spreading outward from its center.
-	local function pulseArea(area: CastReader.Area, color: Color3?)
+	-- Pulses every field cell of the area, spreading outward from its center: a circle's cells within
+	-- its radius, or a line's or cone's listed cells (spreading from the caster's cell).
+	local function pulseArea(area: CastReader.Area, color: Color3?, fromColumn: number?, fromRow: number?)
 		local cells = {}
+		if area.cells then
+			local originColumn, originRow = fromColumn or area.column, fromRow or area.row
+			for _, cell in area.cells do
+				table.insert(cells, {
+					position = toWorld(cell[1], cell[2]),
+					delay = HexGrid.distance(originColumn, originRow, cell[1], cell[2]) * RenderConfig.areaWaveDelay,
+				})
+			end
+			CombatEffects.areaPulse(cells, color or RenderConfig.lineAreaColor)
+			return
+		end
 		for row = 1, BoardConfig.rows * 2 do
 			for column = 1, BoardConfig.columns do
 				local distance = HexGrid.distance(area.column, area.row, column, row)
-				if distance <= area.radius then
+				if distance <= (area.radius or 0) then
 					table.insert(cells, {
 						position = toWorld(column, row),
 						delay = distance * RenderConfig.areaWaveDelay,
@@ -182,6 +201,37 @@ local function play(playback)
 			end
 		end
 		CombatEffects.areaPulse(cells, color)
+	end
+
+	-- Client-only clones around a caster for the cast (RenderConfig.castClones).
+	local function spawnClones(view, ability: string)
+		local spec = RenderConfig.castClones[ability]
+		if not spec then
+			return
+		end
+		local ground = view.base - Vector3.new(0, view.part.Size.Y / 2, 0)
+		for i = 1, spec.count do
+			local angle = (i - 0.5) / spec.count * 2 * math.pi
+			local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * RenderConfig.hexRadius * 0.9
+			local clone = UnitView.new("clone", 1, view.color, ground + offset, Arena.folder, {
+				maxHealth = 1,
+				yaw = view.yaw,
+				summon = true,
+				look = CharacterLook.summon,
+				starPips = false,
+				clock = fightNow,
+			})
+			clone.infoBoard.Enabled = false
+			UnitView.cast(clone)
+			table.insert(clones, { view = clone, endsAt = fightNow() + spec.duration })
+		end
+	end
+
+	local function showStatus(view, status: string?)
+		local label = if status then RenderConfig.statusLabels[status] else nil
+		if view and label then
+			UnitView.statusText(view, label, RenderConfig.statusTextColor)
+		end
 	end
 
 	-- Applies one CombatSim event (see the Event list in CombatSim) to the views. `fresh` is false
@@ -198,6 +248,11 @@ local function play(playback)
 		elseif kind == "Attack" or kind == "Damage" then
 			if view and event.mana then
 				UnitView.setMana(view, event.mana)
+			end
+			-- A summon that feeds its summoner mana.
+			local summoner = info[event.unit] and info[event.unit].summoner
+			if event.summonerMana and summoner and views[summoner] then
+				UnitView.setMana(views[summoner], event.summonerMana)
 			end
 			if view and targetView and kind == "Attack" then
 				UnitView.face(view, targetView)
@@ -223,10 +278,35 @@ local function play(playback)
 				if isBoss(event.unit) then
 					UnitView.callout(view, abilityName(event.ability), RenderConfig.bossCastTextColor)
 				end
+				-- Areas the server described pulse with their Area events; only inferred ones here.
 				for _, area in reading.areas[index] or {} do
-					pulseArea(area)
+					if area.inferred then
+						pulseArea(area)
+					end
 				end
+				spawnClones(view, event.ability)
 			end
+		elseif kind == "FollowUp" and view and fresh then
+			UnitView.cast(view)
+		elseif kind == "Area" and fresh then
+			pulseArea(reading.areaEvents[index] or CastReader.areaOf(event), nil, event.fromColumn, event.fromRow)
+		elseif kind == "Bounce" and fresh and targetView and views[event.from] then
+			local now = fightNow()
+			CombatEffects.projectile(
+				views[event.from],
+				targetView,
+				now + RenderConfig.bounceFlightTime,
+				RenderConfig.bounceColor
+			)
+		elseif kind == "Vanish" and view then
+			UnitView.vanish(view, event.duration)
+		elseif
+			fresh
+			and targetView
+			and ((kind == "Buff" and event.status) or (kind == "Dot" and not event.refreshed))
+		then
+			-- Debuffs and new damage over time float their status label.
+			showStatus(targetView, event.status)
 		elseif kind == "Heal" and targetView then
 			UnitView.setHealth(targetView, event.health)
 			if event.formHealth then
@@ -257,8 +337,8 @@ local function play(playback)
 					starPips = false,
 					clock = fightNow,
 				})
-		elseif kind == "Pull" and targetView then
-			-- The pulled unit slides to its new cell, like a dash.
+		elseif (kind == "Pull" or kind == "Knockback") and targetView then
+			-- The pulled or knocked-back unit slides to its new cell, like a dash.
 			UnitView.dashTo(targetView, toWorld(event.column, event.row))
 		elseif kind == "Form" and view then
 			-- The server decided the form change; this only shows it.
@@ -267,7 +347,9 @@ local function play(playback)
 			local look = formLook(form)
 			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth)
 			UnitView.setHealth(view, event.health)
-			info[event.unit].moveSpeed = Forms.baseStat(Pve.unitType(unit.unitType), form, "MoveSpeed", "moveSpeed")
+			local stats = Pve.unitType(unit.unitType)
+			info[event.unit].moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed")
+			info[event.unit].range = Forms.range(stats, form)
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end
@@ -303,7 +385,11 @@ local function play(playback)
 			local own = info[event.unit].side == localSide
 			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
 			UnitView.shoot(attacker, target)
-			CombatEffects.projectile(attacker, target, now + landsIn, color, UnitView.launchPoint(attacker))
+			local tongue = RenderConfig.tongueAttacks[info[event.unit].unitType or ""] == true
+			if tongue then
+				color = RenderConfig.tongueColor
+			end
+			CombatEffects.projectile(attacker, target, now + landsIn, color, UnitView.launchPoint(attacker), tongue)
 		else
 			UnitView.lunge(attacker, target, now + landsIn - RenderConfig.lungeDuration / 2)
 		end
@@ -356,6 +442,15 @@ local function play(playback)
 			if not UnitView.update(view, now, dt) then
 				UnitView.destroy(view)
 				dying[view] = nil
+			end
+		end
+		for i = #clones, 1, -1 do
+			local clone = clones[i]
+			if now >= clone.endsAt then
+				UnitView.destroy(clone.view)
+				table.remove(clones, i)
+			else
+				UnitView.update(clone.view, now, dt)
 			end
 		end
 		CombatEffects.update(now)

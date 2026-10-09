@@ -89,8 +89,33 @@ return table.freeze({
 		Mounted = table.freeze({ label = "Remount!", mount = Color3.fromRGB(125, 85, 50) }),
 		Dismounted = table.freeze({ label = "Dismounted!" }),
 	}),
-	-- Callouts (text over a unit) are kept for big moments: form changes and boss abilities.
+	-- Callouts (text over a unit) are kept for big moments: form changes, boss abilities and trait
+	-- moments (a mark, a meter phase).
 	bossCastTextColor = Color3.fromRGB(255, 120, 90),
+	traitTextColor = Color3.fromRGB(150, 230, 255),
+
+	-- Overhaul 1 placeholder visuals (docs/design/overhaul-1.md). Statuses float up as small labels
+	-- when applied (debuff buffs and damage over time), keyed by Battle.Status.
+	statusLabels = table.freeze({
+		SLOW = "Slowed",
+		WEAKEN = "Weakened",
+		CURSE = "Hexed",
+		BURN = "Burning",
+		POISON = "Poisoned",
+	}),
+	statusTextColor = Color3.fromRGB(200, 170, 255),
+	vanishTransparency = 0.75, -- untargetable units (Vanish events)
+	bounceColor = Color3.fromRGB(255, 240, 160), -- the projectile between bounce targets
+	bounceFlightTime = 0.2,
+	lineAreaColor = Color3.fromRGB(255, 170, 90), -- LINE and CONE area pulses
+	-- Clones drawn around a caster while it casts (client only; they are not units): count and
+	-- seconds, keyed by ability name (= character id).
+	castClones = table.freeze({
+		echo_legion = table.freeze({ count = 2, duration = 1.0 }),
+	}),
+	-- Basic attacks drawn with a different projectile (a long, thin "tongue"), by character id.
+	tongueAttacks = table.freeze({ shade_pack = true }),
+	tongueColor = Color3.fromRGB(230, 90, 120),
 	-- PvE creep and boss bodies, names and sizes come from their theme's looks (PveThemeConfig); the
 	-- top bar's round tracker colors come from UITheme.roundKinds.
 	deathFadeDuration = 0.5,

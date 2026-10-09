@@ -10,11 +10,15 @@
 -- side with the higher remaining health percentage (sum of current health / sum of max health over
 -- every unit that entered combat) wins; within `timeoutDrawMargin` of each other it is a draw.
 --
--- Per tick, expired shields and buffs end, then each living unit acts in a seeded random order:
---   0. A stunned or casting unit does nothing.
+-- Per tick, expired shields and buffs end, scheduled effects land, damage over time and auras
+-- tick, then each living unit acts in a seeded random order:
+--   0. A stunned, casting, untargetable (vanished) or passive unit does nothing.
 --   1. With full mana and an ability, it casts (see Abilities).
---   2. Otherwise it keeps its target if alive and in range, else targets the nearest enemy.
---   3. It attacks if the target is in range and its attack cooldown is ready (crits possible).
+--   2. Otherwise it keeps its target if alive, targetable and in range (its form's range, if the
+--      form sets one), else targets the nearest enemy.
+--   3. It attacks if the target is in range and its attack cooldown is ready (crits possible, at
+--      its CritChance and CritDamage). Attack stacks build first; a form's splash and the attack
+--      hooks (traits) follow the hit.
 --   4. Otherwise it steps one cell along a shortest path of free cells toward a cell in range,
 --      once its move cooldown is ready. Units never share a cell.
 -- All damage goes through Battle.damage; the formulas are in CombatMath.
@@ -76,28 +80,44 @@ export type UnitSummary = {
 --   Dash      column, row
 --   Attack    target, damage, health, shield (target's, after the hit), mana (attacker's),
 --             targetMana, crit (true or nil), formHealth (the target's form health pool after the
---             hit; nil when it has none)
---   Damage    same fields as Attack, for ability damage (never crits). Damage-over-time ticks are
---             Damage events with dot = true and their damageType; `unit` is the DOT's source.
+--             hit; nil when it has none), summonerMana (a summon with manaPerHit: its summoner's
+--             mana after the hit). Always physical.
+--   Damage    same fields as Attack for every other hit (never crits), plus damageType. Marked:
+--             dot = true for damage-over-time ticks and aura pulses (aura = true too; `unit` is the
+--             source), splash = true for a form's attack splash, stunEnd = true for damage when a
+--             stun ends, execute = true for an execute
 --   Cast      ability (name); the caster's mana is now 0
---   Heal      target, amount, health, formHealth (as in Attack)
+--   FollowUp  ability (name): an onTargetKilled follow-up starts; its effects' events follow
+--   Heal      target, amount, health, formHealth (as in Attack); pool = true for a form-pool heal
 --   Shield    target, shield (new shield), duration (seconds), source (trait name, for shields
 --             given at combat start by a trait; nil for ability shields)
 --   ShieldEnd the unit's shield expired
 --   Stun      target, duration (seconds)
---   Buff      target, stat, flat, percent (per stack), duration (seconds), stacks (stacking buffs)
+--   Buff      target, stat, flat, percent (per stack; negative for debuffs), duration (seconds; nil
+--             with permanent = true), stacks (stacking buffs), status (debuffs: Battle.Status),
+--             source (trait or bond name, for their buffs)
 --   Death     the unit died
 --   MaxHealth the unit's maxHealth changed (MaxHealth bonus); health is its current health
+--   Area      shape (CIRCLE, LINE, CONE), column, row (the center), radius (CIRCLE), cells (LINE
+--             and CONE: the covered { column, row } cells), fromColumn, fromRow (LINE and CONE: the
+--             caster's cell); an AREA_DAMAGE's hits follow
 --   AreaStun  column, row, radius: an AREA_STUN centered there (Stun events follow per enemy)
---   Summon    summon (new unit index), column, row, maxHealth, range, moveSpeed, duration; the new
---             unit is a summon on `unit`'s side and appears in no UnitSummary
---   SummonEnd the summon expired and vanished
+--   Summon    summon (new unit index), column, row, maxHealth, range, moveSpeed, duration (nil:
+--             until killed), passive (a dummy that never acts), source (trait name for trait
+--             summons); the new unit is a summon on `unit`'s side and appears in no UnitSummary
+--   SummonEnd the summon expired and vanished; recalled = true when its summoner recalled it
 --   Pull      target, column, row: the target was pulled next to `unit`
---   Dot       target, damageType, refreshed (true when an existing application was refreshed)
+--   Knockback target, column, row: the target was knocked one hex away from `unit`
+--   Bounce    from, target (unit indexes): a bounce flies from one enemy to the next
+--   Dot       target, damageType, status (BURN, POISON or nil), refreshed (true when an existing
+--             application was refreshed)
 --   Copy      target, ability (name of the copied ability); the copied effects' events follow
 --   Form      the unit changed form (Battle.enterForm): form (name), formIndex, formHealth and
 --             maxFormHealth (the new form's pool; nil without one), health (the unit's own),
 --             cleansed (true when the change ended its stun and damage over time)
+--   Vanish    duration: the unit is untargetable and does not act (Battle.vanish)
+--   Trait events (TraitCombat): Mark (target), Meter (trait, value, max, phase), TraitSummon is a
+--             Summon with source
 export type Event = { [string]: any }
 
 export type Result = {
@@ -153,9 +173,55 @@ local function findStep(battle, unit, target, range: number): (number?, number?)
 	return nil, nil
 end
 
+-- Attack stacks (a unit type's `attackStacks`): an attack on the stacked target adds one, up to
+-- max; an attack on another target starts over at one. Units that cast at max stacks show them as
+-- mana, so their mana bar fills as the stacks build and they cast when it is full.
+local function addAttackStack(unit, target)
+	local attackStacks = unit.stats.attackStacks
+	if not attackStacks then
+		return
+	end
+	if unit.stackTarget ~= target then
+		unit.stacks = 0
+		unit.stackTarget = target
+	end
+	unit.stacks = math.min(attackStacks.max, unit.stacks + 1)
+	if attackStacks.castAtMax and unit.maxMana then
+		unit.mana = unit.maxMana * unit.stacks / attackStacks.max
+	end
+end
+
+-- A form's basic-attack splash: every other enemy next to the target takes a share of the hit.
+local function splash(battle, unit, target, raw: number)
+	local form = unit.form
+	if not (form and form.splash) then
+		return
+	end
+	local amount = raw * form.splash.percent / 100
+	for _, enemy in Battle.enemiesOf(battle, unit) do
+		if enemy ~= target and HexGrid.distance(enemy.column, enemy.row, target.column, target.row) == 1 then
+			Battle.damage(
+				battle,
+				unit,
+				enemy,
+				amount,
+				CombatMath.DamageType.Physical,
+				"Damage",
+				nil,
+				nil,
+				nil,
+				{ splash = true }
+			)
+		end
+	end
+end
+
 local function act(battle, unit)
 	unit.attackCooldown -= 1
 	unit.moveCooldown -= 1
+	if unit.passive or Battle.isUntargetable(battle, unit) then
+		return
+	end
 	if battle.tick < unit.stunnedUntilTick or battle.tick < unit.castEndsTick then
 		return
 	end
@@ -165,9 +231,14 @@ local function act(battle, unit)
 		return
 	end
 
-	local range = unit.stats.range
+	local range = Battle.range(unit)
 	local target = unit.target
-	if target == nil or target.dead or Battle.distance(unit, target) > range then
+	if
+		target == nil
+		or target.dead
+		or Battle.isUntargetable(battle, target)
+		or Battle.distance(unit, target) > range
+	then
 		target = findNearestEnemy(battle, unit)
 		unit.target = target
 	end
@@ -178,13 +249,17 @@ local function act(battle, unit)
 	if Battle.distance(unit, target) <= range then
 		if unit.attackCooldown <= 0 then
 			local raw = Battle.stat(battle, unit, "AD")
-			local crit = SeededRandom.nextInt(battle.rng, 1000000) <= battle.critChance * 1000000
+			local critChance = Battle.stat(battle, unit, "CritChance")
+			local crit = SeededRandom.nextInt(battle.rng, 1000000) <= critChance * 1000000
 			if crit then
-				raw = CombatMath.critRawDamage(raw)
+				raw = CombatMath.critRawDamage(raw, Battle.stat(battle, unit, "CritDamage"))
 			end
 			unit.attackCooldown =
 				math.max(1, math.round(battle.ticksPerSecond / Battle.stat(battle, unit, "AttackSpeed")))
+			addAttackStack(unit, target)
 			Battle.damage(battle, unit, target, raw, CombatMath.DamageType.Physical, "Attack", crit)
+			splash(battle, unit, target, raw)
+			Battle.runHooks(battle, "attack", unit, target)
 		end
 	elseif unit.moveCooldown <= 0 then
 		local column, row = findStep(battle, unit, target, range)
@@ -207,11 +282,15 @@ local function sideAlive(battle, side: number): boolean
 	return false
 end
 
--- Advances the battle by one tick: expiries, then damage-over-time ticks, then every unit acts.
+-- Advances the battle by one tick: expiries, scheduled effects that are due, damage-over-time
+-- ticks, aura pulses and tick hooks (traits), then every unit acts.
 function CombatSim.step(battle)
 	battle.tick += 1
 	Battle.expire(battle)
+	Battle.runScheduled(battle)
 	Battle.tickDots(battle)
+	Battle.tickAuras(battle)
+	Battle.runHooks(battle, "tick")
 	local order = {}
 	for _, unit in battle.units do
 		if not unit.dead then

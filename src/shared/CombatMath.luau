@@ -32,9 +32,10 @@ function CombatMath.finalDamage(raw: number, damageType: string, armor: number, 
 	return math.max(1, math.round(raw * CombatMath.resistanceMultiplier(resistance)))
 end
 
--- Raw damage of a critical basic attack.
-function CombatMath.critRawDamage(raw: number): number
-	return raw * CombatConfig.critDamage
+-- Raw damage of a critical basic attack, with the attacker's crit damage multiplier
+-- (CombatConfig.critDamage when omitted; traits can raise it).
+function CombatMath.critRawDamage(raw: number, multiplier: number?): number
+	return raw * (multiplier or CombatConfig.critDamage)
 end
 
 -- Listed magic damage, heal or shield value scaled by ability power.
