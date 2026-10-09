@@ -1051,7 +1051,15 @@ print(
 
 -- Diagnostic 1-star damage per fight by cost, for tanks/supports and for carries
 -- (docs/design/world-and-traits.md, Base stat bands). Characters with the Guardian or Support
--- class use the tank/support band; everyone else uses the carry band.
+-- class use the tank/support band; everyone else uses the carry band. BAND_OVERRIDES picks the
+-- band for damage-dealing tanks: redline_cut is measured as a carry, and three tanks against a
+-- "bruiser" band halfway between the support and carry bands of their cost.
+local BAND_OVERRIDES = {
+	redline_cut = "carry",
+	skyboulder = "bruiser",
+	titanheart = "bruiser",
+	elastic_wardrum = "bruiser",
+}
 local SUPPORT_CLASSES = { Guardian = true, Support = true }
 local function isSupport(unit): boolean
 	for _, class in unit.classes do
@@ -1068,6 +1076,12 @@ local BANDS = {
 	{ support = { 500, 1100 }, carry = { 1600, 2200 } },
 	{ support = { 700, 1400 }, carry = { 2200, 3200 } },
 }
+for _, band in BANDS do
+	band.bruiser = {
+		(band.support[1] + band.carry[1]) / 2,
+		(band.support[2] + band.carry[2]) / 2,
+	}
+end
 
 print("1-star characters (per fight they appeared in): average damage dealt against the diagnostic band,")
 print("casts, seconds survived (share of the fight), and for dashers how often a cast's dash moved them")
@@ -1082,7 +1096,7 @@ local outliers = {}
 for _, name in names do
 	local stats = unitStats[name]
 	local unit = UnitConfig[name]
-	local bucket = if isSupport(unit) then "support" else "carry"
+	local bucket = BAND_OVERRIDES[name] or (if isSupport(unit) then "support" else "carry")
 	local band = BANDS[unit.cost][bucket]
 	local damage = stats.damage / stats.fights
 	local verdict = "in"

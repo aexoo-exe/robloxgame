@@ -322,4 +322,6 @@ combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16
 - night_parade: the cycle is 2 casts (AbilityConfig.nightParadeCycle 3 -> 2). Cast 1 summons two
   curses (was one per summoning cast); cast 2 recalls every living curse (even none) and fires the
   line; then it repeats. Max mana 110 -> 40 (about one cast every 5 seconds). Line base
-  540/855/1370 -> 70/110/180 (+100% per curse recalled, unchanged).
+  540/855/1370 -> 70/110/180 (+100% per curse recalled, unchanged).- Sim damage ranges (report only): redline_cut is measured against the carry range of its cost;
+  skyboulder, titanheart and elastic_wardrum against a new "bruiser" range halfway between the
+  support and carry ranges (1c 475-800, 2c 550-950, 3c 775-1250, 4c 1050-1650, 5c 1450-2300).
