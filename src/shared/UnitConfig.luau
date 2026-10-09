@@ -241,18 +241,18 @@ end
 
 -- 1-cost --------------------------------------------------------------------------------------
 
-add("flashline", unit(1, "Hunters", { "Blade", "Assassin" }, 560, 63, 20, 20, 0.78, 1, 1.1, 20, 90), {
+add("flashline", unit(1, "Hunters", { "Blade", "Assassin" }, 560, 81, 20, 20, 0.78, 1, 1.1, 20, 90), {
 	dash("FARTHEST_ENEMY", 4, true),
-	damage("FARTHEST_ENEMY", "PHYSICAL", { 140, 225, 360 }),
+	damage("FARTHEST_ENEMY", "PHYSICAL", { 350, 565, 900 }),
 })
 add("cinder_arc", unit(1, "Hunters", { "Blade" }, 650, 57, 28, 25, 0.70, 1, 1.0, 30, 90), {
-	damage("CURRENT_TARGET", "PHYSICAL", { 105, 170, 270 }),
-	area("CURRENT_TARGET", 1, "MAGIC", { 65, 105, 170 }),
+	damage("CURRENT_TARGET", "PHYSICAL", { 165, 265, 425 }),
+	area("CURRENT_TARGET", 1, "MAGIC", { 100, 165, 265 }),
 	buffPercent("SELF", "AttackSpeed", { 18, 28, 42 }, 5),
 })
-add("wolfstep", unit(1, "Corps", { "Blade" }, 590, 62, 22, 20, 0.77, 1, 1.1, 20, 80), {
+add("wolfstep", unit(1, "Corps", { "Blade" }, 590, 72, 22, 20, 0.77, 1, 1.1, 20, 80), {
 	dash("HIGHEST_AD_ENEMY", 3, true),
-	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 135, 215, 345 }),
+	damage("HIGHEST_AD_ENEMY", "PHYSICAL", { 340, 540, 865 }),
 })
 -- Spin stacks: basic attacks on one target build up to 4; at 4 he fires (the mana bar shows the
 -- stacks). The shot grows 15% per stack, slows, and heals the horse (a smaller self-heal on foot).
@@ -274,7 +274,7 @@ roster.spurshot.forms =
 	mountedForms("spurshot", formAbility("spurshot", "dismounted", spurshotShot(heal("SELF", { 50, 80, 130 }))))
 -- First cast: the chainsaw form for the rest of the fight (faster attacks that splash); in it, a
 -- self-heal.
-add("ripcord_frenzy", unit(1, "Cursed", { "Brawler" }, 700, 58, 28, 24, 0.72, 1, 1.0, 30, 90), {}, { formOnly = true })
+add("ripcord_frenzy", unit(1, "Cursed", { "Brawler" }, 700, 70, 28, 24, 0.72, 1, 1.0, 30, 90), {}, { formOnly = true })
 roster.ripcord_frenzy.forms = {
 	{ name = "Unarmed", trigger = { type = "ON_CAST" } },
 	{
@@ -284,8 +284,8 @@ roster.ripcord_frenzy.forms = {
 		ability = formAbility("ripcord_frenzy", "chainsaw", { heal("SELF", { 100, 160, 255 }) }),
 	},
 }
-add("null_edge", unit(1, "Arcane", { "Blade" }, 680, 61, 30, 35, 0.68, 1, 1.0, 30, 90), {
-	damage("CURRENT_TARGET", "PHYSICAL", { 130, 210, 335 }),
+add("null_edge", unit(1, "Arcane", { "Blade" }, 680, 64, 30, 35, 0.68, 1, 1.0, 30, 90), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 325, 525, 840 }),
 	buffFlat("SELF", "MR", { 25, 40, 65 }, 5),
 })
 -- Poisoned enemies also deal less damage while the poison lasts.
@@ -324,7 +324,7 @@ add("flare_kick", unit(2, "Crew", { "Brawler", "Assassin" }, 760, 69, 30, 27, 0.
 	damage("LOWEST_HP_ENEMY_NEARBY", "PHYSICAL", { 110, 175, 280 }),
 }, { castTime = 0, resetAttackTimer = true, nearbyRange = AbilityConfig.flareKickRange })
 add("burst_vector", unit(2, "Heroes", { "Caster", "Marksman" }, 650, 67, 22, 24, 0.78, 4, 1.0, 20, 80), {
-	area("CURRENT_TARGET", 1, "MAGIC", { 210, 335, 535 }),
+	area("CURRENT_TARGET", 1, "MAGIC", { 105, 165, 265 }),
 	buffPercent("SELF", "AD", { 10, 15, 25 }, 4),
 })
 -- A heavy hit, and a line of half damage through the enemies behind the target.
@@ -343,9 +343,9 @@ add("crimson_hunger", unit(2, "Cursed", { "Assassin" }, 720, 70, 26, 27, 0.82, 1
 -- Damage and stun, then a bounce to the nearest other enemy (two bounces while mounted).
 local function orbitBreakerEffects(bounces)
 	return {
-		damage("CURRENT_TARGET", "PHYSICAL", { 220, 350, 560 }),
+		damage("CURRENT_TARGET", "PHYSICAL", { 110, 180, 285 }),
 		stun("CURRENT_TARGET", { 1, 1.5, 2 }),
-		bounce("CURRENT_TARGET", bounces, "PHYSICAL", { 100, 160, 250 }),
+		bounce("CURRENT_TARGET", bounces, "PHYSICAL", { 50, 80, 125 }),
 	}
 end
 add("orbit_breaker", unit(2, "Spirit", { "Marksman" }, 660, 68, 23, 25, 0.82, 3, 1.0, 20, 90), orbitBreakerEffects(2))
@@ -419,8 +419,8 @@ add("threefold_crash", unit(3, "Crew", { "Blade" }, 900, 80, 38, 32, 0.78, 1, 1.
 })
 -- A smaller human; below half health (once per fight) a titan with its own health pool, more AD
 -- and splash, back to human when the pool is empty. Both forms cast a heavy hit.
-add("titanheart", unit(3, "Titans", { "Guardian", "Brawler" }, 1050, 65, 50, 45, 0.62, 1, 0.9, 40, 110), {
-	damage("CURRENT_TARGET", "PHYSICAL", { 250, 400, 640 }),
+add("titanheart", unit(3, "Titans", { "Guardian", "Brawler" }, 1050, 65, 50, 45, 0.62, 1, 0.9, 40, 180), {
+	damage("CURRENT_TARGET", "PHYSICAL", { 215, 345, 555 }),
 })
 local titan = FormConfig.titanheart
 roster.titanheart.forms = {
@@ -459,16 +459,16 @@ add("mirror_script", unit(3, "Shinobi", { "Assassin", "Caster" }, 780, 72, 30, 3
 })
 -- Four quick hits over about a second, then a heavy hit that stuns his target.
 add("clockbreaker", unit(3, "Spirit", { "Brawler" }, 930, 79, 40, 36, 0.72, 1, 1.0, 30, 100), {
-	damage("CURRENT_TARGET", "PHYSICAL", { 45, 70, 115 }),
-	with(damage("CURRENT_TARGET", "PHYSICAL", { 45, 70, 115 }), { delay = 0.25 }),
-	with(damage("CURRENT_TARGET", "PHYSICAL", { 45, 70, 115 }), { delay = 0.5 }),
-	with(damage("CURRENT_TARGET", "PHYSICAL", { 45, 70, 115 }), { delay = 0.75 }),
-	with(damage("CURRENT_TARGET", "PHYSICAL", { 200, 320, 510 }), { delay = 1 }),
+	damage("CURRENT_TARGET", "PHYSICAL", { 85, 130, 215 }),
+	with(damage("CURRENT_TARGET", "PHYSICAL", { 85, 130, 215 }), { delay = 0.25 }),
+	with(damage("CURRENT_TARGET", "PHYSICAL", { 85, 130, 215 }), { delay = 0.5 }),
+	with(damage("CURRENT_TARGET", "PHYSICAL", { 85, 130, 215 }), { delay = 0.75 }),
+	with(damage("CURRENT_TARGET", "PHYSICAL", { 375, 600, 960 }), { delay = 1 }),
 	with(stun("CURRENT_TARGET", { 1, 1.5, 2 }), { delay = 1 }),
 }, { castTime = 1 })
 -- A cone toward his current target, strongest next to him, then armor.
 add("skyboulder", unit(3, "Titans", { "Guardian" }, 1050, 64, 50, 35, 0.72, 2, 0.9, 30, 100), {
-	cone("CURRENT_TARGET", 2, "PHYSICAL", { 300, 480, 770 }, 40),
+	cone("CURRENT_TARGET", 2, "PHYSICAL", { 145, 235, 375 }, 40),
 	buffFlat("SELF", "Armor", { 30, 45, 70 }, 5),
 })
 add("horizon_cut", unit(3, "Hunters", { "Blade", "Marksman" }, 820, 80, 32, 30, 0.84, 3, 1.0, 20, 90), {
@@ -488,7 +488,7 @@ add("zero_field", unit(3, "Heroes", { "Support" }, 760, 52, 27, 35, 0.68, 3, 1.0
 
 add("reelbreaker", unit(4, "Hunters", { "Brawler" }, 1050, 88, 45, 40, 0.72, 2, 1.0, 40, 130), {
 	{ type = "PULL", target = "FARTHEST_ENEMY" },
-	damage("FARTHEST_ENEMY", "PHYSICAL", { 390, 625, 1000 }),
+	damage("FARTHEST_ENEMY", "PHYSICAL", { 830, 1330, 2130 }),
 })
 -- Each cast moves him up a gear for the rest of the fight: gear 2 attacks faster, gear 3 also
 -- splashes, and from the third cast on each cast shields him and slams around him.
@@ -521,13 +521,13 @@ roster.elastic_wardrum.forms = {
 add(
 	"starless_burst",
 	unit(4, "Arcane", { "Caster", "Marksman" }, 830, 67, 28, 48, 0.80, 4, 1.0, 20, 160),
-	{ area("LARGEST_CLUSTER", 2, "MAGIC", { 600, 960, 1540 }) },
+	{ area("LARGEST_CLUSTER", 2, "MAGIC", { 370, 595, 955 }) },
 	{ selfStun = 2, clusterRadius = AbilityConfig.starlessBurstClusterRadius }
 )
 -- A projectile at his current target that becomes a radius-2 area hitting four times over about a
 -- second (clones are drawn around him while he casts; RenderConfig.castClones).
 local echoHit = function(delay)
-	return with(area("CURRENT_TARGET", 2, "MAGIC", { 110, 175, 280 }), { delay = delay, fixedCenter = true })
+	return with(area("CURRENT_TARGET", 2, "MAGIC", { 74, 117, 188 }), { delay = delay, fixedCenter = true })
 end
 add("echo_legion", unit(4, "Shinobi", { "Caster" }, 1050, 82, 42, 42, 0.82, 2, 1.1, 30, 110), {
 	echoHit(0.25),
@@ -536,7 +536,7 @@ add("echo_legion", unit(4, "Shinobi", { "Caster" }, 1050, 82, 42, 42, 0.82, 2, 1
 	echoHit(1),
 })
 add("night_command", unit(4, "Arcane", { "Assassin" }, 900, 89, 32, 34, 0.94, 1, 1.1, 30, 100), {
-	summon({ 2, 3, 3 }, { 9, 10, 12 }, { 30, 35, 40 }, { 50, 55, 65 }, 55, 95, 1, 1.1),
+	summon({ 2, 3, 3 }, { 15, 17, 20 }, { 50, 55, 65 }, { 75, 85, 100 }, 55, 95, 1, 1.1),
 })
 -- A radius-2 stun around himself; each stunned enemy takes a knife when its stun ends, and he heals
 -- for part of that damage.
@@ -573,9 +573,9 @@ local function paradeCast(fires: boolean)
 	}
 end
 add("night_parade", unit(4, "Cursed", { "Caster" }, 900, 68, 32, 42, 0.75, 3, 1.0, 30, 110), {
-	with(lastingSummon(1, { 35, 40, 45 }, { 40, 50, 60 }, 45, 85, 1, 1.0), { condition = paradeCast(false) }),
+	with(lastingSummon(1, { 60, 70, 80 }, { 80, 100, 120 }, 45, 100, 1, 1.0), { condition = paradeCast(false) }),
 	{ type = "RECALL", condition = paradeCast(true) },
-	with(line("CURRENT_TARGET", "MAGIC", { 120, 190, 305 }), {
+	with(line("CURRENT_TARGET", "MAGIC", { 540, 855, 1370 }), {
 		condition = paradeCast(true),
 		bonus = { type = "RECALLED", percent = 100 },
 	}),
@@ -645,24 +645,24 @@ roster.ascending_core.forms = {
 	},
 }
 add("final_argument", unit(5, "Heroes", { "Brawler" }, 1350, 100, 65, 60, 0.75, 1, 1.0, 0, 150), {
-	damage("CURRENT_TARGET", "TRUE", { 900, 1500, 3000 }),
+	damage("CURRENT_TARGET", "TRUE", { 1465, 2445, 4890 }),
 })
 add("infinite_collapse", unit(5, "Cursed", { "Caster" }, 1050, 78, 42, 65, 0.82, 4, 1.0, 40, 120), {
 	areaStun("HIGHEST_AD_ENEMY", 2, { 1.5, 2, 2 }),
 	shield("SELF", { 350, 560, 895 }, 5),
 	-- "Same center": Block 2 gives no radius for the damage, so it uses the stun's radius 2.
-	area("HIGHEST_AD_ENEMY", 2, "MAGIC", { 450, 720, 1150 }),
+	area("HIGHEST_AD_ENEMY", 2, "MAGIC", { 350, 560, 895 }),
 })
 -- A passive aura: enemies next to him take magic damage every second all fight, and he gains armor
 -- and magic resist per enemy inside. His ability is a radius-2 blast around himself.
 add("boiling_crown", unit(5, "Titans", { "Guardian", "Caster" }, 1400, 72, 70, 65, 0.65, 1, 0.8, 50, 130), {
-	area("SELF", 2, "MAGIC", { 220, 350, 560 }),
+	area("SELF", 2, "MAGIC", { 120, 190, 300 }),
 })
 roster.boiling_crown.aura = {
 	radius = 1,
 	interval = 1,
 	damageType = "MAGIC",
-	amount = { 20, 32, 50 },
+	amount = { 7, 11, 18 },
 	buffs = {
 		{ stat = "Armor", flatPerEnemy = { 8, 12, 18 } },
 		{ stat = "MR", flatPerEnemy = { 8, 12, 18 } },

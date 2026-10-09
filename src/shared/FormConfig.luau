@@ -52,8 +52,8 @@ return table.freeze({
 	-- percentage of a basic attack that also hits enemies next to the target.
 	-- ripcord_frenzy: the first cast only transforms; the chainsaw form lasts the rest of the fight.
 	ripcordFrenzy = table.freeze({
-		chainsawAttackSpeedPercent = 35,
-		chainsawSplashPercent = 40,
+		chainsawAttackSpeedPercent = 60,
+		chainsawSplashPercent = 70,
 	}),
 	-- titanheart: a smaller human form; below the health threshold (once per fight) a titan form with
 	-- its own health pool, back to human when the pool is empty.
