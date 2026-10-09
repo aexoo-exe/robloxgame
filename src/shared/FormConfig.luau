@@ -29,8 +29,8 @@ return table.freeze({
 		-- Horse health pool per rider, before scaling: like unit health it is multiplied by the star
 		-- level's health multiplier and CombatConfig.globalHealthMultiplier (StarLevel.scaleHealth).
 		horseHealth = table.freeze({
-			spurshot = 300, -- 390 at 1 star (x1.2992)
-			orbit_breaker = 260, -- 338 at 1 star
+			spurshot = 300, -- 421 at 1 star (x1.403136)
+			orbit_breaker = 260, -- 365 at 1 star
 		}),
 		-- Added to the rider's move speed while mounted (flat, on the move speed scalar). This is the
 		-- riders' former extra speed: their UnitConfig move speed went from 1.2 to 1.0.
@@ -62,7 +62,7 @@ return table.freeze({
 		humanArmorFlat = -15,
 		humanMagicResistFlat = -15,
 		titanBelowPercent = 50,
-		titanHealth = 900, -- pool before scaling (StarLevel.scaleHealth): 1169 at 1 star
+		titanHealth = 900, -- pool before scaling (StarLevel.scaleHealth): 1263 at 1 star
 		titanAttackDamagePercent = 35,
 		titanArmorFlat = 15,
 		titanSplashPercent = 35,

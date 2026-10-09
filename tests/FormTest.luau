@@ -20,7 +20,7 @@ local function near(actual: number, expected: number, label: string)
 end
 
 local POOL = 200 -- test form pool before scaling
-local SCALED_POOL = StarLevel.scaleHealth(POOL, 1) -- 232
+local SCALED_POOL = StarLevel.scaleHealth(POOL, 1) -- 281 with the 1.403136 dial
 
 -- A sturdy test unit type that does nothing unless overridden.
 local function unitType(overrides)

@@ -163,9 +163,9 @@ return table.freeze({
 	Caster = {
 		kind = "class",
 		breakpoints = {
-			step(2, { buff("AP", 15) }),
-			step(4, { buff("AP", 30) }),
-			step(6, { buff("AP", 50) }),
+			step(2, { buff("AP", 12) }),
+			step(4, { buff("AP", 25) }),
+			step(6, { buff("AP", 40) }),
 		},
 	},
 	-- Armor and magic resist, with a smaller share for the rest of the team.

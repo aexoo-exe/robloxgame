@@ -1,6 +1,7 @@
 # Overhaul 1: roster data, 30 ability reworks, traits and bonds
 
-Status: implemented on `feature/overhaul-1`. **Every number below is a placeholder.** This pass is
+Status: implemented on `feature/overhaul-1`. **Every number below is a placeholder.** Section 7 lists
+the Tuning A changes; where it differs from sections 1-4, section 7 is current. This pass is
 about mechanics; balance comes later from the sim.
 
 Character names in brackets are display names (they live only in `SkinConfig.luau`). Code and data
@@ -30,7 +31,7 @@ Where things live:
 - Membership after the changes: Hunters 5, Corps 4, Spirit 5, Cursed 6, Arcane 4, Titans 4,
   Shinobi 5, Crew 4, Heroes 5; Blade 10, Brawler 11, Caster 11, Marksman 6, Assassin 9,
   Guardian 8, Support 5.
-- Stat identity (base health before the 1.2992 dial):
+- Stat identity (base health before the roster health dial, 1.403136 since Tuning A):
 
 | Unit | Before | After |
 | --- | --- | --- |
@@ -170,7 +171,7 @@ unchanged. Values are 1/2/3-star. "New" marks a placeholder chosen for this pass
 - **iron_rush** [Armored Giant]: armor +30/45/70 for 5s, dash up to 2 at current target (only as
   far as needed), physical 85/135/215, stun 0.75/1/1.5s, knockback 1 hex if free.
 - **titanheart** [Aaron]: starts **Human** (AD -25%, armor -15, MR -15). Below 50% health, once per
-  fight, becomes **Titan**: own pool 900 (1169 at 1 star after the dial), AD +35%, armor +15,
+  fight, becomes **Titan**: own pool 900 (1263 at 1 star after the dial), AD +35%, armor +15,
   splash 35%, drawn 1.35x larger. When the pool empties he is Human again. Ability in both forms:
   physical 250/400/640 on current target (placeholder from the director).
 - **skyboulder** [Beast Giant]: physical CONE radius 2 toward current target 300/480/770, 40% less
@@ -234,7 +235,7 @@ Steps count different characters on the board.
 | Blade | 2 / 4 / 6 | +10% / 20% / 32% AD |
 | Assassin | 2 / 4 / 6 | +10 / 15 / 20 points crit chance, +0.15 / 0.25 / 0.35 crit damage; at 4 jump to the nearest free enemy back-row hex at fight start; at 6 attacks execute enemies below 12% health (never bosses) |
 | Brawler | 2 / 4 / 6 | +15% / 25% / 40% max health |
-| Caster | 2 / 4 / 6 | +15 / 30 / 50 AP |
+| Caster | 2 / 4 / 6 | +12 / 25 / 40 AP (Tuning A; was 15 / 30 / 50) |
 | Guardian | 2 / 4 / 6 | members +15 / 30 / 50 armor and MR; everyone else +5 / 10 / 15 |
 | Marksman | 2 / 4 | +4% / +7% AS per basic attack, up to 10 stacks, for the fight |
 | Support | 2 / 4 | team heals and shields +15% / +25% (HealPower); at 4 the team takes 15% less magic damage |
@@ -279,3 +280,40 @@ pieces; the Forms lines already cover every unit with forms.
 - Shinobi: vanished units do not act.
 - Cursed dummies are summoned by the first Cursed unit on the board; they never move.
 - Crew gold is paid for practice and ghost PvP fights too (the player's own takedowns).
+
+## 7. Tuning A (first balance pass)
+
+Part 1 fixes: night_parade uses a cast counter (section 3); Corps, Arcane, Titans and Crew top
+steps moved from 4 to 3; the Heroes meter fills in 4 casts (was 6).
+
+Part 2: unit numbers, old -> new (1/2/3-star; 2- and 3-star values kept in proportion).
+
+| Unit | Change |
+| --- | --- |
+| boiling_crown | aura 20/32/50 -> 7/11/18 per second; blast 220/350/560 -> 120/190/300 |
+| skyboulder | cone 300/480/770 -> 145/235/375 |
+| titanheart | max mana 110 -> 180; hit 250/400/640 -> 215/345/555 |
+| burst_vector | area 210/335/535 -> 105/165/265 |
+| orbit_breaker | hit 220/350/560 -> 110/180/285; bounce 100/160/250 -> 50/80/125 (both forms) |
+| starless_burst | blast 600/960/1540 -> 370/595/955 |
+| echo_legion | each of the 4 hits 110/175/280 -> 74/117/188 |
+| infinite_collapse | area 450/720/1150 -> 350/560/895 |
+| night_parade | curse HP 35/40/45% -> 60/70/80%, AD 40/50/60% -> 80/100/120%, AS 85% -> 100%; line 120/190/305 -> 540/855/1370 |
+| night_command | shadows last 9/10/12s -> 15/17/20s, HP 30/35/40% -> 50/55/65%, AD 50/55/65% -> 75/85/100% |
+| reelbreaker | hit 390/625/1000 -> 830/1330/2130 |
+| clockbreaker | small hits 45/70/115 -> 85/130/215; final hit 200/320/510 -> 375/600/960 |
+| final_argument | 900/1500/3000 -> 1465/2445/4890 true |
+| flashline | hit 140/225/360 -> 350/565/900; AD 63 -> 81 |
+| null_edge | hit 130/210/335 -> 325/525/840; AD 61 -> 64 |
+| wolfstep | hit 135/215/345 -> 340/540/865; AD 62 -> 72 |
+| ripcord_frenzy | chainsaw AS +35% -> +60%, splash 40% -> 70%; AD 58 -> 70 |
+| cinder_arc | hit 105/170/270 -> 165/265/425; area 65/105/170 -> 100/165/265 |
+
+Estimation: a unit's measured 1-star damage was split into basic attacks, estimated as
+AD x attacks per second x 7.5 (calibrated on the 1-cost units, which have simple kits), and the
+rest (ability, aura, summons, forms). The non-attack part was scaled by
+(target - attacks) / (measured - attacks). Ability multipliers were capped at 2.5x; past that,
+attack damage made up the rest. Details per unit in the Tuning A handoff.
+
+Part 3: roster health dial 1.2992 -> 1.403136 (x1.08); Caster AP 15/30/50 -> 12/25/40; boss
+combat health 24500/30000/32000/33000 -> 28700/33800/36400/37600 (rounds 8/12/16/20).
