@@ -78,7 +78,7 @@ return freezeAll({
 			category = Category.Offensive,
 			tags = { "Speed" },
 			stats = { AttackSpeed = percent(10) },
-			effect = { attackSpeedPercentPerAttack = 4, maxStacks = 15 },
+			effect = { attackSpeedPercentPerAttack = 3, maxStacks = 12 },
 		},
 		-- Basic attacks lower the target's armor (SHRED) for a few seconds.
 		golden_arrow = {

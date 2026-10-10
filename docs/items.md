@@ -46,7 +46,7 @@ The server decides everything: offers, picks, equips. Clients only ask.
 | Item | Category | Stats | Effect |
 | --- | --- | --- | --- |
 | Sunforged Blade | Offensive | +20% AD, +20% crit chance | abilities can crit (own crit chance and crit damage) |
-| Runaway Clock | Offensive | +10% attack speed | each attack: +4% attack speed for the fight, up to 15 stacks |
+| Runaway Clock | Offensive | +10% attack speed | each attack: +3% attack speed for the fight, up to 12 stacks |
 | Golden Arrow | Offensive | +10% AD, +15% crit chance | attacks lower the target's armor by 30% for 3s |
 | Oni Cutter | Offensive | +10% AD, +10% attack speed | +20% damage to enemies with more max health than the holder |
 | Ghoul's Mask | Offensive | +10% AD | heals 20% of all damage dealt; once, below 40% health: shield of 25% max health for 5s |

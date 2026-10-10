@@ -278,7 +278,7 @@ table.insert(tests, {
 		for _ = 1, 3 do
 			Battle.runHooks(battle, "attack", holder, dummy)
 		end
-		near(Battle.stat(battle, holder, "AttackSpeed"), before + 1 * 0.12, "+4% per attack, 3 attacks (on base 1)")
+		near(Battle.stat(battle, holder, "AttackSpeed"), before + 3 * 0.03, "+3% per attack, 3 attacks (on base 1)")
 		assert(Battle.hasStatus(battle, dummy, Battle.Status.Shred), "armor shredded")
 		expectEqual(holder.mana, 15, "+5 mana per attack")
 
