@@ -81,6 +81,8 @@
 --                TARGET_STATUS   1 if the victim has `status` (Battle.Status), else 0
 --                STACKS          the caster's attack stacks when the cast began
 --                RECALLED        summons recalled earlier in this cast
+--                CASTS           the caster's earlier casts this fight (a bonus that grows with
+--                                every cast, for the rest of the fight)
 --
 -- Ability-level options (all optional):
 --   castTime          seconds the caster cannot act after casting (default CombatConfig.castTime;
@@ -110,7 +112,8 @@
 -- The effects then apply in listed order (delayed ones later), and the unit cannot act for the
 -- cast time. Multi-target selectors work with HEAL, SHIELD and BUFF only.
 -- Magic damage, heals and shields scale with the caster's ability power; heals and shields also
--- with its HealPower. Abilities cannot crit. Abilities have unlimited range.
+-- with its HealPower. Abilities cannot crit, except for units with abilityCrit (an item): their
+-- ability hits roll the unit's own crit chance and crit damage. Abilities have unlimited range.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Battle = if script then require(script.Parent.Battle) else require("./Battle")
@@ -118,6 +121,7 @@ local CombatConfig = if script then require(script.Parent.CombatConfig) else req
 local CombatMath = if script then require(script.Parent.CombatMath) else require("./CombatMath")
 local Forms = if script then require(script.Parent.Forms) else require("./Forms")
 local HexGrid = if script then require(script.Parent.HexGrid) else require("./HexGrid")
+local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 
 local Abilities = {}
 
@@ -181,6 +185,7 @@ Abilities.Bonus = table.freeze({
 	TargetStatus = "TARGET_STATUS",
 	Stacks = "STACKS",
 	Recalled = "RECALLED",
+	Casts = "CASTS",
 })
 
 local Effect = Abilities.Effect
@@ -557,6 +562,8 @@ local function bonusMultiplier(battle, caster, effect, victim, starLevel: number
 		factor = context.stacks
 	elseif bonus.type == Bonus.Recalled then
 		factor = context.recalled
+	elseif bonus.type == Bonus.Casts then
+		factor = math.max(0, (caster.casts or 1) - 1)
 	end
 	return 1 + factor * valueAt(bonus.percent, starLevel) / 100
 end
@@ -578,7 +585,17 @@ local function hit(
 		return 0
 	end
 	local raw = amount * bonusMultiplier(battle, caster, effect, victim, starLevel, context)
-	local final = Battle.damage(battle, caster, victim, raw, damageType, "Damage", nil, nil, nil, tags)
+	-- Units whose abilities can crit (an item) roll their own crit chance and crit damage.
+	local crit = nil
+	if caster.abilityCrit then
+		crit = SeededRandom.nextInt(battle.rng, 1000000) <= Battle.stat(battle, caster, "CritChance") * 1000000
+		if crit then
+			raw = CombatMath.critRawDamage(raw, Battle.stat(battle, caster, "CritDamage"))
+		else
+			crit = nil
+		end
+	end
+	local final = Battle.damage(battle, caster, victim, raw, damageType, "Damage", crit, nil, nil, tags)
 	if victim.dead then
 		context.killed = true
 	end

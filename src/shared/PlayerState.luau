@@ -15,11 +15,20 @@
 -- always). While the fight runs, copies on the bench merge at once, but a merge that needs a board
 -- copy waits until the fight ends (endCombat). A higher unit cap from leveling only matters once
 -- the board unlocks at the next Preparation.
+--
+-- Items (docs/items.md): the player holds an inventory of item ids (ItemConfig.rules.inventoryCap)
+-- and every unit up to ItemConfig.rules.slotsPerUnit items. During Preparation items can be
+-- equipped from the inventory, moved between units and returned; from the start of combat until
+-- the next Preparation (boardLocked) nothing about items can change. Selling a unit returns its
+-- items to the inventory; items a merge cannot keep (Board.looseItems) return too. Returned items
+-- may take the inventory past its cap; only picking new items needs a free place.
 -- Pure Luau: no Roblox APIs, so it runs in Lune tests.
 
 local Board = if script then require(script.Parent.Board) else require("./Board")
 local BoardConfig = if script then require(script.Parent.BoardConfig) else require("./BoardConfig")
 local Economy = if script then require(script.Parent.Economy) else require("./Economy")
+local ItemConfig = if script then require(script.Parent.ItemConfig) else require("./ItemConfig")
+local Items = if script then require(script.Parent.Items) else require("./Items")
 local EconomyConfig = if script then require(script.Parent.EconomyConfig) else require("./EconomyConfig")
 local LevelConfig = if script then require(script.Parent.LevelConfig) else require("./LevelConfig")
 local PveConfig = if script then require(script.Parent.PveConfig) else require("./PveConfig")
@@ -38,6 +47,11 @@ PlayerState.Refusal = table.freeze({
 	BoardFull = "Board is full",
 	MaxLevel = "Already at max level",
 	BoardLocked = "Board is locked during combat",
+	ItemsLocked = "Items can't change during combat",
+	NoItemOffer = "No item to pick",
+	ItemSlotsFull = "That unit has no free item slot",
+	DuplicateItem = "A unit can't hold two of the same item",
+	InventoryFull = "Item inventory is full",
 })
 
 export type PlayerState = {
@@ -54,6 +68,9 @@ export type PlayerState = {
 	pool: UnitPool.Pool, -- the match's shared pool
 	boardLocked: boolean, -- from the start of combat until the next Preparation
 	holdBoardMerges: boolean, -- while a fight runs: merges needing a board copy wait
+	inventory: { string }, -- unequipped item ids
+	itemOffer: { string }?, -- an open item choice (pick one), until picked or Preparation ends
+	itemRng: SeededRandom.SeededRandom, -- item offers only, so the shop sequence is unchanged
 }
 
 -- What the owning client is shown.
@@ -64,7 +81,23 @@ export type View = {
 	xpToNextLevel: number, -- 0 at the maximum level
 	streak: number, -- positive: consecutive wins; negative: consecutive losses
 	shop: { string | false },
+	inventory: { string },
+	itemOffer: { string }?,
 }
+
+-- Puts the items merges could not keep back in the inventory.
+local function collectLooseItems(state)
+	for _, item in Board.takeLooseItems(state.board) do
+		table.insert(state.inventory, item)
+	end
+end
+
+-- Merges every completed set of copies (Board.mergeUnits) and returns loose items to the inventory.
+local function merge(state, benchOnly: boolean?): { Board.BoardUnit }
+	local merges = Board.mergeUnits(state.board, benchOnly)
+	collectLooseItems(state)
+	return merges
+end
 
 -- Returns the shop's unbought copies to the pool and rolls a new shop.
 local function refreshShop(state: PlayerState)
@@ -89,13 +122,18 @@ function PlayerState.new(seed: number, pool: UnitPool.Pool?): PlayerState
 		pool = pool or UnitPool.new(),
 		boardLocked = false,
 		holdBoardMerges = false,
+		inventory = {},
+		itemOffer = nil,
+		itemRng = SeededRandom.new(seed * 31 + 17),
 	}
 	refreshShop(state)
 	return state
 end
 
--- Combat starts: the board locks and merges needing a board copy wait.
+-- Combat starts (Preparation is over): an open item choice takes its first item, the board locks
+-- and merges needing a board copy wait.
 function PlayerState.startCombat(state: PlayerState)
+	PlayerState.resolveItemOffer(state)
 	state.boardLocked = true
 	state.holdBoardMerges = true
 end
@@ -104,7 +142,7 @@ end
 -- Returns the merges (Board.mergeUnits).
 function PlayerState.endCombat(state: PlayerState): { Board.BoardUnit }
 	state.holdBoardMerges = false
-	return Board.mergeUnits(state.board)
+	return merge(state)
 end
 
 -- Called at the start of every Preparation. Unlocks the board (finishing any waiting merge). If
@@ -114,7 +152,7 @@ function PlayerState.startPreparation(state: PlayerState): Economy.Income?
 	if state.boardLocked or state.holdBoardMerges then
 		state.boardLocked = false
 		state.holdBoardMerges = false
-		Board.mergeUnits(state.board)
+		merge(state)
 	end
 	local income = nil
 	if state.foughtSincePreparation then
@@ -177,7 +215,7 @@ function PlayerState.grantStartingUnits(state: PlayerState): { string }
 				end
 			end
 		end
-		Board.mergeUnits(state.board)
+		merge(state)
 		table.insert(granted, unitType)
 	end
 	return granted
@@ -199,7 +237,7 @@ function PlayerState.buyUnit(state: PlayerState, slotIndex: any): (boolean, stri
 		return false, PlayerState.Refusal.BenchFull
 	end
 	Board.addUnit(state.board, tostring(state.nextUnitId), unitType, benchFull)
-	Board.mergeUnits(state.board, state.holdBoardMerges)
+	merge(state, state.holdBoardMerges)
 	state.nextUnitId += 1
 	state.gold -= UnitConfig[unitType].cost
 	state.shop[slotIndex] = false
@@ -223,6 +261,10 @@ function PlayerState.sellUnit(state: PlayerState, unitId: any): (boolean, string
 	end
 	state.gold += PlayerState.sellValue(unit.unitType, unit.starLevel)
 	UnitPool.give(state.pool, unit.unitType, StarLevel.copiesIn(unit.starLevel))
+	-- Its items go back to the inventory.
+	for _, item in unit.items or {} do
+		table.insert(state.inventory, item)
+	end
 	return true
 end
 
@@ -281,6 +323,122 @@ function PlayerState.moveUnit(state: PlayerState, unitId: any, target: any): (bo
 	return moved
 end
 
+-- Items ----------------------------------------------------------------------------------------
+
+local function isIndex(value: any, size: number): boolean
+	return type(value) == "number" and value == math.floor(value) and value >= 1 and value <= size
+end
+
+-- True if `unit` can take `item`: a free slot and no copy of it already.
+local function canHold(unit, item: string): (boolean, string?)
+	if #unit.items >= ItemConfig.rules.slotsPerUnit then
+		return false, PlayerState.Refusal.ItemSlotsFull
+	end
+	if table.find(unit.items, item) then
+		return false, PlayerState.Refusal.DuplicateItem
+	end
+	return true
+end
+
+-- Equips the inventory item at `inventoryIndex` onto one of the player's units (board or bench).
+function PlayerState.equipItem(state: PlayerState, inventoryIndex: any, unitId: any): (boolean, string?)
+	local unit = if type(unitId) == "string" then state.board.units[unitId] else nil
+	if not unit or not isIndex(inventoryIndex, #state.inventory) then
+		return false
+	end
+	if state.boardLocked then
+		return false, PlayerState.Refusal.ItemsLocked
+	end
+	unit.items = unit.items or {}
+	local item = state.inventory[inventoryIndex]
+	local ok, reason = canHold(unit, item)
+	if not ok then
+		return false, reason
+	end
+	table.remove(state.inventory, inventoryIndex)
+	table.insert(unit.items, item)
+	return true
+end
+
+-- Returns the item in a unit's slot to the inventory (refused when the inventory is full).
+function PlayerState.unequipItem(state: PlayerState, unitId: any, slotIndex: any): (boolean, string?)
+	local unit = if type(unitId) == "string" then state.board.units[unitId] else nil
+	if not unit or not isIndex(slotIndex, #(unit.items or {})) then
+		return false
+	end
+	if state.boardLocked then
+		return false, PlayerState.Refusal.ItemsLocked
+	end
+	if #state.inventory >= ItemConfig.rules.inventoryCap then
+		return false, PlayerState.Refusal.InventoryFull
+	end
+	table.insert(state.inventory, table.remove(unit.items, slotIndex))
+	return true
+end
+
+-- Moves the item in one unit's slot onto another of the player's units.
+function PlayerState.moveItem(state: PlayerState, unitId: any, slotIndex: any, toUnitId: any): (boolean, string?)
+	local from = if type(unitId) == "string" then state.board.units[unitId] else nil
+	local to = if type(toUnitId) == "string" then state.board.units[toUnitId] else nil
+	if not from or not to or from == to or not isIndex(slotIndex, #(from.items or {})) then
+		return false
+	end
+	if state.boardLocked then
+		return false, PlayerState.Refusal.ItemsLocked
+	end
+	to.items = to.items or {}
+	local item = from.items[slotIndex]
+	local ok, reason = canHold(to, item)
+	if not ok then
+		return false, reason
+	end
+	table.remove(from.items, slotIndex)
+	table.insert(to.items, item)
+	return true
+end
+
+-- Opens an item choice of `count` items (Items.rollOffer, from the player's own item generator). An
+-- older choice still open takes its first item first.
+function PlayerState.offerItems(state: PlayerState, count: number)
+	PlayerState.resolveItemOffer(state)
+	if count > 0 then
+		state.itemOffer = Items.rollOffer(state.itemRng, count)
+	end
+end
+
+-- Picks item `offerIndex` of the open item choice into the inventory. Refused without an open
+-- choice, or when the inventory is full.
+function PlayerState.pickItem(state: PlayerState, offerIndex: any): (boolean, string?)
+	local offer = state.itemOffer
+	if not offer then
+		return false, PlayerState.Refusal.NoItemOffer
+	end
+	if not isIndex(offerIndex, #offer) then
+		return false
+	end
+	if #state.inventory >= ItemConfig.rules.inventoryCap then
+		return false, PlayerState.Refusal.InventoryFull
+	end
+	table.insert(state.inventory, offer[offerIndex])
+	state.itemOffer = nil
+	return true
+end
+
+-- Closes an open item choice by taking its first item (lost if the inventory is full). Called when
+-- Preparation ends (startCombat) and before a new choice opens. Returns the item taken, if any.
+function PlayerState.resolveItemOffer(state: PlayerState): string?
+	local offer = state.itemOffer
+	if not offer then
+		return nil
+	end
+	state.itemOffer = nil
+	if #state.inventory < ItemConfig.rules.inventoryCap and offer[1] then
+		table.insert(state.inventory, offer[1])
+		return offer[1]
+	end
+	return nil
+end
+
 function PlayerState.getView(state: PlayerState): View
 	return {
 		gold = state.gold,
@@ -289,6 +447,8 @@ function PlayerState.getView(state: PlayerState): View
 		xpToNextLevel = Economy.xpToNextLevel(state.level) or 0,
 		streak = state.streak,
 		shop = table.clone(state.shop),
+		inventory = table.clone(state.inventory),
+		itemOffer = if state.itemOffer then table.clone(state.itemOffer) else nil,
 	}
 end
 

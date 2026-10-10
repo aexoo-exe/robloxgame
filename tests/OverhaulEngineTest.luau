@@ -382,6 +382,22 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
+	name = "the CASTS bonus grows with each earlier cast of the fight",
+	run = function()
+		local types = { Caster = unitType(), Dummy = unitType({ health = 100000 }) }
+		local battle, units = newBattle(types, { { "Caster", 1, 4, 4 }, { "Dummy", 2, 4, 5 } })
+		local effects = { trueHit(Selector.NearestEnemy, 100, { bonus = { type = "CASTS", percent = 50 } }) }
+		for _ = 1, 3 do
+			castWith(battle, units[1], effects)
+		end
+		local hits = eventsOfKind(battle, "Damage")
+		expectEqual(hits[1].damage, 100, "first cast: no bonus")
+		expectEqual(hits[2].damage, 150, "second cast: +50%")
+		expectEqual(hits[3].damage, 200, "third cast: +100%")
+	end,
+})
+
+table.insert(tests, {
 	name = "bonuses: missing health and target status scale damage",
 	run = function()
 		local types = { Caster = unitType(), Dummy = unitType() }

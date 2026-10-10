@@ -1,8 +1,10 @@
 -- The unit info panel, on the right edge (over the player list while open): opens when a unit is
 -- selected or tapped (BoardController.onInspect) and shows its name, cost, star level, traits with
--- names, combat stats at its star level (two columns of icon and number), its ability and three
--- item slots (reserved: items do not exist yet). For the player's own units it has a Sell button
--- showing the sell value. It closes when the unit is deselected, when you tap elsewhere, or with
+-- names, combat stats at its star level (two columns of icon and number), its ability, its
+-- recommended item tags (Items.unitTags, from its classes), its three item slots with each equipped
+-- item's effect text, and for the player's own units a Sell button showing the sell value. During
+-- Preparation, tapping one of its items picks it up (ItemSelection: tap another unit to move it
+-- there), and the small arrow under an item returns it to the inventory. It closes when the unit is deselected, when you tap elsewhere, or with
 -- its close button. Presentation only.
 --
 -- There is no ability description text in the game data, so the ability shows its display name
@@ -12,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local Items = require(Shared:WaitForChild("Items"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
@@ -23,6 +26,8 @@ local UITheme = require(Shared:WaitForChild("UITheme"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local BoardController = require(script.Parent.BoardController)
+local ItemIcon = require(script.Parent.ItemIcon)
+local ItemSelection = require(script.Parent.ItemSelection)
 local TraitIcon = require(script.Parent.TraitIcon)
 local UI = require(script.Parent.UI)
 
@@ -113,6 +118,7 @@ end
 function UnitInfoPanel.start()
 	local matchState = ReplicatedStorage:WaitForChild("MatchState")
 	local requestSellUnit = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestSellUnit)
+	local requestUnequip = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestUnequipItem)
 
 	local _, root = UI.screen("UnitInfoPanel", 6)
 	-- On the right edge, over the player list while open.
@@ -224,9 +230,14 @@ function UnitInfoPanel.start()
 	abilityManaLabel.LayoutOrder = 2
 	ability.Parent = content
 
-	-- Item slots: reserved for items, empty for now.
+	-- Recommended item tags, from its classes.
+	local tagLine = UI.text(content, "", SIZES.textSmall, FONTS.body, COLORS.textDim)
+	tagLine.LayoutOrder = 6
+
+	-- Item slots: an icon per equipped item (empty slots stay as outlines), each with a return arrow.
 	local items = UI.row(content, 6)
-	items.LayoutOrder = 6
+	items.LayoutOrder = 7
+	local slotFrames = {}
 	for slot = 1, ITEM_SLOTS do
 		local itemSlot = Instance.new("Frame")
 		itemSlot.Name = "ItemSlot" .. slot
@@ -243,11 +254,21 @@ function UnitInfoPanel.start()
 		slotStroke.Thickness = 2
 		slotStroke.Parent = itemSlot
 		itemSlot.Parent = items
+		slotFrames[slot] = itemSlot
 	end
+
+	-- Each equipped item's name and effect text.
+	local itemText = Instance.new("Frame")
+	itemText.LayoutOrder = 8
+	itemText.BackgroundTransparency = 1
+	itemText.Size = UDim2.fromScale(1, 0)
+	itemText.AutomaticSize = Enum.AutomaticSize.Y
+	UI.list(itemText, 3)
+	itemText.Parent = content
 
 	-- Sell (the player's own units).
 	local sell = UI.button(content, COLORS.sell, UDim2.new(1, 0, 0, 36))
-	sell.LayoutOrder = 7
+	sell.LayoutOrder = 9
 	local sellRow = UI.row(sell, 8)
 	sellRow.AnchorPoint = Vector2.new(0.5, 0.5)
 	sellRow.Position = UDim2.fromScale(0.5, 0.5)
@@ -288,6 +309,75 @@ function UnitInfoPanel.start()
 		abilityName.Text = SkinConfig[info.unitType].ability
 		abilityManaLabel.Text = tostring(unit.maxMana or 0)
 
+		-- Items: equipped on the player's own unit (latest snapshot), or carried into a fight.
+		local own = if info.unitId then BoardController.getUnit(info.unitId) else nil
+		local equipped = if own then own.items or {} else info.items or {}
+		local tags = Items.unitTags(unit.classes)
+		tagLine.Text = if #tags > 0 then "Items: " .. table.concat(tags, ", ") else ""
+		tagLine.Visible = #tags > 0
+		local preparing = matchState:GetAttribute("Phase") == Phase.Preparation
+		for slot, frame in slotFrames do
+			clear(frame)
+			local itemId = equipped[slot]
+			if itemId then
+				local icon = ItemIcon.new(itemId, ITEM_SIZE - 4, frame)
+				icon.AnchorPoint = Vector2.new(0.5, 0.5)
+				icon.Position = UDim2.fromScale(0.5, 0.5)
+				local selection = ItemSelection.get()
+				if
+					selection
+					and selection.kind == "unit"
+					and selection.unitId == info.unitId
+					and selection.slot == slot
+				then
+					ItemIcon.setHighlight(icon, Color3.new(1, 1, 1))
+				end
+				if own and preparing then
+					local pick = Instance.new("TextButton")
+					pick.Size = UDim2.fromScale(1, 1)
+					pick.BackgroundTransparency = 1
+					pick.Text = ""
+					pick.Parent = frame
+					pick.Activated:Connect(function()
+						local picked = ItemSelection.get()
+						if
+							picked
+							and picked.kind == "unit"
+							and picked.unitId == info.unitId
+							and picked.slot == slot
+						then
+							ItemSelection.clear()
+						else
+							ItemSelection.set({ kind = "unit", unitId = info.unitId, slot = slot, itemId = itemId })
+						end
+					end)
+					local back = UI.button(frame, COLORS.panelLight, UDim2.fromOffset(14, 14))
+					back.AnchorPoint = Vector2.new(1, 1)
+					back.Position = UDim2.new(1, 4, 1, 4)
+					back.Text = "<"
+					back.TextColor3 = COLORS.text
+					back.TextSize = 11
+					back.Activated:Connect(function()
+						requestUnequip:FireServer(info.unitId, slot)
+					end)
+				end
+			end
+		end
+		clear(itemText)
+		for order, itemId in equipped do
+			local line = UI.text(
+				itemText,
+				ItemIcon.name(itemId) .. ": " .. ItemIcon.text(itemId),
+				SIZES.textSmall - 1,
+				FONTS.body
+			)
+			line.LayoutOrder = order
+			line.AutomaticSize = Enum.AutomaticSize.Y
+			line.Size = UDim2.fromScale(1, 0)
+			line.TextWrapped = true
+			line.TextXAlignment = Enum.TextXAlignment.Left
+		end
+
 		sell.Visible = info.unitId ~= nil
 		sellPriceLabel.Text = tostring(PlayerState.sellValue(info.unitType, star))
 		UI.setEnabled(sell, canSell(info, matchState:GetAttribute("Phase")))
@@ -299,6 +389,13 @@ function UnitInfoPanel.start()
 	end
 
 	BoardController.onInspect(show)
+	ItemSelection.onChanged(function()
+		show(current)
+	end)
+	-- Items on the inspected unit change with every new board snapshot.
+	BoardController.onUnitsChanged(function()
+		show(current)
+	end)
 	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
 		show(current)
 	end)

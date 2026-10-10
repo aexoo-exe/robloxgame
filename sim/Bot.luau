@@ -20,7 +20,8 @@
 --     copies left in the pool and its own shop: at least 9). They are ranked by the share of the
 --     copies left that they still need ((9 - held) / left, lowest first, so units with more copies
 --     left are preferred), then by copies held, then by name. It wants `targetCount` 3-stars (two
---     for 1- and 2-cost, one for 3-cost), chasing up to `targetsAtOnce` at a time (2-cost: one).
+--     for 1- and 2-cost, one for 3-cost), chasing them all at once (a policy can limit that with
+--     `targetsAtOnce`).
 --   * Below the roll level the targets are re-picked every time. From the roll level on they are
 --     locked: a target is only dropped when it reaches 3 stars or can no longer reach it.
 --   * Rolling (at the roll level with a target left): no XP, keeps `rollFloor` gold (50, full
@@ -44,6 +45,8 @@
 
 local Board = require("../src/shared/Board")
 local BondConfig = require("../src/shared/BondConfig")
+local ItemConfig = require("../src/shared/ItemConfig")
+local StarConfig = require("../src/shared/StarConfig")
 local LevelConfig = require("../src/shared/LevelConfig")
 local PlayerState = require("../src/shared/PlayerState")
 local Shop = require("../src/shared/Shop")
@@ -116,7 +119,6 @@ Bot.rerollPolicies = {
 		seeksCopies = true,
 		rerollCost = 2,
 		targetCount = 2,
-		targetsAtOnce = 1,
 	},
 	{ name = "reroll 3c", keepGold = 50, rollFloor = 50, seeksCopies = true, rerollCost = 3, targetCount = 1 },
 }
@@ -778,8 +780,140 @@ local function traitPass(state, policy: Policy, memory: Memory)
 	end
 end
 
+-- Items (docs/items.md) --------------------------------------------------------------------------
+
+-- Items the bot holds (inventory and equipped) by category.
+local function itemsByCategory(state): { [string]: number }
+	local counts = {}
+	local function count(id)
+		local entry = ItemConfig.items[id]
+		if entry then
+			counts[entry.category] = (counts[entry.category] or 0) + 1
+		end
+	end
+	for _, id in state.inventory do
+		count(id)
+	end
+	for _, unit in state.board.units do
+		for _, id in unit.items or {} do
+			count(id)
+		end
+	end
+	return counts
+end
+
+-- Picks from an open item choice: the offered item whose category the bot holds fewest of (ties: the
+-- first offered). Returns the item picked, if any.
+function Bot.pickItem(state): string?
+	local offer = state.itemOffer
+	if not offer then
+		return nil
+	end
+	local counts = itemsByCategory(state)
+	local best, bestCount = 1, math.huge
+	for index, id in offer do
+		local held = counts[ItemConfig.items[id].category] or 0
+		if held < bestCount then
+			best, bestCount = index, held
+		end
+	end
+	local item = offer[best]
+	if PlayerState.pickItem(state, best) then
+		return item
+	end
+	PlayerState.resolveItemOffer(state)
+	return nil
+end
+
+local SUPPORT_CLASSES = { Guardian = true, Support = true }
+
+-- 1-star listed ability damage of a unit type (damage amounts of its own ability), x its star level
+-- multiplier for attack damage, as a rough "ability damage" ranking.
+local function abilityDamage(unit): number
+	local total = 0
+	for _, effect in UnitConfig[unit.unitType].ability.effects do
+		local amount = effect.amount
+		if
+			effect.type == "DAMAGE"
+			or effect.type == "AREA_DAMAGE"
+			or effect.type == "BOUNCE"
+			or effect.type == "DAMAGE_OVER_TIME"
+		then
+			local value = if type(amount) == "table" then amount[unit.starLevel] else amount
+			total += (value or 0) * (if effect.type == "DAMAGE_OVER_TIME" then effect.duration or 1 else 1)
+		end
+	end
+	return total
+end
+
+local function attackDamage(unit): number
+	return UnitConfig[unit.unitType].attackDamage * StarConfig.attackDamageMultiplier[unit.starLevel]
+end
+
+local function isCarry(unit): boolean
+	for _, class in UnitConfig[unit.unitType].classes do
+		if SUPPORT_CLASSES[class] then
+			return false
+		end
+	end
+	return true
+end
+
+-- The holders for an item, best first: offensive items on the fielded carry with the highest attack
+-- damage, ability items on the fielded unit with the most ability damage, defensive items on
+-- fielded front-line (melee) units with the most health. Rerolling bots put every item on their
+-- targets first.
+local function holdersFor(state, policy: Policy, memory: Memory, placed, itemId: string)
+	local category = ItemConfig.items[itemId].category
+	local candidates = {}
+	for _, placedUnit in placed do
+		local unit = state.board.units[placedUnit.id]
+		if unit then
+			table.insert(candidates, unit)
+		end
+	end
+	local function score(unit): number
+		local target = if policy.rerollCost and isTarget(memory, unit.unitType) then 1e9 else 0
+		if category == ItemConfig.Category.Offensive then
+			return target + (if isCarry(unit) then 1e6 else 0) + attackDamage(unit)
+		elseif category == ItemConfig.Category.Ability then
+			return target + abilityDamage(unit)
+		end
+		local stats = UnitConfig[unit.unitType]
+		local front = if stats.range <= 1 then 1e6 else 0
+		return target + front + StarLevel.scaleHealth(stats.health, unit.starLevel)
+	end
+	table.sort(candidates, function(a, b)
+		local scoreA, scoreB = score(a), score(b)
+		if scoreA ~= scoreB then
+			return scoreA > scoreB
+		end
+		return a.id < b.id
+	end)
+	return candidates
+end
+
+-- Equips every inventory item on its best holder among the fielded units that can take it.
+local function equipItems(state, policy: Policy, memory: Memory, placed)
+	local index = 1
+	while index <= #state.inventory do
+		local itemId = state.inventory[index]
+		local equipped = false
+		for _, unit in holdersFor(state, policy, memory, placed, itemId) do
+			if PlayerState.equipItem(state, index, unit.id) then
+				equipped = true
+				break
+			end
+		end
+		if not equipped then
+			index += 1
+		end
+	end
+end
+
 -- Plays one Preparation. Returns the units to field, in the player's own board coordinates.
 function Bot.prepare(state, policy: Policy, memory: Memory): { any }
+	Bot.pickItem(state)
 	if policy.rerollCost and state.level >= Bot.rollLevel(policy.rerollCost) then
 		memory.locked = true
 	end
@@ -860,6 +994,11 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 		end
 	end
 	recordFocusSteps(memory, placed)
+	equipItems(state, policy, memory, placed)
+	for _, placedUnit in placed do
+		local unit = state.board.units[placedUnit.id]
+		placedUnit.items = if unit then table.clone(unit.items or {}) else {}
+	end
 	return placed
 end
 

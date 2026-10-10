@@ -215,11 +215,11 @@ table.insert(tests, {
 -- Rewards ---------------------------------------------------------------------------------------
 
 table.insert(tests, {
-	name = "creep rewards: the round's gold (1/2/2) times the share of creeps killed, rounded down",
+	name = "creep rewards: the round's gold (1/2/0; round 3 gives an item instead) times the share killed",
 	run = function()
 		expectEqual(PveConfig.creepRoundGold[1], 1, "round 1 gold")
 		expectEqual(PveConfig.creepRoundGold[2], 2, "round 2 gold")
-		expectEqual(PveConfig.creepRoundGold[3], 2, "round 3 gold")
+		expectEqual(PveConfig.creepRoundGold[3], 0, "round 3 gold (an item choice replaces it)")
 		for round = 1, 3 do
 			local creeps = #Pve.enemyBoard("placeholder", round)
 			local full = PveConfig.creepRoundGold[round]
@@ -232,9 +232,9 @@ table.insert(tests, {
 				expectEqual(gold, math.floor(full * (creeps - survivors) / creeps), "round " .. round .. " share")
 			end
 		end
-		-- Round 3 has 4 creeps and pays 2: 3 killed -> 1.5 -> 1, 2 killed -> 1, 1 killed -> 0.
-		expectEqual(Pve.reward("placeholder", 3, { 1, 1 }, nil).gold, 1, "3 of 4 killed")
-		expectEqual(Pve.reward("placeholder", 3, { 1, 3 }, nil).gold, 0, "1 of 4 killed")
+		-- Round 2 has 3 creeps and pays 2: 2 killed -> 1.33 -> 1, 1 killed -> 0.67 -> 0.
+		expectEqual(Pve.reward("placeholder", 2, { 1, 1 }, nil).gold, 1, "2 of 3 killed")
+		expectEqual(Pve.reward("placeholder", 2, { 1, 2 }, nil).gold, 0, "1 of 3 killed")
 	end,
 })
 

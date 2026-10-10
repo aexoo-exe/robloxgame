@@ -184,6 +184,17 @@ function PlayerService.grantTraitGold(golds: { [number]: number })
 	end
 end
 
+-- Opens an item choice of `count` items for every active participant (Items.rollOffer, seeded per
+-- player). Called at Results of the item rounds (ItemConfig.offers).
+function PlayerService.offerItems(count: number)
+	for userId, state in states do
+		if not eliminated[userId] then
+			PlayerState.offerItems(state, count)
+			sendState(userId)
+		end
+	end
+end
+
 function PlayerService.start()
 	boardUpdated = Remotes.create(RemoteNames.BoardUpdated)
 	playerStateUpdated = Remotes.create(RemoteNames.PlayerStateUpdated)
@@ -193,6 +204,10 @@ function PlayerService.start()
 	connectRequest(RemoteNames.RequestSellUnit, PlayerState.sellUnit)
 	connectRequest(RemoteNames.RequestReroll, PlayerState.reroll)
 	connectRequest(RemoteNames.RequestBuyXp, PlayerState.buyXp)
+	connectRequest(RemoteNames.RequestEquipItem, PlayerState.equipItem)
+	connectRequest(RemoteNames.RequestUnequipItem, PlayerState.unequipItem)
+	connectRequest(RemoteNames.RequestMoveItem, PlayerState.moveItem)
+	connectRequest(RemoteNames.RequestPickItem, PlayerState.pickItem)
 
 	-- A participant who rejoins gets their state back and can act again.
 	Players.PlayerAdded:Connect(function(player)

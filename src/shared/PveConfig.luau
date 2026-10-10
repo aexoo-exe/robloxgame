@@ -32,11 +32,12 @@ return table.freeze({
 	}),
 
 	-- Gold for each creep round, the same for every player: the round's amount times the share of
-	-- its creeps killed, rounded down (all killed pays it in full).
+	-- its creeps killed, rounded down (all killed pays it in full). Round 3 pays none: its item
+	-- choice replaces the gold (ItemConfig.offers).
 	creepRoundGold = table.freeze({
 		[1] = 1,
 		[2] = 2,
-		[3] = 2,
+		[3] = 0,
 	}),
 
 	-- Boss rewards by the share of the boss's health removed when the fight ends: the highest step

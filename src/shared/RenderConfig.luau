@@ -21,6 +21,7 @@ return table.freeze({
 	overhead = table.freeze({
 		width = 3.2,
 		pipHeight = 0.34,
+		itemPipHeight = 0.24, -- the row of equipped-item pips over the health bar
 		formBarHeight = 0.18,
 		healthBarHeight = 0.3,
 		manaBarHeight = 0.11,
@@ -113,7 +114,10 @@ return table.freeze({
 		CURSE = "Hexed",
 		BURN = "Burning",
 		POISON = "Poisoned",
+		SHRED = "Shredded",
+		WOUND = "Wounded",
 	}),
+	immuneLabel = "Immune", -- a stun ignored (Immune events)
 	statusTextColor = Color3.fromRGB(200, 170, 255),
 	-- Trait moments: a hunter mark, and the shared meter's phase after each step (TraitCombat).
 	markLabel = "Marked",

@@ -162,7 +162,7 @@ local ABILITIES = {
 
 	reelbreaker = "PULL FARTHEST_ENEMY; DAMAGE FARTHEST_ENEMY PHYSICAL 830/1330/2130",
 	elastic_wardrum = "[formOnly]",
-	starless_burst = "AREA_DAMAGE LARGEST_CLUSTER r2 MAGIC 370/595/955 [selfstun 2s, cluster 2]",
+	starless_burst = "AREA_DAMAGE CURRENT_TARGET LINE len3 MAGIC 605/970/1560 bonus CASTS 25%; SHIELD SELF 250/400/640 4s",
 	echo_legion = "AREA_DAMAGE CURRENT_TARGET r2 MAGIC 74/117/188 @0.25s fixed; AREA_DAMAGE CURRENT_TARGET r2 MAGIC 74/117/188 @0.5s fixed; AREA_DAMAGE CURRENT_TARGET r2 MAGIC 74/117/188 @0.75s fixed; AREA_DAMAGE CURRENT_TARGET r2 MAGIC 74/117/188 @1s fixed",
 	night_command = "SUMMON x2/3/3 15/17/20s hp 50/55/65% ad 75/85/100% armor 55% mr 55% as 95% range 1 move 1.1",
 	frozen_moment = "AREA_STUN SELF r2 1/1.5/2s onEnd PHYSICAL 180/290/460 lifesteal 40%",
