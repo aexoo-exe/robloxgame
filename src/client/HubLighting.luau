@@ -40,14 +40,16 @@ end
 -- Hides (or shows again) the baseplate and anything drawn on it, such as a grid texture.
 local function setBaseplateHidden(hidden: boolean)
 	if hidden then
-		local baseplate = workspace:FindFirstChild("Baseplate")
-		if not baseplate then
-			return
-		end
-		for _, instance in { baseplate, unpack(baseplate:GetDescendants()) } do
-			if instance:IsA("BasePart") or instance:IsA("Decal") then
-				hiddenBaseplate[instance] = (instance :: any).Transparency
-				;(instance :: any).Transparency = 1
+		-- A place can hold more than one (the template's and the Rojo project's).
+		for _, baseplate in workspace:GetChildren() do
+			if baseplate.Name ~= "Baseplate" then
+				continue
+			end
+			for _, instance in { baseplate, unpack(baseplate:GetDescendants()) } do
+				if instance:IsA("BasePart") or instance:IsA("Decal") then
+					hiddenBaseplate[instance] = (instance :: any).Transparency
+					;(instance :: any).Transparency = 1
+				end
 			end
 		end
 	else

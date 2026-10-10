@@ -1,33 +1,63 @@
--- Builds the hub from parts (layout, colors and sizes in HubConfig): a floating sky island with a
--- stone plaza, a stone rim, an invisible barrier and ceiling, a spawn marker under a torii gate,
--- lanterns, origin banners, cherry trees, a sword-in-the-stone centerpiece, and the two pads. Each
--- pad is raised and glowing with a light column over it, and has one display board beside it
--- (title, live status line, one line of instructions) facing the spawn. No other text floats in
--- the hub, so nothing overlaps. About 150 parts. Server only; HubService runs the pads.
+-- Builds the hub, the "Sky Dojo", from parts (layout, colors and sizes in HubConfig):
+--   * the main island: an arrival terrace with the spawn under a torii gate, a grand stair, the
+--     avenue with the roster gallery's plinths grouped under faction banners, the central plaza
+--     with the sword centerpiece ringed by the nine faction banners, and the arena gate whose
+--     platform is the Play pad (8 spots that light up as players queue)
+--   * a walled training yard off the plaza whose floor is the Practice pad, with training dummies
+--   * the item shrine (a pavilion with the 15 items' pedestals) and the hall of fame (leaderboard
+--     boards on the terrace)
+--   * two outer islands joined by bridges (a lookout and a cherry garden) and a jumping route of
+--     stepping stones from the lookout to a hidden islet
+--   * a waterfall off the main island, lanterns, trees with falling petals
+--   * an invisible box around everything (walls and a ceiling; transparent, so the camera never
+--     snaps against it)
+-- Statues, item icons, the cloud sea and the bobbing rocks are added on each client (HubScenery):
+-- plinths and pedestals carry UnitType / ItemId attributes for it. Server only; HubService runs
+-- the pads and the leaderboards. Prints the part count when built.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local HubConfig = require(ReplicatedStorage.Shared.HubConfig)
-local TraitIconConfig = require(ReplicatedStorage.Shared.TraitIconConfig)
+local Shared = ReplicatedStorage.Shared
+local HubConfig = require(Shared.HubConfig)
+local ItemConfig = require(Shared.ItemConfig)
+local ItemSkinConfig = require(Shared.ItemSkinConfig)
+local SkinConfig = require(Shared.SkinConfig)
+local TraitIconConfig = require(Shared.TraitIconConfig)
+local UnitConfig = require(Shared.UnitConfig)
 
 local HubBuilder = {}
 
--- A built pad: where to stand (HubService.isOnPad) and the status line to update.
-export type Pad = { center: Vector3, radius: number, top: number, status: TextLabel }
+-- A built pad: where to stand (HubService) and what to update.
+export type Pad = {
+	kind: string, -- "circle" or "rect"
+	center: Vector3, -- circle: world center of its top
+	radius: number,
+	min: Vector3, -- rect: world corners (X and Z used)
+	max: Vector3,
+	top: number, -- world height of the pad's surface
+	status: TextLabel, -- the display's live status line
+	spots: { BasePart }, -- marked spots that light up as players queue (Play only)
+	color: Color3,
+}
+
+-- A leaderboard board: rows go in `list`; `placeholder` shows while there are none.
+export type Board = { list: Frame, placeholder: TextLabel }
 
 local COLORS = HubConfig.colors
 local CENTER = HubConfig.center
-local FLOOR = CENTER.Y + 1 -- the plaza's walking height
 local UPRIGHT = CFrame.Angles(0, 0, math.pi / 2) -- stands a cylinder's axis (X) upright
 
-local function at(offset: Vector3, height: number?): Vector3
-	return Vector3.new(CENTER.X + offset.X, FLOOR + (height or 0), CENTER.Z + offset.Z)
+local partCount = 0
+
+-- World position of a hub-relative position.
+local function at(offset: Vector3, lift: number?): Vector3
+	return CENTER + offset + Vector3.new(0, lift or 0, 0)
 end
 
--- A point on a circle around the center: angle 0 toward -Z, increasing toward +X.
-local function around(angle: number, radius: number): Vector3
+-- A point on a circle around `origin` (hub-relative): angle 0 toward -Z, 90 toward +X.
+local function around(origin: Vector3, angle: number, radius: number): Vector3
 	local a = math.rad(angle)
-	return Vector3.new(radius * math.sin(a), 0, -radius * math.cos(a))
+	return origin + Vector3.new(radius * math.sin(a), 0, -radius * math.cos(a))
 end
 
 local function part(
@@ -50,28 +80,58 @@ local function part(
 		instance.Shape = shape
 	end
 	instance.Parent = parent
+	partCount += 1
 	return instance
 end
 
--- A flat upright disc (a cylinder) whose top is `top` studs above the floor.
-local function disc(parent: Instance, offset: Vector3, diameter: number, thickness: number, top: number, color: Color3, material: Enum.Material?): Part
-	return part(
-		parent,
-		Vector3.new(thickness, diameter, diameter),
-		CFrame.new(at(offset, top - thickness / 2)) * UPRIGHT,
-		color,
-		material,
-		Enum.PartType.Cylinder
-	)
-end
-
--- A part that only lights or decorates: no collisions, no clicks, no touches.
+-- A part that only decorates or glows: no collisions, clicks, touches or shadow.
 local function ghost(instance: BasePart): BasePart
 	instance.CanCollide = false
 	instance.CanQuery = false
 	instance.CanTouch = false
 	instance.CastShadow = false
 	return instance
+end
+
+-- A flat disc (an upright cylinder) centered on hub-relative `position`, whose top is at
+-- position.Y.
+local function disc(parent: Instance, position: Vector3, diameter: number, thickness: number, color: Color3, material: Enum.Material?): Part
+	return part(
+		parent,
+		Vector3.new(thickness, diameter, diameter),
+		CFrame.new(at(position, -thickness / 2)) * UPRIGHT,
+		color,
+		material,
+		Enum.PartType.Cylinder
+	)
+end
+
+-- A box over a hub-relative rectangle whose top is at `top`.
+local function slab(parent: Instance, x: { number }, z: { number }, top: number, thickness: number, color: Color3, material: Enum.Material?): Part
+	local position = Vector3.new((x[1] + x[2]) / 2, top - thickness / 2, (z[1] + z[2]) / 2)
+	return part(parent, Vector3.new(x[2] - x[1], thickness, z[2] - z[1]), CFrame.new(at(position)), color, material)
+end
+
+-- Rock tapering away under a rectangle (`top` is the rock's top).
+local function rockUnderRect(parent: Instance, x: { number }, z: { number }, top: number)
+	local layers = { { 0.94, 9, COLORS.rock }, { 0.7, 12, COLORS.rockDark }, { 0.38, 14, COLORS.rock } }
+	local midX, midZ = (x[1] + x[2]) / 2, (z[1] + z[2]) / 2
+	local halfX, halfZ = (x[2] - x[1]) / 2, (z[2] - z[1]) / 2
+	for _, layer in layers do
+		local scale = layer[1]
+		slab(parent, { midX - halfX * scale, midX + halfX * scale }, { midZ - halfZ * scale, midZ + halfZ * scale }, top, layer[2], layer[3], Enum.Material.Rock)
+		top -= layer[2]
+	end
+end
+
+-- Rock tapering away under a disc (`top` is the rock's top).
+local function rockUnderDisc(parent: Instance, position: Vector3, radius: number, top: number, layers: number?)
+	local shapes = { { 0.92, 8, COLORS.rock }, { 0.62, 10, COLORS.rockDark }, { 0.3, 10, COLORS.rock } }
+	for i = 1, layers or 3 do
+		local layer = shapes[i]
+		disc(parent, Vector3.new(position.X, top, position.Z), radius * 2 * layer[1], layer[2], layer[3], Enum.Material.Rock)
+		top -= layer[2]
+	end
 end
 
 local function light(parent: Instance, color: Color3, range: number, brightness: number)
@@ -81,6 +141,16 @@ local function light(parent: Instance, color: Color3, range: number, brightness:
 	pointLight.Brightness = brightness
 	pointLight.Shadows = false
 	pointLight.Parent = parent
+end
+
+local function surface(target: BasePart, face: Enum.NormalId, pixelsPerStud: number): SurfaceGui
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = face
+	gui.LightInfluence = 0
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = pixelsPerStud
+	gui.Parent = target
+	return gui
 end
 
 local function label(parent: Instance, text: string, top: number, height: number, color: Color3, font: Enum.Font): TextLabel
@@ -98,365 +168,699 @@ local function label(parent: Instance, text: string, top: number, height: number
 	return textLabel
 end
 
--- The island: a grass disc with rock tapering away underneath, the stone plaza on top, a ring
--- pattern, and the gold inlay around the centerpiece.
-local function island(folder: Instance)
-	local radius = HubConfig.islandRadius
-	disc(folder, Vector3.zero, radius * 2, 3, 0, COLORS.grass, Enum.Material.Grass)
-	local rocks = {
-		{ 0.95, 6, COLORS.rock },
-		{ 0.78, 7, COLORS.rockDark },
-		{ 0.55, 8, COLORS.rock },
-		{ 0.3, 8, COLORS.rockDark },
-		{ 0.1, 6, COLORS.rock },
-	}
-	local bottom = -3
-	for _, rock in rocks do
-		disc(folder, Vector3.zero, radius * 2 * rock[1], rock[2], bottom, rock[3], Enum.Material.Rock)
-		bottom -= rock[2]
-	end
-	local plaza = HubConfig.plazaRadius
-	disc(folder, Vector3.zero, plaza * 2, 0.5, 0.04, COLORS.plaza, Enum.Material.Slate)
-	disc(folder, Vector3.zero, (plaza - 5) * 2, 0.4, 0.06, COLORS.rim, Enum.Material.Slate)
-	disc(folder, Vector3.zero, (plaza - 6.5) * 2, 0.4, 0.07, COLORS.plaza, Enum.Material.Slate)
-	local inlay = HubConfig.centerpieceOffset
-	disc(folder, inlay, 16, 0.3, 0.1, COLORS.inlay, Enum.Material.Marble)
-	disc(folder, inlay, 14.6, 0.3, 0.12, COLORS.inlayInner, Enum.Material.Slate)
+local function traitColor(traitId: string): Color3
+	local trait = TraitIconConfig[traitId]
+	local rgb = if trait then trait.color else { 200, 200, 200 }
+	return Color3.fromRGB(rgb[1], rgb[2], rgb[3])
 end
 
--- A stone curb around the plaza, and the invisible barrier and ceiling that keep players in.
-local function boundary(folder: Instance)
-	local rimRadius = HubConfig.rimRadius
-	local segments = 16
-	local length = 2 * rimRadius * math.sin(math.pi / segments) + 0.6
+-- Faces `cframe`'s front (-Z) from `from` toward `toward`, level (both hub-relative).
+local function facing(from: Vector3, toward: Vector3): CFrame
+	local origin = at(from)
+	local target = at(toward)
+	return CFrame.lookAt(origin, Vector3.new(target.X, origin.Y, target.Z))
+end
+
+-- Pieces -----------------------------------------------------------------------------------------
+
+-- A low stone curb from `from` to `to` (hub-relative, y = the floor it stands on).
+local function curb(parent: Instance, from: Vector3, to: Vector3)
+	local length = (Vector3.new(to.X, 0, to.Z) - Vector3.new(from.X, 0, from.Z)).Magnitude
+	local middle = (from + to) / 2
+	local cframe = CFrame.lookAt(at(middle, 0.7), at(Vector3.new(to.X, middle.Y, to.Z), 0.7))
+	part(parent, Vector3.new(1.2, 1.4, length + 1), cframe, COLORS.curb, Enum.Material.Slate)
+end
+
+-- Curbs around a disc island, leaving gaps at `openings` (angles).
+local function ringCurb(parent: Instance, position: Vector3, radius: number, openings: { number })
+	local segments = 10
 	for i = 1, segments do
-		local angle = (i - 0.5) * 360 / segments
-		local position = at(around(angle, rimRadius), 0.7)
+		local a, b = (i - 1) * 360 / segments, i * 360 / segments
+		local middle = (a + b) / 2
+		local open = false
+		for _, opening in openings do
+			local difference = math.abs((middle - opening + 180) % 360 - 180)
+			if difference < 30 then
+				open = true
+			end
+		end
+		if not open then
+			curb(parent, around(position, a, radius - 0.6), around(position, b, radius - 0.6))
+		end
+	end
+end
+
+-- A banner: a pole with a cloth in the faction's color showing its symbol letters and name,
+-- facing `toward`. `scale` 1 is the tall plaza banner.
+local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId: string, scale: number)
+	local trait = TraitIconConfig[traitId]
+	if not trait then
+		return
+	end
+	local color = traitColor(traitId)
+	local poleHeight = 14 * scale
+	part(parent, Vector3.new(poleHeight, 0.45, 0.45), CFrame.new(at(base, poleHeight / 2)) * UPRIGHT, COLORS.dark, Enum.Material.Wood, Enum.PartType.Cylinder)
+	local clothSize = Vector2.new(3.4, 7) * scale
+	local frame = facing(base, toward)
+	local cloth = part(
+		parent,
+		Vector3.new(clothSize.X, clothSize.Y, 0.12),
+		frame * CFrame.new(0, poleHeight - 0.4 - clothSize.Y / 2, -0.4),
+		color,
+		Enum.Material.Fabric
+	)
+	ghost(cloth)
+	local gui = surface(cloth, Enum.NormalId.Front, 30)
+	gui.LightInfluence = 0.3
+	local emblem = Instance.new("Frame")
+	emblem.AnchorPoint = Vector2.new(0.5, 0)
+	emblem.Position = UDim2.fromScale(0.5, 0.1)
+	emblem.Size = UDim2.fromScale(0.8, 0.8 * clothSize.X / clothSize.Y)
+	emblem.BackgroundColor3 = Color3.new(1, 1, 1)
+	emblem.BackgroundTransparency = 0.1
+	local round = Instance.new("UICorner")
+	round.CornerRadius = UDim.new(0.5, 0)
+	round.Parent = emblem
+	emblem.Parent = gui
+	label(emblem, trait.letters, 0.15, 0.7, color, Enum.Font.GothamBlack).TextStrokeTransparency = 1
+	label(gui, string.upper(trait.name), 0.6, 0.13, Color3.new(1, 1, 1), Enum.Font.GothamBold)
+	local fringe = Instance.new("Frame")
+	fringe.Position = UDim2.fromScale(0, 0.93)
+	fringe.Size = UDim2.fromScale(1, 0.07)
+	fringe.BackgroundColor3 = COLORS.gold
+	fringe.BorderSizePixel = 0
+	fringe.Parent = gui
+end
+
+-- A stone lantern (toro) with a warm light.
+local function lantern(parent: Instance, base: Vector3)
+	part(parent, Vector3.new(2.4, 0.7, 2.4), CFrame.new(at(base, 0.35)), COLORS.lanternStone, Enum.Material.Slate)
+	part(parent, Vector3.new(2.8, 1, 1), CFrame.new(at(base, 2.1)) * UPRIGHT, COLORS.lanternStone, Enum.Material.Slate, Enum.PartType.Cylinder)
+	local lamp = part(parent, Vector3.new(1.7, 1.5, 1.7), CFrame.new(at(base, 4.25)), COLORS.lanternLight, Enum.Material.Neon)
+	light(lamp, COLORS.lanternLight, 16, 1.2)
+	part(parent, Vector3.new(2.9, 0.6, 2.9), CFrame.new(at(base, 5.3)) * CFrame.Angles(0, math.rad(45), 0), COLORS.lanternStone, Enum.Material.Slate)
+end
+
+-- A cherry tree with falling petals.
+local function tree(parent: Instance, base: Vector3)
+	part(parent, Vector3.new(7.5, 1.3, 1.3), CFrame.new(at(base, 3.6)) * CFrame.Angles(math.rad(6), 0, 0) * UPRIGHT, COLORS.trunk, Enum.Material.Wood, Enum.PartType.Cylinder)
+	local canopy = { { Vector3.new(0, 8.2, 0), 8.5 }, { Vector3.new(2.6, 7.2, 1.2), 6 }, { Vector3.new(-2.4, 7.6, -1), 5.6 } }
+	for index, ball in canopy do
+		local leaves = part(parent, Vector3.one * ball[2], CFrame.new(at(base + ball[1])), COLORS.blossom, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		leaves.CastShadow = index == 1
+		if index == 1 then
+			local petals = Instance.new("ParticleEmitter")
+			petals.Color = ColorSequence.new(COLORS.blossom)
+			petals.Size = NumberSequence.new(0.3)
+			petals.Rate = 3
+			petals.Lifetime = NumberRange.new(6, 9)
+			petals.Speed = NumberRange.new(0.5, 1.5)
+			petals.SpreadAngle = Vector2.new(180, 180)
+			petals.Acceleration = Vector3.new(0.6, -0.8, 0.3)
+			petals.RotSpeed = NumberRange.new(-60, 60)
+			petals.Rotation = NumberRange.new(0, 360)
+			petals.LightEmission = 0.1
+			petals.Parent = leaves
+		end
+	end
+end
+
+-- A display board on two posts with a glowing cap, facing `toward`: title, live status and one line
+-- of instructions, each in its own band, so their text never overlaps. Returns the status label.
+local function display(parent: Instance, base: Vector3, toward: Vector3, color: Color3, title: string, hint: string): TextLabel
+	local size = HubConfig.displaySize
+	local frame = facing(base, toward)
+	local lift = 2.6
+	local board = part(parent, Vector3.new(size.X, size.Y, 0.8), frame * CFrame.new(0, lift + size.Y / 2, 0), COLORS.displayBoard)
+	for _, side in { -1, 1 } do
 		part(
-			folder,
-			Vector3.new(length, 1.4, 1.2),
-			CFrame.lookAt(position, position + around(angle, 1)),
-			COLORS.rim,
+			parent,
+			Vector3.new(0.9, lift + size.Y + 0.4, 0.9),
+			frame * CFrame.new(side * (size.X / 2 + 0.45), (lift + size.Y + 0.4) / 2, 0),
+			COLORS.displayFrame,
 			Enum.Material.Slate
 		)
 	end
-
-	local barrier = Instance.new("Folder")
-	barrier.Name = "Barrier"
-	local wallRadius = HubConfig.barrierRadius + 1
-	local walls = 24
-	local wallLength = 2 * wallRadius * math.sin(math.pi / walls) + 1
-	local height = HubConfig.barrierHeight + 6
-	for i = 1, walls do
-		local angle = (i - 0.5) * 360 / walls
-		local position = at(around(angle, wallRadius), height / 2 - 6)
-		local wall = part(
-			barrier,
-			Vector3.new(wallLength, height, 2),
-			CFrame.lookAt(position, position + around(angle, 1)),
-			COLORS.rim
-		)
-		wall.Transparency = 1
-		wall.CastShadow = false
-		wall.CanTouch = false
-	end
-	local ceiling = disc(
-		barrier,
-		Vector3.zero,
-		(wallRadius + 2) * 2,
-		1,
-		HubConfig.barrierHeight + 1,
-		COLORS.rim
-	)
-	ceiling.Transparency = 1
-	ceiling.CastShadow = false
-	ceiling.CanTouch = false
-	barrier.Parent = folder
+	part(parent, Vector3.new(size.X + 1.8, 0.5, 1.1), frame * CFrame.new(0, lift + size.Y + 0.45, 0), color, Enum.Material.Neon)
+	local gui = surface(board, Enum.NormalId.Front, 40)
+	local stripe = Instance.new("Frame")
+	stripe.Size = UDim2.fromScale(1, 0.05)
+	stripe.BackgroundColor3 = color
+	stripe.BorderSizePixel = 0
+	stripe.Parent = gui
+	label(gui, title, 0.09, 0.3, color, Enum.Font.GothamBlack)
+	local divider = Instance.new("Frame")
+	divider.Position = UDim2.fromScale(0.15, 0.43)
+	divider.Size = UDim2.fromScale(0.7, 0.012)
+	divider.BackgroundColor3 = color
+	divider.BackgroundTransparency = 0.4
+	divider.BorderSizePixel = 0
+	divider.Parent = gui
+	local status = label(gui, "", 0.48, 0.2, Color3.new(1, 1, 1), Enum.Font.GothamBold)
+	label(gui, hint, 0.75, 0.17, Color3.fromRGB(200, 200, 215), Enum.Font.GothamMedium)
+	return status
 end
 
--- The spawn: an invisible SpawnLocation over a round marker (a glowing ring, a white stone and a
--- gold crest with four points).
-local function spawnMarker(folder: Instance)
-	local offset = HubConfig.spawnOffset
+-- A walkway with a rail on each side between two hub-relative points.
+local function bridge(parent: Instance, from: Vector3, to: Vector3)
+	local length = (to - from).Magnitude
+	local cframe = CFrame.lookAt(at((from + to) / 2), at(to))
+	part(parent, Vector3.new(5, 0.6, length + 2), cframe * CFrame.new(0, -0.3, 0), COLORS.wood, Enum.Material.WoodPlanks)
+	for _, side in { -1, 1 } do
+		part(parent, Vector3.new(0.4, 0.4, length + 2), cframe * CFrame.new(side * 2.6, 2.6, 0), COLORS.torii, Enum.Material.Wood)
+		part(parent, Vector3.new(0.5, 2.6, 0.5), cframe * CFrame.new(side * 2.6, 1.3, 0), COLORS.torii, Enum.Material.Wood)
+	end
+end
+
+-- Zones ----------------------------------------------------------------------------------------
+
+-- The main ground: the spine, the plaza, the arrival terrace with its stair, and their rock.
+local function mainIsland(folder: Instance)
+	local spine = HubConfig.spine
+	slab(folder, spine.x, spine.z, 0, 3, COLORS.ground, Enum.Material.Slate)
+	rockUnderRect(folder, spine.x, spine.z, -3)
+	local plaza = HubConfig.plaza
+	disc(folder, plaza.center + Vector3.new(0, 0.04, 0), plaza.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
+	rockUnderDisc(folder, plaza.center, plaza.radius, -3, 2)
+	-- The avenue: pale paving from the stair to the arena gate, under the plaza's gold inlay.
+	local half = HubConfig.avenueHalfWidth
+	slab(folder, { -half, half }, { spine.z[1] + 8, spine.z[2] }, 0.06, 0.3, COLORS.avenue, Enum.Material.Pavement)
+	disc(folder, plaza.center + Vector3.new(0, 0.08, 0), 40, 0.3, COLORS.inlay, Enum.Material.Marble)
+	disc(folder, plaza.center + Vector3.new(0, 0.1, 0), 37, 0.3, COLORS.inlayInner, Enum.Material.Slate)
+
+	local terrace = HubConfig.terrace
+	slab(folder, terrace.x, terrace.z, terrace.height, 2, COLORS.ground, Enum.Material.Slate)
+	slab(folder, { terrace.x[1] + 0.5, terrace.x[2] - 0.5 }, { terrace.z[1] + 0.5, terrace.z[2] - 0.5 }, terrace.height - 2, 20, COLORS.rock, Enum.Material.Rock)
+	rockUnderRect(folder, terrace.x, terrace.z, terrace.height - 22)
+
+	-- The grand stair down from the terrace's front edge, with a balustrade on each side.
+	local stairs = HubConfig.stairs
+	local front = terrace.z[1]
+	for step = 1, stairs.steps do
+		local near = front - (step - 1) * stairs.depth
+		slab(folder, { -stairs.halfWidth, stairs.halfWidth }, { near - stairs.depth, near }, terrace.height - step, terrace.height - step, COLORS.avenue, Enum.Material.Pavement)
+	end
+	local bottom = front - stairs.steps * stairs.depth
+	for _, side in { -1, 1 } do
+		local x = side * (stairs.halfWidth + 0.6)
+		local top, low = Vector3.new(x, terrace.height + 1.2, front), Vector3.new(x, 1.2, bottom)
+		part(folder, Vector3.new(1.2, 1.4, (top - low).Magnitude + 1), CFrame.lookAt(at((top + low) / 2), at(low)), COLORS.curb, Enum.Material.Slate)
+	end
+end
+
+-- Curbs along the open edges of the spine and the terrace.
+local function edges(folder: Instance)
+	local h = HubConfig.terrace.height
+	local v = Vector3.new
+	local runs = {
+		{ v(36, 0, 124), v(36, 0, 70) },
+		{ v(36, 0, 62), v(36, 0, 29) },
+		{ v(-36, 0, 124), v(-36, 0, 29) },
+		{ v(36, 0, -29), v(36, 0, -135) },
+		{ v(36, 0, -145), v(36, 0, -160) },
+		{ v(-36, 0, -29), v(-36, 0, -160) },
+		{ v(-36, 0, -160), v(36, 0, -160) },
+		{ v(-82, h, 166), v(28, h, 166) },
+		{ v(-82, h, 124), v(-82, h, 166) },
+		{ v(28, h, 124), v(28, h, 166) },
+		{ v(-82, h, 124), v(-16, h, 124) },
+		{ v(16, h, 124), v(28, h, 124) },
+	}
+	for _, run in runs do
+		curb(folder, run[1], run[2])
+	end
+end
+
+-- The spawn: an invisible SpawnLocation over a round marker, under a torii gate.
+local function arrival(folder: Instance)
+	local position = HubConfig.spawn
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Anchored = true
 	spawn.Neutral = true
 	spawn.Duration = 0 -- no spawn force field
 	spawn.Size = Vector3.new(6, 0.2, 6)
-	spawn.CFrame = CFrame.new(at(offset, 0.4)) -- faces -Z, toward the pads
+	spawn.CFrame = CFrame.new(at(position, 0.4)) -- faces -Z, down the stair and the avenue
 	spawn.Transparency = 1
 	spawn.CanCollide = false
 	spawn.CanTouch = false
 	spawn.Parent = folder
+	partCount += 1
 
-	local ring = disc(folder, offset, 10.6, 0.3, 0.14, COLORS.spawnGlow, Enum.Material.Neon)
+	local ring = disc(folder, position + Vector3.new(0, 0.14, 0), 10.6, 0.3, COLORS.spawnGlow, Enum.Material.Neon)
 	light(ring, COLORS.spawnGlow, 12, 1)
-	disc(folder, offset, 9.4, 0.3, 0.2, COLORS.spawnStone, Enum.Material.Marble)
-	disc(folder, offset, 3.4, 0.2, 0.26, COLORS.guard, Enum.Material.Metal)
+	disc(folder, position + Vector3.new(0, 0.2, 0), 9.4, 0.3, COLORS.spawnStone, Enum.Material.Marble)
+	disc(folder, position + Vector3.new(0, 0.26, 0), 3.4, 0.2, COLORS.gold, Enum.Material.Metal)
 	for i = 0, 3 do
-		local position = at(offset + around(i * 90, 3.2), 0.24)
-		part(folder, Vector3.new(1, 0.12, 1), CFrame.new(position) * CFrame.Angles(0, math.rad(45), 0), COLORS.guard, Enum.Material.Metal)
+		part(folder, Vector3.new(1, 0.12, 1), CFrame.new(at(around(position, i * 90, 3.2), 0.24)) * CFrame.Angles(0, math.rad(45), 0), COLORS.gold, Enum.Material.Metal)
 	end
-end
 
--- A torii gate behind the spawn, with a plaque reading "dojo".
-local function torii(folder: Instance)
-	local offset = HubConfig.toriiOffset
+	local gate = HubConfig.torii
 	for _, side in { -1, 1 } do
-		local pillar = offset + Vector3.new(side * 6, 0, 0)
-		part(folder, Vector3.new(12.6, 1.3, 1.3), CFrame.new(at(pillar, 6.3)) * UPRIGHT, COLORS.torii, Enum.Material.Wood, Enum.PartType.Cylinder)
-		part(folder, Vector3.new(2, 0.8, 2), CFrame.new(at(pillar, 0.4)), COLORS.toriiTop, Enum.Material.Slate)
+		local pillar = gate + Vector3.new(side * 7, 0, 0)
+		part(folder, Vector3.new(13.6, 1.4, 1.4), CFrame.new(at(pillar, 6.8)) * UPRIGHT, COLORS.torii, Enum.Material.Wood, Enum.PartType.Cylinder)
+		part(folder, Vector3.new(2.2, 0.8, 2.2), CFrame.new(at(pillar, 0.4)), COLORS.dark, Enum.Material.Slate)
 	end
-	part(folder, Vector3.new(18, 0.9, 1.8), CFrame.new(at(offset, 13.1)), COLORS.toriiTop, Enum.Material.Wood)
-	part(folder, Vector3.new(16.2, 0.8, 1.4), CFrame.new(at(offset, 12.3)), COLORS.torii, Enum.Material.Wood)
-	part(folder, Vector3.new(14.4, 0.7, 0.9), CFrame.new(at(offset, 10)), COLORS.torii, Enum.Material.Wood)
-	local plaque = part(folder, Vector3.new(2.2, 1.6, 0.3), CFrame.new(at(offset, 11.15)), COLORS.toriiTop, Enum.Material.Wood)
+	part(folder, Vector3.new(20, 1, 2), CFrame.new(at(gate, 14.1)), COLORS.dark, Enum.Material.Wood)
+	part(folder, Vector3.new(18, 0.8, 1.5), CFrame.new(at(gate, 13.2)), COLORS.torii, Enum.Material.Wood)
+	part(folder, Vector3.new(16.4, 0.7, 1), CFrame.new(at(gate, 10.8)), COLORS.torii, Enum.Material.Wood)
+	local plaque = part(folder, Vector3.new(2.4, 1.7, 0.3), CFrame.new(at(gate, 12)), COLORS.dark, Enum.Material.Wood)
 	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
-		local gui = Instance.new("SurfaceGui")
-		gui.Face = face
-		gui.LightInfluence = 0
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 50
-		gui.Parent = plaque
-		label(gui, "道場", 0.08, 0.84, COLORS.guard, Enum.Font.GothamBlack)
+		label(surface(plaque, face, 50), "道場", 0.08, 0.84, COLORS.gold, Enum.Font.GothamBlack)
 	end
 end
 
--- Stone lanterns (toro) around the plaza, each with a warm light.
-local function lanterns(folder: Instance)
-	for _, angle in HubConfig.lanternAngles do
-		local offset = around(angle, HubConfig.lanternRadius)
-		local facing = CFrame.Angles(0, math.rad(-angle), 0)
-		part(folder, Vector3.new(2.4, 0.7, 2.4), CFrame.new(at(offset, 0.35)) * facing, COLORS.lanternStone, Enum.Material.Slate)
-		part(folder, Vector3.new(2.8, 1, 1), CFrame.new(at(offset, 2.1)) * UPRIGHT, COLORS.lanternStone, Enum.Material.Slate, Enum.PartType.Cylinder)
-		local lamp = part(folder, Vector3.new(1.7, 1.5, 1.7), CFrame.new(at(offset, 4.25)) * facing, COLORS.lanternLight, Enum.Material.Neon)
-		light(lamp, COLORS.lanternLight, 16, 1.4)
-		part(
-			folder,
-			Vector3.new(2.9, 0.6, 2.9),
-			CFrame.new(at(offset, 5.3)) * facing * CFrame.Angles(0, math.rad(45), 0),
-			COLORS.lanternStone,
-			Enum.Material.Slate
-		)
+-- The sword in the stone, ringed by the nine faction banners.
+local function plaza(folder: Instance)
+	local origin = HubConfig.centerpiece
+	ghost(disc(folder, origin + Vector3.new(0, 0.16, 0), 10.8, 0.3, COLORS.glow, Enum.Material.Neon))
+	disc(folder, origin + Vector3.new(0, 1.4, 0), 9, 1.4, COLORS.rockDark, Enum.Material.Slate)
+	disc(folder, origin + Vector3.new(0, 2.6, 0), 6, 1.2, COLORS.lanternStone, Enum.Material.Slate)
+	local pivot = CFrame.new(at(origin, 2.6)) * CFrame.Angles(math.rad(4), math.rad(30), math.rad(7))
+	local blade = part(folder, Vector3.new(0.35, 11, 1.4), pivot * CFrame.new(0, 4.7, 0), COLORS.blade, Enum.Material.Metal)
+	light(blade, COLORS.glow, 18, 1)
+	part(folder, Vector3.new(0.15, 10.4, 0.25), pivot * CFrame.new(0, 4.6, 0.62), COLORS.gold, Enum.Material.Neon)
+	part(folder, Vector3.new(0.4, 3.4, 3.4), pivot * CFrame.new(0, 10.4, 0) * UPRIGHT, COLORS.gold, Enum.Material.Metal, Enum.PartType.Cylinder)
+	part(folder, Vector3.new(0.85, 3.6, 0.85), pivot * CFrame.new(0, 12.4, 0), COLORS.hilt, Enum.Material.Fabric)
+	part(folder, Vector3.new(1, 1, 1), pivot * CFrame.new(0, 14.5, 0), COLORS.gold, Enum.Material.Metal, Enum.PartType.Ball)
+
+	local factions = HubConfig.plazaBannerFactions
+	for index, traitId in factions do
+		local angle = (index - 1) * 360 / #factions + 20
+		local base = around(origin, angle, HubConfig.plazaBannerRadius)
+		banner(folder, base, around(origin, angle, HubConfig.plazaBannerRadius + 10), traitId, 1)
 	end
 end
 
--- A banner per origin trait around the rim: a pole and a cloth in the trait's color with its
--- symbol letters and name, facing the plaza.
-local function banners(folder: Instance)
-	for _, banner in HubConfig.banners do
-		local trait = TraitIconConfig[banner.trait]
-		if not trait then
-			continue
-		end
-		local color = Color3.fromRGB(trait.color[1], trait.color[2], trait.color[3])
-		local base = around(banner.angle, HubConfig.bannerRadius)
-		part(folder, Vector3.new(13, 0.45, 0.45), CFrame.new(at(base, 6.5)) * UPRIGHT, COLORS.toriiTop, Enum.Material.Wood, Enum.PartType.Cylinder)
-		local clothCenter = at(base + around(banner.angle, -0.5), 8.6)
-		local cloth = part(
-			folder,
-			Vector3.new(3.2, 6.6, 0.12),
-			CFrame.lookAt(clothCenter, Vector3.new(CENTER.X, clothCenter.Y, CENTER.Z)),
-			color,
-			Enum.Material.Fabric
-		)
-		ghost(cloth)
-		local gui = Instance.new("SurfaceGui")
-		gui.Face = Enum.NormalId.Front
-		gui.LightInfluence = 0.3
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 30
-		gui.Parent = cloth
-		local emblem = Instance.new("Frame")
-		emblem.AnchorPoint = Vector2.new(0.5, 0)
-		emblem.Position = UDim2.fromScale(0.5, 0.12)
-		emblem.Size = UDim2.fromScale(0.8, 0.8 * 3.2 / 6.6)
-		emblem.BackgroundColor3 = Color3.new(1, 1, 1)
-		emblem.BackgroundTransparency = 0.1
-		local round = Instance.new("UICorner")
-		round.CornerRadius = UDim.new(0.5, 0)
-		round.Parent = emblem
-		emblem.Parent = gui
-		local letters = label(emblem, trait.letters, 0.15, 0.7, color, Enum.Font.GothamBlack)
-		letters.TextStrokeTransparency = 1
-		label(gui, string.upper(trait.name), 0.62, 0.12, Color3.new(1, 1, 1), Enum.Font.GothamBold)
-		-- A gold tassel strip along the bottom.
-		local fringe = Instance.new("Frame")
-		fringe.Position = UDim2.fromScale(0, 0.94)
-		fringe.Size = UDim2.fromScale(1, 0.06)
-		fringe.BackgroundColor3 = COLORS.guard
-		fringe.BorderSizePixel = 0
-		fringe.Parent = gui
+-- The roster gallery: a plinth per unit along the avenue, grouped by faction under a banner.
+local function gallery(folder: Instance)
+	local config = HubConfig.gallery
+	local byFaction: { [string]: { string } } = {}
+	for unitType, unit in UnitConfig do
+		byFaction[unit.origin] = byFaction[unit.origin] or {}
+		table.insert(byFaction[unit.origin], unitType)
 	end
-end
+	for _, list in byFaction do
+		table.sort(list, function(a, b)
+			local costA, costB = UnitConfig[a].cost, UnitConfig[b].cost
+			if costA ~= costB then
+				return costA < costB
+			end
+			return SkinConfig[a].name < SkinConfig[b].name
+		end)
+	end
 
--- Cherry trees with falling petals.
-local function trees(folder: Instance)
-	for _, tree in HubConfig.trees do
-		local offset = around(tree.angle, tree.radius)
-		part(
-			folder,
-			Vector3.new(7.5, 1.3, 1.3),
-			CFrame.new(at(offset, 3.6)) * CFrame.Angles(math.rad(6), 0, 0) * UPRIGHT,
-			COLORS.trunk,
-			Enum.Material.Wood,
-			Enum.PartType.Cylinder
-		)
-		local canopy = {
-			{ Vector3.new(0, 0, 0), 8.5, 8.2 },
-			{ Vector3.new(2.6, 0, 1.2), 6, 7.2 },
-			{ Vector3.new(-2.4, 0, -1), 5.6, 7.6 },
-		}
-		for index, ball in canopy do
-			local position = at(offset + ball[1], ball[3])
-			local leaves = part(folder, Vector3.one * ball[2], CFrame.new(position), COLORS.blossom, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
-			leaves.CastShadow = index == 1
-			if index == 1 then
-				local petals = Instance.new("ParticleEmitter")
-				petals.Color = ColorSequence.new(COLORS.blossom)
-				petals.Size = NumberSequence.new(0.3)
-				petals.Rate = 3
-				petals.Lifetime = NumberRange.new(6, 9)
-				petals.Speed = NumberRange.new(0.5, 1.5)
-				petals.SpreadAngle = Vector2.new(180, 180)
-				petals.Acceleration = Vector3.new(0.6, -0.8, 0.3)
-				petals.RotSpeed = NumberRange.new(-60, 60)
-				petals.Rotation = NumberRange.new(0, 360)
-				petals.LightEmission = 0.2
-				petals.Parent = leaves
+	local plinths = Instance.new("Folder")
+	plinths.Name = "Gallery"
+	for _, row in config.rows do
+		local direction = if row.to < row.from then -1 else 1
+		local cursor = row.from
+		local outward = if row.x < 0 then -1 else 1
+		for _, faction in row.factions do
+			local base = Vector3.new(row.x + outward * 3.2, 0, cursor + direction * config.groupGap / 2)
+			banner(folder, base, Vector3.new(0, 0, base.Z), faction, 0.6)
+			cursor += direction * config.groupGap
+			for _, unitType in byFaction[faction] or {} do
+				local position = Vector3.new(row.x, 0, cursor + direction * config.spacing / 2)
+				cursor += direction * config.spacing
+				local frame = facing(position, Vector3.new(0, 0, position.Z))
+				local plinth = part(
+					plinths,
+					Vector3.new(3, config.plinthHeight, 3),
+					frame * CFrame.new(0, config.plinthHeight / 2, 0),
+					COLORS.plinth,
+					Enum.Material.Marble
+				)
+				plinth.Name = unitType
+				plinth:SetAttribute("UnitType", unitType)
+				local gui = surface(plinth, Enum.NormalId.Front, 40)
+				local band = Instance.new("Frame")
+				band.Position = UDim2.fromScale(0, 0.12)
+				band.Size = UDim2.fromScale(1, 0.05)
+				band.BackgroundColor3 = traitColor(faction)
+				band.BorderSizePixel = 0
+				band.Parent = gui
+				label(gui, SkinConfig[unitType].name, 0.3, 0.32, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
 			end
 		end
 	end
+	plinths.Parent = folder
 end
 
--- A giant sword planted in a stone pedestal, ringed with light.
-local function centerpiece(folder: Instance)
-	local offset = HubConfig.centerpieceOffset
-	local glow = disc(folder, offset, 10.8, 0.3, 0.16, COLORS.centerpieceGlow, Enum.Material.Neon)
-	ghost(glow)
-	disc(folder, offset, 9, 1.4, 1.4, COLORS.rockDark, Enum.Material.Slate)
-	disc(folder, offset, 6, 1.2, 2.6, COLORS.lanternStone, Enum.Material.Slate)
-	-- The sword, tilted a little, built around the point where it enters the stone.
-	local pivot = CFrame.new(at(offset, 2.6)) * CFrame.Angles(math.rad(4), math.rad(30), math.rad(7))
-	local blade = part(folder, Vector3.new(0.35, 11, 1.4), pivot * CFrame.new(0, 4.7, 0), COLORS.blade, Enum.Material.Metal)
-	light(blade, COLORS.centerpieceGlow, 18, 1.2)
-	part(folder, Vector3.new(0.15, 10.4, 0.25), pivot * CFrame.new(0, 4.6, 0.62), COLORS.guard, Enum.Material.Neon)
-	part(folder, Vector3.new(0.4, 3.4, 3.4), pivot * CFrame.new(0, 10.4, 0) * UPRIGHT, COLORS.guard, Enum.Material.Metal, Enum.PartType.Cylinder)
-	part(folder, Vector3.new(0.85, 3.6, 0.85), pivot * CFrame.new(0, 12.4, 0), COLORS.hilt, Enum.Material.Fabric)
-	part(folder, Vector3.new(1, 1, 1), pivot * CFrame.new(0, 14.5, 0), COLORS.guard, Enum.Material.Metal, Enum.PartType.Ball)
-end
-
--- A path of pale stone from the spawn to a pad.
-local function path(folder: Instance, to: Vector3)
-	local from = at(HubConfig.spawnOffset, 0)
-	local goal = at(to, 0)
-	local length = (goal - from).Magnitude
-	local middle = (from + goal) / 2
-	part(
-		folder,
-		Vector3.new(5, 0.3, length),
-		CFrame.lookAt(middle, goal) - Vector3.new(0, 0.05, 0),
-		COLORS.path,
-		Enum.Material.Pavement
-	)
-end
-
--- A raised glowing pad with a light column over it, and its display board.
-local function pad(folder: Instance, name: string, config): Pad
-	local offset = config.offset
-	local size = config.size
-	local top = HubConfig.padHeight
-	local dark = config.color:Lerp(Color3.new(0, 0, 0), 0.55)
-	disc(folder, offset, size + 3, 0.6, 0.6, COLORS.rockDark, Enum.Material.Slate)
-	disc(folder, offset, size + 1.4, 0.3, 0.9, config.color, Enum.Material.Neon)
-	local surface = disc(folder, offset, size, top - 0.6, top, dark, Enum.Material.Glass)
-	surface.Name = name .. "Pad"
-	light(surface, config.color, 22, 2.5)
-	disc(folder, offset, size - 2.6, 0.1, top + 0.03, config.color, Enum.Material.Neon)
-	disc(folder, offset, size - 3.4, 0.1, top + 0.05, dark, Enum.Material.Glass)
-	local beam = disc(folder, offset, 4, HubConfig.beamHeight, top + HubConfig.beamHeight, config.color, Enum.Material.Neon)
-	beam.Transparency = 0.82
+-- The arena gate and its platform (the Play pad), with the display. Returns the pad.
+local function arenaGate(folder: Instance): Pad
+	local config = HubConfig.pads.play
+	local origin = config.center
+	local top = config.height
+	disc(folder, origin + Vector3.new(0, 0.6, 0), config.radius * 2 + 3, 0.6, COLORS.rockDark, Enum.Material.Slate)
+	disc(folder, origin + Vector3.new(0, 0.9, 0), config.radius * 2 + 1.4, 0.3, config.color, Enum.Material.Neon)
+	local dark = config.color:Lerp(Color3.new(0, 0, 0), 0.6)
+	local surfacePart = disc(folder, origin + Vector3.new(0, top, 0), config.radius * 2, top - 0.6, dark, Enum.Material.Glass)
+	light(surfacePart, config.color, 24, 2)
+	local spots = {}
+	for i = 1, config.spots do
+		local spot = disc(folder, around(origin, (i - 1) * 360 / config.spots, config.spotRadius) + Vector3.new(0, top + 0.06, 0), 3.2, 0.1, COLORS.spotOff, Enum.Material.SmoothPlastic)
+		spot.Name = "Spot" .. i
+		table.insert(spots, spot)
+	end
+	local beam = disc(folder, origin + Vector3.new(0, top + HubConfig.beamHeight, 0), 5, HubConfig.beamHeight, config.color, Enum.Material.Neon)
+	beam.Transparency = 0.85
 	ghost(beam)
 
-	-- The display: a dark board on two posts with a glowing cap, angled toward the spawn. Title,
-	-- status and instructions each own a band of the board, so their text can never overlap.
-	local boardSize = HubConfig.displaySize
-	local base = at(config.displayOffset, 0)
-	local spawn = at(HubConfig.spawnOffset, 0)
-	local facing = CFrame.lookAt(base, Vector3.new(spawn.X, base.Y, spawn.Z))
-	local lift = 2.6 -- the board's bottom edge above the floor
-	local boardCFrame = facing + Vector3.new(0, lift + boardSize.Y / 2, 0)
-	local board = part(folder, Vector3.new(boardSize.X, boardSize.Y, 0.8), boardCFrame, COLORS.displayBoard, Enum.Material.SmoothPlastic)
-	board.Name = name .. "Display"
+	-- The gate: two great pillars, double beams, a tiled roof with raised ends, dark doors with a
+	-- glowing portal in front, and a plaque.
+	local gate = HubConfig.gate
+	local c = gate.center
+	local half = gate.width / 2
 	for _, side in { -1, 1 } do
+		part(folder, Vector3.new(4, gate.height, 4), CFrame.new(at(c + Vector3.new(side * half, gate.height / 2, 0))), COLORS.torii, Enum.Material.Wood)
+		part(folder, Vector3.new(5.5, 2, 5.5), CFrame.new(at(c + Vector3.new(side * half, 1, 0))), COLORS.dark, Enum.Material.Slate)
 		part(
 			folder,
-			Vector3.new(0.9, lift + boardSize.Y + 0.4, 0.9),
-			facing * CFrame.new(side * (boardSize.X / 2 + 0.45), (lift + boardSize.Y + 0.4) / 2, 0),
-			COLORS.displayFrame,
+			Vector3.new(8, 1.4, 9),
+			CFrame.new(at(c + Vector3.new(side * (half + 6), gate.height + 3.6, 0))) * CFrame.Angles(0, 0, math.rad(side * 18)),
+			COLORS.dark,
 			Enum.Material.Slate
 		)
 	end
-	part(folder, Vector3.new(boardSize.X + 1.8, 0.5, 1.1), facing * CFrame.new(0, lift + boardSize.Y + 0.45, 0), config.color, Enum.Material.Neon)
+	part(folder, Vector3.new(gate.width + 8, 3, 5), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 0))), COLORS.dark, Enum.Material.Wood)
+	part(folder, Vector3.new(gate.width + 4, 2, 3.6), CFrame.new(at(c + Vector3.new(0, gate.height - 3, 0))), COLORS.torii, Enum.Material.Wood)
+	part(folder, Vector3.new(gate.width + 6, 1.4, 9), CFrame.new(at(c + Vector3.new(0, gate.height + 3.7, 0))), COLORS.dark, Enum.Material.Slate)
+	part(folder, Vector3.new(gate.width - 4, gate.height - 5, 1), CFrame.new(at(c + Vector3.new(0, (gate.height - 5) / 2, -1.5))), COLORS.dark, Enum.Material.Wood)
+	local portal = part(folder, Vector3.new(gate.width - 8, gate.height - 9, 0.3), CFrame.new(at(c + Vector3.new(0, (gate.height - 9) / 2 + 1, 2.6))), COLORS.portal, Enum.Material.Neon)
+	portal.Transparency = 0.55
+	ghost(portal)
+	light(portal, COLORS.portal, 26, 1.5)
+	local plaque = part(folder, Vector3.new(8, 2.6, 0.4), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 2.7))), COLORS.gold, Enum.Material.Metal)
+	label(surface(plaque, Enum.NormalId.Back, 40), "闘技場  ARENA", 0.12, 0.76, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
 
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Front -- the face toward the spawn
-	gui.LightInfluence = 0
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 40
-	gui.Parent = board
-	local stripe = Instance.new("Frame")
-	stripe.Size = UDim2.fromScale(1, 0.05)
-	stripe.BackgroundColor3 = config.color
-	stripe.BorderSizePixel = 0
-	stripe.Parent = gui
-	label(gui, config.title, 0.09, 0.32, config.color, Enum.Font.GothamBlack)
-	local divider = Instance.new("Frame")
-	divider.Position = UDim2.fromScale(0.15, 0.445)
-	divider.Size = UDim2.fromScale(0.7, 0.012)
-	divider.BackgroundColor3 = config.color
-	divider.BackgroundTransparency = 0.4
-	divider.BorderSizePixel = 0
-	divider.Parent = gui
-	local status = label(gui, "", 0.5, 0.2, Color3.new(1, 1, 1), Enum.Font.GothamBold)
-	label(gui, config.hint, 0.76, 0.17, Color3.fromRGB(200, 200, 215), Enum.Font.GothamMedium)
-
-	return { center = at(offset, top), radius = size / 2, top = FLOOR + top, status = status }
+	local status = display(folder, config.display, config.displayFacing, config.color, config.title, config.hint)
+	return {
+		kind = "circle",
+		center = at(origin, top),
+		radius = config.radius,
+		min = Vector3.zero,
+		max = Vector3.zero,
+		top = CENTER.Y + top,
+		status = status,
+		spots = spots,
+		color = config.color,
+	}
 end
 
--- Builds the whole hub into workspace.Hub and returns the two pads.
-function HubBuilder.build(): { play: Pad, practice: Pad }
+-- The training yard: a walled wooden courtyard whose floor is the Practice pad, with dummies.
+local function trainingYard(folder: Instance): Pad
+	local config = HubConfig.pads.practice
+	local yard = HubConfig.yard
+	local x, z = { config.x[1] - 1, config.x[2] + 1 }, { config.z[1] - 1, config.z[2] + 1 }
+	slab(folder, x, z, config.height, 3, COLORS.wood, Enum.Material.WoodPlanks)
+	rockUnderRect(folder, x, z, config.height - 3)
+	local height = yard.wallHeight
+	local wall = function(from: Vector3, to: Vector3)
+		local length = (to - from).Magnitude
+		local frame = CFrame.lookAt(at((from + to) / 2, height / 2), at(to, height / 2))
+		part(folder, Vector3.new(1.2, height, length + 1.2), frame, COLORS.spawnStone, Enum.Material.Plaster)
+		part(folder, Vector3.new(2.2, 0.8, length + 2.2), frame * CFrame.new(0, height / 2 + 0.3, 0), COLORS.dark, Enum.Material.Slate)
+	end
+	local y = config.height
+	local open = yard.openingHalfWidth
+	wall(Vector3.new(x[2], y, z[1]), Vector3.new(x[2], y, z[2]))
+	wall(Vector3.new(x[1], y, z[1]), Vector3.new(x[2], y, z[1]))
+	wall(Vector3.new(x[1], y, z[2]), Vector3.new(x[2], y, z[2]))
+	wall(Vector3.new(x[1], y, z[1]), Vector3.new(x[1], y, -open))
+	wall(Vector3.new(x[1], y, open), Vector3.new(x[1], y, z[2]))
+	-- A beam over the opening, with the yard's name.
+	local beam = part(folder, Vector3.new(1.6, 1.6, open * 2 + 3), CFrame.new(at(Vector3.new(x[1], y + height + 0.2, 0))), COLORS.torii, Enum.Material.Wood)
+	label(surface(beam, Enum.NormalId.Left, 40), "修行場  TRAINING YARD", 0.05, 0.9, COLORS.gold, Enum.Font.GothamBlack)
+
+	for _, position in yard.dummies do
+		local base = position + Vector3.new(0, y, 0)
+		local toward = Vector3.new(x[1], base.Y, base.Z)
+		local frame = facing(base, toward)
+		part(folder, Vector3.new(5, 0.5, 0.5), CFrame.new(at(base, 2.5)) * UPRIGHT, COLORS.wood, Enum.Material.Wood, Enum.PartType.Cylinder)
+		part(folder, Vector3.new(1.6, 2.6, 1.2), frame * CFrame.new(0, 4.4, 0), COLORS.blossom:Lerp(COLORS.wood, 0.7), Enum.Material.Fabric)
+		part(folder, Vector3.new(4, 0.4, 0.4), frame * CFrame.new(0, 5, 0), COLORS.wood, Enum.Material.Wood)
+		part(folder, Vector3.new(1.4, 1.4, 1.4), frame * CFrame.new(0, 6.5, 0), COLORS.spawnStone, Enum.Material.Fabric, Enum.PartType.Ball)
+	end
+
+	local status = display(folder, config.display, config.displayFacing, config.color, config.title, config.hint)
+	return {
+		kind = "rect",
+		center = Vector3.zero,
+		radius = 0,
+		min = at(Vector3.new(config.x[1], config.height, config.z[1])),
+		max = at(Vector3.new(config.x[2], config.height, config.z[2])),
+		top = CENTER.Y + config.height,
+		status = status,
+		spots = {},
+		color = config.color,
+	}
+end
+
+-- The item shrine: a pavilion with a pedestal per item, in an arc open toward the plaza.
+local function shrine(folder: Instance)
+	local config = HubConfig.shrine
+	local origin = config.center
+	disc(folder, origin + Vector3.new(0, 0.3, 0), config.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
+	rockUnderDisc(folder, origin, config.radius, -2.7, 2)
+	disc(folder, origin + Vector3.new(0, 0.9, 0), config.daisRadius * 2, 0.8, COLORS.plinth, Enum.Material.Marble)
+	local roofHeight = 9.5
+	for i = 0, 7 do
+		local pillar = around(origin, i * 45 + 22.5, config.daisRadius - 1.2)
+		part(folder, Vector3.new(roofHeight - 0.9, 1, 1), CFrame.new(at(pillar, 0.9 + (roofHeight - 0.9) / 2)) * UPRIGHT, COLORS.torii, Enum.Material.Wood, Enum.PartType.Cylinder)
+	end
+	for tier, size in { { 32, roofHeight + 0.5 }, { 20, roofHeight + 2.5 } } do
+		for _, turn in { 0, 45 } do
+			part(folder, Vector3.new(size[1], 1.2, size[1]), CFrame.new(at(origin, size[2])) * CFrame.Angles(0, math.rad(turn), 0), if tier == 1 then COLORS.dark else COLORS.torii, Enum.Material.Slate)
+		end
+	end
+	part(folder, Vector3.new(1.6, 1.6, 1.6), CFrame.new(at(origin, roofHeight + 4)), COLORS.gold, Enum.Material.Metal, Enum.PartType.Ball)
+	local hanging = part(folder, Vector3.new(1.4, 1.8, 1.4), CFrame.new(at(origin, roofHeight - 2)), COLORS.lanternLight, Enum.Material.Neon)
+	ghost(hanging)
+	light(hanging, COLORS.lanternLight, 20, 1.2)
+
+	local ids = {}
+	for itemId in ItemConfig.items do
+		table.insert(ids, itemId)
+	end
+	local order = { [ItemConfig.Category.Offensive] = 1, [ItemConfig.Category.Ability] = 2, [ItemConfig.Category.Defensive] = 3 }
+	table.sort(ids, function(a, b)
+		local categoryA, categoryB = order[ItemConfig.items[a].category], order[ItemConfig.items[b].category]
+		if categoryA ~= categoryB then
+			return categoryA < categoryB
+		end
+		return ItemSkinConfig.items[a].name < ItemSkinConfig.items[b].name
+	end)
+	local pedestals = Instance.new("Folder")
+	pedestals.Name = "Shrine"
+	local first, last = config.arc[1], config.arc[2]
+	for index, itemId in ids do
+		local angle = first + (last - first) * (index - 1) / math.max(#ids - 1, 1)
+		local position = around(origin, angle, config.pedestalRadius) + Vector3.new(0, 0.9, 0)
+		local frame = facing(position, origin)
+		local pedestal = part(pedestals, Vector3.new(1.8, 2.6, 1.8), frame * CFrame.new(0, 1.3, 0), COLORS.plinth, Enum.Material.Marble)
+		pedestal.Name = itemId
+		pedestal:SetAttribute("ItemId", itemId)
+	end
+	pedestals.Parent = folder
+end
+
+-- The hall of fame: leaderboard boards and a podium on the terrace's wing. Returns the boards.
+local function hallOfFame(folder: Instance): { [string]: Board }
+	local config = HubConfig.hall
+	local boards = {}
+	for _, entry in config.boards do
+		local frame = facing(entry.position, config.facing)
+		local board = part(folder, Vector3.new(10, 11, 0.8), frame * CFrame.new(0, 6.5, 0), COLORS.displayBoard)
+		part(folder, Vector3.new(11.4, 0.6, 1.2), frame * CFrame.new(0, 12.3, 0), COLORS.gold, Enum.Material.Metal)
+		local gui = surface(board, Enum.NormalId.Front, 40)
+		label(gui, entry.title, 0.03, 0.12, COLORS.gold, Enum.Font.GothamBlack)
+		local list = Instance.new("Frame")
+		list.Name = "Rows"
+		list.BackgroundTransparency = 1
+		list.Position = UDim2.fromScale(0.06, 0.2)
+		list.Size = UDim2.fromScale(0.88, 0.76)
+		local layout = Instance.new("UIListLayout")
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0.01, 0)
+		layout.Parent = list
+		list.Parent = gui
+		local placeholder = label(gui, config.placeholder, 0.45, 0.12, Color3.fromRGB(200, 200, 215), Enum.Font.GothamMedium)
+		boards[entry.id] = { list = list, placeholder = placeholder }
+	end
+	-- A podium: 2nd, 1st, 3rd.
+	local podium = config.podium
+	local frame = facing(podium, config.facing)
+	for index, step in { { -4.2, 2, "2" }, { 0, 3, "1" }, { 4.2, 1.4, "3" } } do
+		local block = part(folder, Vector3.new(4, step[2], 4), frame * CFrame.new(step[1], step[2] / 2, 0), if index == 2 then COLORS.gold else COLORS.plinth, Enum.Material.Marble)
+		label(surface(block, Enum.NormalId.Front, 30), step[3], 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
+	end
+	return boards
+end
+
+-- The lookout, the garden, the hidden islet and the stepping stones between them.
+local function outerIslands(folder: Instance)
+	local islands = HubConfig.islands
+	local lookout, garden, hidden = islands.lookout, islands.garden, islands.hidden
+	disc(folder, lookout.center, lookout.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
+	rockUnderDisc(folder, lookout.center, lookout.radius, lookout.center.Y - 3)
+	ringCurb(folder, lookout.center, lookout.radius, { 270, 73 })
+	-- A telescope on a stand and a bench, looking out over the clouds.
+	local scope = lookout.center + Vector3.new(6, 0, -6)
+	part(folder, Vector3.new(3, 0.5, 0.5), CFrame.new(at(scope, 1.5)) * UPRIGHT, COLORS.dark, Enum.Material.Metal, Enum.PartType.Cylinder)
+	part(folder, Vector3.new(3.2, 0.6, 0.6), CFrame.new(at(scope, 3.2)) * CFrame.Angles(0, math.rad(-45), math.rad(20)), COLORS.gold, Enum.Material.Metal, Enum.PartType.Cylinder)
+	part(folder, Vector3.new(5, 0.6, 1.6), CFrame.new(at(lookout.center + Vector3.new(-4, 0, 6), 1)) * CFrame.Angles(0, math.rad(30), 0), COLORS.wood, Enum.Material.WoodPlanks)
+
+	disc(folder, garden.center, garden.radius * 2, 3, COLORS.grass, Enum.Material.Grass)
+	rockUnderDisc(folder, garden.center, garden.radius, garden.center.Y - 3)
+	ringCurb(folder, garden.center, garden.radius, { 67 })
+	lantern(folder, garden.center + Vector3.new(4, 0, -4))
+
+	disc(folder, hidden.center, hidden.radius * 2, 2, COLORS.grass, Enum.Material.Grass)
+	rockUnderDisc(folder, hidden.center, hidden.radius, hidden.center.Y - 2, 2)
+	-- The hidden spot's reward: a small glowing shrine with a note.
+	local chest = part(folder, Vector3.new(2.4, 1.6, 1.6), CFrame.new(at(hidden.center, 0.8)), COLORS.torii, Enum.Material.Wood)
+	part(folder, Vector3.new(2.6, 0.4, 1.8), CFrame.new(at(hidden.center, 1.8)), COLORS.gold, Enum.Material.Metal)
+	local orb = part(folder, Vector3.one * 1.2, CFrame.new(at(hidden.center, 3)), COLORS.spawnGlow, Enum.Material.Neon, Enum.PartType.Ball)
+	ghost(orb)
+	light(orb, COLORS.spawnGlow, 14, 2)
+	local note = surface(chest, Enum.NormalId.Back, 60) -- +Z: toward the last stepping stone
+	label(note, "Hidden shrine found!", 0.1, 0.8, COLORS.gold, Enum.Font.GothamBlack)
+
+	for _, stone in HubConfig.stones do
+		disc(folder, stone, HubConfig.stoneRadius * 2, 1.4, COLORS.rock, Enum.Material.Slate)
+	end
+	for _, link in HubConfig.bridges do
+		bridge(folder, link.from, link.to)
+	end
+end
+
+-- A stream from a pond off the +X edge, falling into the clouds.
+local function waterfall(folder: Instance)
+	local config = HubConfig.waterfall
+	local pond = config.pond
+	local edgeX = HubConfig.spine.x[2]
+	local water = disc(folder, pond + Vector3.new(0, 0.12, 0), 10, 0.3, COLORS.water, Enum.Material.Glass)
+	water.Transparency = 0.2
+	local stream = part(folder, Vector3.new(edgeX - pond.X + 1.5, 0.3, config.width * 0.6), CFrame.new(at(Vector3.new((pond.X + edgeX) / 2 + 0.7, 0.1, pond.Z))), COLORS.water, Enum.Material.Glass)
+	stream.Transparency = 0.2
+	local sheet = part(folder, Vector3.new(0.8, config.drop, config.width), CFrame.new(at(Vector3.new(edgeX + 1.2, 0.1 - config.drop / 2, pond.Z))), COLORS.water, Enum.Material.Glass)
+	sheet.Transparency = 0.35
+	ghost(sheet)
+	local spray = Instance.new("ParticleEmitter")
+	spray.Color = ColorSequence.new(Color3.fromRGB(235, 245, 255))
+	spray.Size = NumberSequence.new(1.2, 2.4)
+	spray.Transparency = NumberSequence.new(0.4, 1)
+	spray.Rate = 30
+	spray.Lifetime = NumberRange.new(1.5, 2.2)
+	spray.Speed = NumberRange.new(4, 8)
+	spray.EmissionDirection = Enum.NormalId.Bottom
+	spray.Acceleration = Vector3.new(0, -20, 0)
+	spray.Parent = sheet
+	local mist = ghost(part(folder, Vector3.new(8, 1, 8), CFrame.new(at(Vector3.new(edgeX + 1.2, HubConfig.clouds.seaHeight + 1, pond.Z))), COLORS.cloud))
+	mist.Transparency = 1
+	local puff = Instance.new("ParticleEmitter")
+	puff.Color = ColorSequence.new(Color3.new(1, 1, 1))
+	puff.Size = NumberSequence.new(4, 9)
+	puff.Transparency = NumberSequence.new(0.5, 1)
+	puff.Rate = 4
+	puff.Lifetime = NumberRange.new(3, 4)
+	puff.Speed = NumberRange.new(1, 2)
+	puff.EmissionDirection = Enum.NormalId.Top
+	puff.Parent = mist
+end
+
+-- The invisible box around everything. Fully transparent, so the camera ignores it.
+local function boundary(folder: Instance)
+	local bounds = HubConfig.bounds
+	local barrier = Instance.new("Folder")
+	barrier.Name = "Barrier"
+	local bottom = HubConfig.fallHeight - 30
+	local height = bounds.top - bottom
+	local midY = (bounds.top + bottom) / 2
+	local spanX, spanZ = bounds.x[2] - bounds.x[1], bounds.z[2] - bounds.z[1]
+	local midX, midZ = (bounds.x[1] + bounds.x[2]) / 2, (bounds.z[1] + bounds.z[2]) / 2
+	local walls = {
+		{ Vector3.new(2, height, spanZ + 4), Vector3.new(bounds.x[1] - 1, midY, midZ) },
+		{ Vector3.new(2, height, spanZ + 4), Vector3.new(bounds.x[2] + 1, midY, midZ) },
+		{ Vector3.new(spanX + 4, height, 2), Vector3.new(midX, midY, bounds.z[1] - 1) },
+		{ Vector3.new(spanX + 4, height, 2), Vector3.new(midX, midY, bounds.z[2] + 1) },
+		{ Vector3.new(spanX + 4, 2, spanZ + 4), Vector3.new(midX, bounds.top + 1, midZ) },
+	}
+	for _, wall in walls do
+		local instance = part(barrier, wall[1], CFrame.new(at(wall[2])), COLORS.curb)
+		instance.Transparency = 1
+		instance.CastShadow = false
+		instance.CanTouch = false
+	end
+	barrier.Parent = folder
+end
+
+-- Builds the whole hub into workspace.Hub. Returns the two pads and the leaderboard boards.
+function HubBuilder.build(): ({ play: Pad, practice: Pad }, { [string]: Board })
+	partCount = 0
 	local folder = Instance.new("Folder")
 	folder.Name = "Hub"
-	island(folder)
+	mainIsland(folder)
+	edges(folder)
+	arrival(folder)
+	plaza(folder)
+	gallery(folder)
+	local play = arenaGate(folder)
+	local practice = trainingYard(folder)
+	shrine(folder)
+	local boards = hallOfFame(folder)
+	outerIslands(folder)
+	waterfall(folder)
+	for _, position in HubConfig.lanterns do
+		lantern(folder, position)
+	end
+	for _, position in HubConfig.trees do
+		tree(folder, position)
+	end
 	boundary(folder)
-	spawnMarker(folder)
-	torii(folder)
-	lanterns(folder)
-	banners(folder)
-	trees(folder)
-	centerpiece(folder)
-	local padConfigs = HubConfig.pads
-	path(folder, padConfigs.play.offset)
-	path(folder, padConfigs.practice.offset)
-	local pads = {
-		play = pad(folder, "Play", padConfigs.play),
-		practice = pad(folder, "Practice", padConfigs.practice),
-	}
 	folder.Parent = workspace
-	return pads
+	print(string.format("[HubBuilder] Hub built: %d parts", partCount))
+	return { play = play, practice = practice }, boards
 end
 
--- The hub's spawn point (for sending players back), a little above the marker.
+-- Fills a leaderboard with rows ({ name, value }), best first, up to HubConfig.hall.rowsShown; with
+-- no rows the placeholder shows.
+function HubBuilder.setLeaderboard(board: Board, rows: { { name: string, value: string } })
+	for _, child in board.list:GetChildren() do
+		if child:IsA("TextLabel") then
+			child:Destroy()
+		end
+	end
+	board.placeholder.Visible = #rows == 0
+	for index = 1, math.min(#rows, HubConfig.hall.rowsShown) do
+		local row = rows[index]
+		local line = Instance.new("TextLabel")
+		line.LayoutOrder = index
+		line.BackgroundTransparency = 1
+		line.Size = UDim2.fromScale(1, 0.11)
+		line.Text = string.format("%d.  %s   %s", index, row.name, row.value)
+		line.TextColor3 = if index == 1 then COLORS.gold else Color3.new(1, 1, 1)
+		line.TextScaled = true
+		line.TextXAlignment = Enum.TextXAlignment.Left
+		line.Font = Enum.Font.GothamBold
+		line.Parent = board.list
+	end
+end
+
+-- Where players are sent back to: just above the spawn marker.
 function HubBuilder.spawnPosition(): Vector3
-	return at(HubConfig.spawnOffset, 3)
+	return at(HubConfig.spawn, 3)
 end
 
--- True if `position` is under the island's floor by more than HubConfig.fallDepth, or outside the
--- island: the player fell or slipped out.
+-- True if `position` is below the hub's fall height or outside its bounds.
 function HubBuilder.isOutside(position: Vector3): boolean
-	local flat = Vector3.new(position.X - CENTER.X, 0, position.Z - CENTER.Z)
-	return position.Y < FLOOR - HubConfig.fallDepth or flat.Magnitude > HubConfig.islandRadius + HubConfig.outsideMargin
+	local relative = position - CENTER
+	local bounds = HubConfig.bounds
+	return relative.Y < HubConfig.fallHeight
+		or relative.X < bounds.x[1]
+		or relative.X > bounds.x[2]
+		or relative.Z < bounds.z[1]
+		or relative.Z > bounds.z[2]
 end
 
 return HubBuilder

@@ -35,6 +35,7 @@ local QUEUE = HubConfig.queue
 
 local hubState: Folder
 local pads: { play: HubBuilder.Pad, practice: HubBuilder.Pad }
+local leaderboards: { [string]: HubBuilder.Board } = {}
 local inMatch: { [number]: boolean } = {} -- UserIds whose avatar belongs to the running match
 local queuedSince: { [number]: number } = {} -- UserId -> os.clock() when they stepped on the pad
 local countdownEndsAt: number? = nil -- server time
@@ -53,9 +54,30 @@ local function isOnPad(player: Player, which: HubBuilder.Pad): boolean
 		return false
 	end
 	local position = root.Position
-	local flat = Vector3.new(position.X - which.center.X, 0, position.Z - which.center.Z)
 	local height = position.Y - which.top
-	return flat.Magnitude <= which.radius and height >= 0 and height <= HubConfig.standHeight
+	if height < 0 or height > HubConfig.standHeight then
+		return false
+	end
+	if which.kind == "rect" then
+		return position.X >= which.min.X
+			and position.X <= which.max.X
+			and position.Z >= which.min.Z
+			and position.Z <= which.max.Z
+	end
+	local flat = Vector3.new(position.X - which.center.X, 0, position.Z - which.center.Z)
+	return flat.Magnitude <= which.radius
+end
+
+-- Lights the first `count` marked spots of a pad, one per queued player.
+local function lightSpots(which: HubBuilder.Pad, count: number)
+	for index, spot in which.spots do
+		local lit = index <= count
+		local color = if lit then which.color else HubConfig.colors.spotOff
+		if spot.Color ~= color then
+			spot.Color = color
+			spot.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		end
+	end
 end
 
 -- Anchors the avatar out of sight for the match.
@@ -144,6 +166,7 @@ local function poll()
 		hubState:SetAttribute("StartsAt", 0)
 		setStatus(pads.play, "MATCH IN PROGRESS")
 		setStatus(pads.practice, "MATCH IN PROGRESS")
+		lightSpots(pads.play, 0)
 		return
 	end
 
@@ -191,6 +214,7 @@ local function poll()
 
 	hubState:SetAttribute("Queued", #queued)
 	hubState:SetAttribute("StartsAt", countdownEndsAt or 0)
+	lightSpots(pads.play, #queued)
 	local count = string.format("%d/%d queued", #queued, QUEUE.playersToStartAtOnce)
 	if countdownEndsAt then
 		setStatus(pads.play, string.format("%s  ·  starts in %d", count, math.max(0, math.ceil(countdownEndsAt - now))))
@@ -198,7 +222,17 @@ local function poll()
 		local missing = QUEUE.playersToStartCountdown - #queued
 		setStatus(pads.play, string.format("%s  ·  need %d more", count, missing))
 	end
-	setStatus(pads.practice, "Ready  ·  starts at once")
+	setStatus(pads.practice, "Ready  ·  starts as you enter")
+end
+
+-- Shows a hall of fame leaderboard (HubConfig.hall.boards id): rows of { name, value }, best first.
+-- Nothing calls this yet (player stats are not saved), so every board shows its placeholder; a
+-- stats service can call it whenever its numbers change.
+function HubService.setLeaderboard(boardId: string, rows: { { name: string, value: string } })
+	local board = leaderboards[boardId]
+	if board then
+		HubBuilder.setLeaderboard(board, rows)
+	end
 end
 
 function HubService.start()
@@ -207,7 +241,7 @@ function HubService.start()
 	hubState:SetAttribute("Queued", 0)
 	hubState:SetAttribute("StartsAt", 0)
 	hubState.Parent = ReplicatedStorage
-	pads = HubBuilder.build()
+	pads, leaderboards = HubBuilder.build()
 
 	local function onPlayer(player: Player)
 		-- A participant who rejoins the running match goes straight back to it.
