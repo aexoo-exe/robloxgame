@@ -98,3 +98,6 @@ ability damage, defensive items on front-line units with the most health; reroll
 items on their targets first. The report shows pick rate per item, placement by item held, items
 per player by round, fight length by equipped items, each item's damage, healing and shielding,
 boss damage with items, and Runaway Clock on Marksman units.
+It also compares each item like for like: units holding it against the same character at the same
+star level without it (damage dealt with summons, healing given, seconds alive), as a percentage.
+The 2-cost rerolling bot chases two targets at once, like the 1-cost one.

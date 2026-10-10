@@ -50,6 +50,20 @@ local itemsByRound = {} -- round -> { items, players }
 local fightsByItems = {} -- bucket name -> { fights, seconds }
 local bossByItems = {} -- bucket name -> { boards, damage }
 local clockMarksmen = { with = { units = 0, damage = 0 }, without = { units = 0, damage = 0 } }
+-- Like-for-like item comparison (PvP fights): per character and star level ("unitType#star"), the
+-- totals of every unit (`allUnits`) and of the units holding each item (`withItem[item]`): count,
+-- damage dealt (its summons' included), healing given and seconds alive.
+local allUnits = {}
+local withItem = {}
+
+local function addOutcome(totals, key: string, damage: number, heal: number, alive: number)
+	local entry = totals[key] or { units = 0, damage = 0, heal = 0, alive = 0 }
+	entry.units += 1
+	entry.damage += damage
+	entry.heal += heal
+	entry.alive += alive
+	totals[key] = entry
+end
 local allDamage = 0
 
 -- Buckets of equipped item counts.
@@ -120,10 +134,23 @@ local function recordItemFight(result, sides)
 	fightsByItems[bucket] = entry
 
 	local dealt = {}
+	local credited = {} -- damage per board unit, its summons' included
+	local healed = {}
+	local deathTick = {}
+	local summonerOf = {}
 	for _, event in result.events do
+		if event.kind == "Summon" then
+			summonerOf[event.summon] = summonerOf[event.unit] or event.unit
+		elseif event.kind == "Death" then
+			deathTick[event.unit] = event.tick
+		elseif event.kind == "Heal" then
+			healed[event.unit] = (healed[event.unit] or 0) + event.amount
+		end
 		if event.kind == "Attack" or event.kind == "Damage" then
 			allDamage += event.damage
 			dealt[event.unit] = (dealt[event.unit] or 0) + event.damage
+			local owner = summonerOf[event.unit] or event.unit
+			credited[owner] = (credited[owner] or 0) + event.damage
 		end
 		local stats = event.item and itemStats[event.item]
 		if stats then
@@ -137,6 +164,16 @@ local function recordItemFight(result, sides)
 		end
 	end
 	for _, unit in result.units do
+		if UnitConfig[unit.unitType] then
+			local key = unit.unitType .. "#" .. unit.starLevel
+			local damage, heal = credited[unit.index] or 0, healed[unit.index] or 0
+			local alive = (deathTick[unit.index] or result.endTick) / result.ticksPerSecond
+			addOutcome(allUnits, key, damage, heal, alive)
+			for _, itemId in unit.items or {} do
+				withItem[itemId] = withItem[itemId] or {}
+				addOutcome(withItem[itemId], key, damage, heal, alive)
+			end
+		end
 		if table.find(UnitConfig[unit.unitType] and UnitConfig[unit.unitType].classes or {}, "Marksman") then
 			local group = if table.find(unit.items or {}, "runaway_clock")
 				then clockMarksmen.with
@@ -1407,6 +1444,42 @@ for _, bucket in ITEM_BUCKETS do
 end
 print("PvP fight length by equipped items (both boards): " .. table.concat(lengthParts, ", "))
 print("Boss calibration damage per board by equipped items: " .. table.concat(bossParts, ", "))
+-- Like-for-like: each item's holders against the same character at the same star level without
+-- it. Per character and star, the holders' average over the non-holders' average, minus 1; the
+-- results are averaged over every holder (weighted by holders). A unit with several items counts
+-- for each of them.
+print("Items like for like (PvP fights): holders vs the same character and star level without the item")
+print("  damage dealt (summons included), healing given, seconds alive; difference in percent [holders]")
+local function likeForLike(itemId: string)
+	local sums = { damage = 0, heal = 0, alive = 0 }
+	local weights = { damage = 0, heal = 0, alive = 0 }
+	local holders = 0
+	for key, held in withItem[itemId] or {} do
+		local all = allUnits[key]
+		local others = all.units - held.units
+		if others > 0 then
+			holders += held.units
+			for _, metric in { "damage", "heal", "alive" } do
+				local without = (all[metric] - held[metric]) / others
+				if without > 0 then
+					sums[metric] += held.units * ((held[metric] / held.units) / without - 1)
+					weights[metric] += held.units
+				end
+			end
+		end
+	end
+	local function shownMetric(metric: string): string
+		if weights[metric] == 0 then
+			return "-"
+		end
+		return string.format("%+.1f%%", sums[metric] / weights[metric] * 100)
+	end
+	return shownMetric("damage"), shownMetric("heal"), shownMetric("alive"), holders
+end
+for _, id in Items.ids() do
+	local damage, heal, alive, holders = likeForLike(id)
+	print(string.format("  %-20s damage %8s, healing %8s, survival %8s  [%d]", id, damage, heal, alive, holders))
+end
 print(
 	string.format(
 		"Marksman units, damage per fight: with runaway_clock %.0f (%d), without %.0f (%d)",

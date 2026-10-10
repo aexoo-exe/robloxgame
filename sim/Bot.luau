@@ -20,7 +20,8 @@
 --     copies left in the pool and its own shop: at least 9). They are ranked by the share of the
 --     copies left that they still need ((9 - held) / left, lowest first, so units with more copies
 --     left are preferred), then by copies held, then by name. It wants `targetCount` 3-stars (two
---     for 1- and 2-cost, one for 3-cost), chasing up to `targetsAtOnce` at a time (2-cost: one).
+--     for 1- and 2-cost, one for 3-cost), chasing them all at once (a policy can limit that with
+--     `targetsAtOnce`).
 --   * Below the roll level the targets are re-picked every time. From the roll level on they are
 --     locked: a target is only dropped when it reaches 3 stars or can no longer reach it.
 --   * Rolling (at the roll level with a target left): no XP, keeps `rollFloor` gold (50, full
@@ -118,7 +119,6 @@ Bot.rerollPolicies = {
 		seeksCopies = true,
 		rerollCost = 2,
 		targetCount = 2,
-		targetsAtOnce = 1,
 	},
 	{ name = "reroll 3c", keepGold = 50, rollFloor = 50, seeksCopies = true, rerollCost = 3, targetCount = 1 },
 }
