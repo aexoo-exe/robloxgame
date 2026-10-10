@@ -6,6 +6,9 @@ return table.freeze({
 	preparationDuration = 30,
 	combatMaxDuration = 50,
 	resultsDuration = 5,
+	-- The match intro before round 1 (Phase.Intro): the starting unit is shown on the board with a
+	-- countdown; round 1's creep fight starts when it ends.
+	introDuration = 8,
 
 	-- Most players in one match.
 	maxPlayers = 8,

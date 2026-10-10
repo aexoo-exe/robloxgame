@@ -1,5 +1,5 @@
 -- Server-authoritative match loop:
---   Waiting -> rounds of Preparation -> Combat -> Results -> MatchOver -> Waiting
+--   Waiting -> Intro -> rounds of Preparation -> Combat -> Results -> MatchOver -> Waiting
 -- One match runs at a time. HubService starts it (RoundService.startMatch) with the players who
 -- queued on the hub's Play pad, or one player from the Practice pad; everyone else stays in the
 -- hub until it ends. A single participant plays a practice match against the scripted enemy
@@ -193,6 +193,10 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	matchState:SetAttribute("Stage", 1)
 	PlayerService.startMatch(participants)
 	print(string.format("[RoundService] Match started with %d player(s)", #participants))
+
+	-- The intro: starting units are already on the boards; round 1 starts when it ends.
+	setPhase(Phase.Intro, MatchConfig.introDuration)
+	task.wait(MatchConfig.introDuration)
 
 	while not match.finished do
 		playRound(match, names)

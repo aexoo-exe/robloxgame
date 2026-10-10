@@ -67,6 +67,25 @@ local upgradeCallbacks: { (any) -> () } = {}
 local dragCallbacks: { (string?, boolean) -> () } = {}
 local sellZone: GuiObject? = nil
 local overSellZone = false
+local spotlit: { [string]: boolean } = {} -- unit ids drawn with an outline (BoardController.setSpotlight)
+local SPOTLIGHT_COLOR = Color3.fromRGB(255, 220, 90)
+
+-- Outlines a unit's view while its id is spotlit.
+local function applySpotlight(unitId: string, view: UnitView.UnitView)
+	local existing = view.part:FindFirstChild("Spotlight")
+	if spotlit[unitId] and not existing then
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "Spotlight"
+		highlight.Adornee = view.part
+		highlight.FillColor = SPOTLIGHT_COLOR
+		highlight.FillTransparency = 0.6
+		highlight.OutlineColor = SPOTLIGHT_COLOR
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = view.part
+	elseif not spotlit[unitId] and existing then
+		existing:Destroy()
+	end
+end
 
 -- A press on a unit: it becomes a drag once the pointer moves far enough, otherwise a click.
 local press: { unitId: string, start: Vector2, input: InputObject }? = nil
@@ -213,7 +232,7 @@ local function render()
 	-- The combat playback owns the field during Combat and Results; only the bench shows then.
 	local phase = currentPhase()
 	local locked = isLocked()
-	if phase ~= Phase.Waiting and phase ~= Phase.Preparation and not locked then
+	if phase ~= Phase.Waiting and phase ~= Phase.Intro and phase ~= Phase.Preparation and not locked then
 		return
 	end
 
@@ -244,6 +263,18 @@ local function render()
 		view.part:SetAttribute("UnitType", unit.unitType)
 		view.part:SetAttribute("StarLevel", unit.starLevel)
 		views[unit.id] = view
+		applySpotlight(unit.id, view)
+	end
+end
+
+-- Outlines these units on the board (the match intro's starting unit); an empty table clears it.
+function BoardController.setSpotlight(unitIds: { string })
+	table.clear(spotlit)
+	for _, unitId in unitIds do
+		spotlit[unitId] = true
+	end
+	for unitId, view in views do
+		applySpotlight(unitId, view)
 	end
 end
 

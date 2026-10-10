@@ -479,7 +479,7 @@ function CombatPlayback.start()
 	-- Survivors stay on the field through Results; clear them when the next round's board appears.
 	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
 		local phase = matchState:GetAttribute("Phase")
-		if phase == Phase.Preparation or phase == Phase.Waiting then
+		if phase == Phase.Preparation or phase == Phase.Waiting or phase == Phase.Intro then
 			clear()
 		end
 	end)
