@@ -1,7 +1,8 @@
 -- A unit on the field or bench: a figure (Figure: a placeholder humanoid with its class prop and a
 -- cost ring, or a finished model) and, just above its head, a compact overhead display narrower
--- than a tile (RenderConfig.overhead): star pips, a horse bar for mounted riders, a health bar (any
--- shield shows as a white segment after the health) and a thin mana bar. Nothing else floats above
+-- than a tile (RenderConfig.overhead): star pips, a horse bar for mounted riders, a row of equipped
+-- item icons (UnitView.itemAtScreen finds the one under the pointer), a health bar (any shield
+-- shows as a white segment after the health) and a thin mana bar. Nothing else floats above
 -- a unit; names and traits are in the unit info panel and the hover tooltip. Higher-star units are
 -- drawn larger (RenderConfig.starSizeScale). Presentation only.
 -- Callers pass the body color and the figure look (CharacterLook). The unit's `part` is an
@@ -21,13 +22,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
-local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
-local ItemSkinConfig = require(Shared:WaitForChild("ItemSkinConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local Figure = require(script.Parent.Figure)
+local ItemIcon = require(script.Parent.ItemIcon)
 
 local UnitView = {}
+
+-- An equipped item's icon over a unit: its center in studs from the overhead display's center.
+type ItemSlot = { itemId: string, x: number, y: number }
+
+-- Live views that show item icons, for UnitView.itemAtScreen (removed on destroy).
+local withItems: { [any]: boolean } = {}
 
 -- Pixel layout of the floating text board, which is centered on the unit's chest. Numbers start
 -- beside the body; callouts start above the head.
@@ -106,6 +112,7 @@ export type UnitView = {
 	boardHeight: number, -- the overhead display's height in studs
 	formScale: number, -- the current form's size multiplier (RenderConfig.formLooks `scale`)
 	vanishUntil: number, -- see-through while untargetable (Vanish events)
+	itemSlots: { ItemSlot }, -- equipped item icons over the health bar
 }
 
 export type Options = {
@@ -122,7 +129,7 @@ export type Options = {
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
 	starPips: boolean?, -- show star pips (default true; creeps, bosses and summons pass false)
 	clock: (() -> number)?, -- time source for every animation (default os.clock)
-	items: { string }?, -- equipped item ids: a row of small item pips over the health bar
+	items: { string }?, -- equipped item ids: a row of item icons over the health bar
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -156,33 +163,25 @@ local function bar(parent: Instance, top: number, height: number): Frame
 	return frame
 end
 
--- Item pips: one small square per equipped item in its category's color, left-aligned (just over
--- the left end of the health bar).
-local function itemPips(parent: Instance, items: { string }, height: number)
-	local row = Instance.new("Frame")
-	row.Size = UDim2.fromScale(1, height)
-	row.BackgroundTransparency = 1
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.Padding = UDim.new(0.03, 0)
-	layout.Parent = row
-	for _, itemId in items do
-		local entry = ItemConfig.items[itemId]
-		local rgb = entry and ItemSkinConfig.categoryColors[entry.category] or { 150, 150, 150 }
-		local pip = Instance.new("Frame")
-		pip.Size = UDim2.fromScale(0.85, 0.85)
-		pip.SizeConstraint = Enum.SizeConstraint.RelativeYY
-		pip.BackgroundColor3 = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
-		pip.BorderSizePixel = 0
-		pip.Parent = row
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = OVERHEAD.barBackground
-		stroke.Thickness = 1
-		stroke.Parent = pip
+-- Equipped item icons (ItemIcon), centered in a row over the health bar. Returns each icon's center
+-- in studs from the overhead display's center (x right, y up; `rowTop` is the row's top, in studs
+-- below the display's top edge), for hit-testing hovers and taps (UnitView.itemAtScreen).
+local function itemIcons(parent: Instance, items: { string }, rowTop: number, boardHeight: number): { ItemSlot }
+	local size, gap = OVERHEAD.itemIconHeight, OVERHEAD.itemIconGap
+	local total = #items * size + (#items - 1) * gap
+	local slots = {}
+	for index, itemId in items do
+		local left = (OVERHEAD.width - total) / 2 + (index - 1) * (size + gap)
+		local icon = ItemIcon.new(itemId, 12, parent)
+		icon.Position = UDim2.fromScale(left / OVERHEAD.width, rowTop / boardHeight)
+		icon.Size = UDim2.fromScale(size / OVERHEAD.width, size / boardHeight)
+		table.insert(slots, {
+			itemId = itemId,
+			x = left + size / 2 - OVERHEAD.width / 2,
+			y = boardHeight / 2 - (rowTop + size / 2),
+		})
 	end
-	row.Parent = parent
+	return slots
 end
 
 -- Star pips: one small diamond per star, centered, in the star level's color.
@@ -284,7 +283,7 @@ function UnitView.new(
 		table.insert(rows, { kind = "form", height = OVERHEAD.formBarHeight })
 	end
 	if options.items and #options.items > 0 then
-		table.insert(rows, { kind = "items", height = OVERHEAD.itemPipHeight })
+		table.insert(rows, { kind = "items", height = OVERHEAD.itemIconHeight })
 	end
 	table.insert(rows, { kind = "health", height = OVERHEAD.healthBarHeight })
 	table.insert(rows, { kind = "mana", height = OVERHEAD.manaBarHeight })
@@ -300,18 +299,14 @@ function UnitView.new(
 	infoBoard.Parent = part
 
 	local formBar, formFill, healthFill, shieldFill, manaFill = nil, nil, nil, nil, nil
+	local itemSlots: { ItemSlot } = {}
 	local top = 0
 	for _, row in rows do
 		local height = row.height / boardHeight
 		if row.kind == "pips" then
 			starPips(infoBoard, starLevel, height)
 		elseif row.kind == "items" then
-			local holder = Instance.new("Frame")
-			holder.Position = UDim2.fromScale(0, top)
-			holder.Size = UDim2.fromScale(1, height)
-			holder.BackgroundTransparency = 1
-			holder.Parent = infoBoard
-			itemPips(holder, options.items :: { string }, 1)
+			itemSlots = itemIcons(infoBoard, options.items :: { string }, top * boardHeight, boardHeight)
 		elseif row.kind == "form" then
 			formBar = bar(infoBoard, top, height)
 			formFill = fill(formBar :: Frame, RenderConfig.formHealthColor)
@@ -402,7 +397,11 @@ function UnitView.new(
 		boardHeight = boardHeight,
 		formScale = 1,
 		vanishUntil = 0,
+		itemSlots = itemSlots,
 	}
+	if #itemSlots > 0 then
+		withItems[view] = true
+	end
 	UnitView.setMana(view, options.mana or 0)
 	if options.formLook or options.maxFormHealth then
 		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth)
@@ -967,8 +966,46 @@ function UnitView.setSelected(view: UnitView, selected: boolean)
 end
 
 function UnitView.destroy(view: UnitView)
+	withItems[view] = nil
 	view.part:Destroy()
 	table.clear(view.floaters)
+end
+
+-- The equipped item whose overhead icon is under a screen position (GUI coordinates, like
+-- InputObject.Position), among every shown unit; nil if none. Also returns the icon's screen
+-- center. Board, bench and combat units all count.
+function UnitView.itemAtScreen(screenPosition: Vector2): (string?, Vector2?)
+	local camera = workspace.CurrentCamera
+	local right, up = camera.CFrame.RightVector, camera.CFrame.UpVector
+	local half = OVERHEAD.itemIconHeight / 2
+	for view in withItems do
+		local part = view.part
+		if not part:IsDescendantOf(workspace) then
+			if not part.Parent then
+				withItems[view] = nil
+			end
+			continue
+		end
+		if not view.infoBoard.Enabled then
+			continue
+		end
+		-- The display is centered StudsOffset (camera space) above the unit and faces the camera.
+		local center = part.Position + up * view.infoBoard.StudsOffset.Y
+		for _, slot in view.itemSlots do
+			local world = center + right * slot.x + up * slot.y
+			local point, visible = camera:WorldToScreenPoint(world)
+			if visible then
+				local edge = camera:WorldToScreenPoint(world + right * half)
+				local reach = math.abs(edge.X - point.X)
+				local screen = Vector2.new(point.X, point.Y)
+				local offset = screenPosition - screen
+				if math.abs(offset.X) <= reach and math.abs(offset.Y) <= reach then
+					return slot.itemId, screen
+				end
+			end
+		end
+	end
+	return nil, nil
 end
 
 return UnitView

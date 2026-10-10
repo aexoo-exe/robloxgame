@@ -13,7 +13,7 @@ The server decides everything: offers, picks, equips. Clients only ask.
 | Item effects in a fight | `src/shared/ItemCombat.luau` (run by `CombatSim.run`) |
 | Inventory, equip, move, return, offers, picks | `src/shared/PlayerState.luau`, `Board.luau` |
 | Server | `PlayerService` (requests, offers), `RoundService` (offers at Results) |
-| UI | `InventoryStrip`, `ItemPickPanel`, `UnitInfoPanel`, `ItemIcon`, `ItemSelection`, item pips in `UnitView` |
+| UI | `InventoryStrip`, `ItemPickPanel`, `UnitInfoPanel`, `ItemIcon`, `ItemPictograms`, `ItemSelection`, `ItemBadgeTooltip`, item icons in `UnitView` |
 | Sim | `sim/Bot.luau` (pick and equip), `sim/run.luau` (item report) |
 
 ## Rules
@@ -84,11 +84,18 @@ a tag are outlined. Tags never block equipping.
 
 ## UI (placeholders)
 
+- Icons: a pictogram per item (`ItemPictograms`, drawn from UI frames) on its category color. An
+  item skin's optional `image` (an image id in `ItemSkinConfig`) is drawn instead once art exists.
 - Inventory strip, bottom left above the shop: drag an item onto a unit, or tap it then tap a unit.
+  Items that arrive (picked, or returned by a sale, merge or unequip) flash green. During Combat and
+  Results, trying to move an item shows "Items can't change during combat".
 - Unit info panel: tags, three slots with equipped items and their effect text; tap an item to
-  pick it up and tap another unit to move it; its arrow returns it to the inventory.
-- Small item pips over the health bar, on the board, bench and in combat.
-- Pick screen for item choices.
+  pick it up and tap another unit to move it, or tap the inventory strip to return it; its arrow
+  returns it too.
+- Item icons over the health bar, on the board, bench and in combat; hover or tap one for its name
+  and effect (`ItemBadgeTooltip`).
+- Pick screen for item choices: opens by itself when offered, and again at the next Preparation if
+  it was folded and is still unpicked.
 
 ## Sim
 

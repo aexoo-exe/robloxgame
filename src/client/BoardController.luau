@@ -18,7 +18,8 @@
 -- BoardController.onInspect get its type and star level (the unit info panel listens). Units
 -- whose star level went up since the last snapshot are reported to BoardController.onUpgrade.
 -- While an item is picked up (ItemSelection), a tap on one of the player's units goes to the unit
--- tap handler (BoardController.setUnitTapHandler) instead of selecting it.
+-- tap handler (BoardController.setUnitTapHandler) instead of selecting it. Presses on the item icons
+-- over units are left to the item tooltip (ItemBadgeTooltip).
 
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -560,6 +561,11 @@ function BoardController.start()
 			return
 		end
 		local position = Vector2.new(input.Position.X, input.Position.Y)
+		-- A tap on an item icon over a unit shows that item (ItemBadgeTooltip), and must not select
+		-- or drag a unit standing behind it.
+		if UnitView.itemAtScreen(position) then
+			return
+		end
 		if not canAct() then
 			-- Outside a round a tap only inspects the unit under it.
 			local hit = Arena.raycast(position)

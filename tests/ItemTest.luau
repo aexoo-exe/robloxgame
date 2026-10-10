@@ -222,14 +222,18 @@ local function eventsOfKind(battle, kind: string)
 end
 
 table.insert(tests, {
-	name = "item data: every item is valid, has a skin, and its effect text fills every number",
+	name = "item data: every item is valid, has a skin with its own icon, and its effect text fills every number",
 	run = function()
 		local ItemSkinConfig = require("../src/shared/ItemSkinConfig")
 		local ok, reason = ItemsModule.validate(Battle.StatFields, ItemCombat.effects)
 		assert(ok, tostring(reason))
+		local icons = {}
 		for _, id in ItemsModule.ids() do
 			local skin = ItemSkinConfig.items[id]
-			assert(skin and skin.name ~= "" and #skin.letters >= 1, id .. " needs a skin")
+			assert(skin and skin.name ~= "" and type(skin.icon) == "string" and skin.icon ~= "", id .. " needs a skin")
+			assert(not icons[skin.icon], id .. " shares its icon with " .. tostring(icons[skin.icon]))
+			icons[skin.icon] = id
+			assert(skin.image == nil or type(skin.image) == "string", id .. ": image must be an image id string")
 			local text = ItemsModule.describe(id, ItemSkinConfig)
 			assert(text ~= "" and not string.find(text, "?", 1, true), id .. " text: " .. text)
 			assert(not string.find(text, "{", 1, true), id .. " has an unfilled number: " .. text)

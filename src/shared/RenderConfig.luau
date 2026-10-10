@@ -17,11 +17,12 @@ return table.freeze({
 
 	-- The display just above each unit's head, in studs: it stays narrower than a tile (about 4.8
 	-- studs), so neighbors never overlap. Rows from the top: star pips, the horse bar (riders),
-	-- health, mana.
+	-- equipped item icons, health, mana.
 	overhead = table.freeze({
 		width = 3.2,
 		pipHeight = 0.34,
-		itemPipHeight = 0.24, -- the row of equipped-item pips over the health bar
+		itemIconHeight = 0.6, -- the row of equipped-item icons over the health bar (square icons)
+		itemIconGap = 0.08,
 		formBarHeight = 0.18,
 		healthBarHeight = 0.3,
 		manaBarHeight = 0.11,
