@@ -10,6 +10,7 @@ local BoardController = require(script.BoardController)
 local Celebrate = require(script.Celebrate)
 local CombatPlayback = require(script.CombatPlayback)
 local HubHud = require(script.HubHud)
+local HubLighting = require(script.HubLighting)
 local InventoryStrip = require(script.InventoryStrip)
 local ItemBadgeTooltip = require(script.ItemBadgeTooltip)
 local ItemPickPanel = require(script.ItemPickPanel)
@@ -51,6 +52,7 @@ local localPlayer = game:GetService("Players").LocalPlayer
 local function applyMode()
 	local inMatch = localPlayer:GetAttribute("InMatch") == true
 	Arena.setActive(inMatch)
+	HubLighting.setActive(not inMatch)
 	UI.setMatchShown(inMatch)
 	HubHud.setShown(not inMatch)
 end

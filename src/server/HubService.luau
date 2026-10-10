@@ -1,11 +1,11 @@
--- The hub: the area players spawn into and walk around between matches, built from placeholder
--- parts (HubConfig), with two pads and a sign for each:
+-- The hub: the area players spawn into and walk around between matches (built by HubBuilder from
+-- HubConfig), with two pads, each with one display board showing its status:
 --   * Play: standing on it queues the player; stepping off leaves the queue. A match starts
 --     HubConfig.queue.countdownSeconds after the queue reaches playersToStartCountdown, or at once
---     with playersToStartAtOnce queued. The queued count and the timer show above the pad.
+--     with playersToStartAtOnce queued. The queued count and the timer show on the pad's display.
 --   * Practice: standing on it starts a solo practice match at once.
--- One match runs per server (RoundService). While it runs both pads show "Match in progress" and
--- nobody queues.
+-- One match runs per server (RoundService). While it runs both displays show "Match in progress"
+-- and nobody queues. Players in the hub who fall or slip outside it are sent back to the spawn.
 --
 -- Match participants' avatars are parked out of sight (HubConfig.parkPosition) and anchored for
 -- the whole match, and are sent back to the hub when the match ends, or earlier when a knocked-out
@@ -25,6 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HubConfig = require(ReplicatedStorage.Shared.HubConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
+local HubBuilder = require(script.Parent.HubBuilder)
 local Remotes = require(script.Parent.Remotes)
 local RoundService = require(script.Parent.RoundService)
 
@@ -32,170 +33,29 @@ local HubService = {}
 
 local QUEUE = HubConfig.queue
 
-type Pad = { part: Part, label: TextLabel, sub: TextLabel }
-
 local hubState: Folder
-local pads: { [string]: Pad } = {}
+local pads: { play: HubBuilder.Pad, practice: HubBuilder.Pad }
 local inMatch: { [number]: boolean } = {} -- UserIds whose avatar belongs to the running match
 local queuedSince: { [number]: number } = {} -- UserId -> os.clock() when they stepped on the pad
 local countdownEndsAt: number? = nil -- server time
 
-local function hubPosition(offset: Vector3): Vector3
-	return HubConfig.center + offset
-end
-
-local function part(parent: Instance, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?): Part
-	local instance = Instance.new("Part")
-	instance.Anchored = true
-	instance.Size = size
-	instance.CFrame = cframe
-	instance.Color = color
-	instance.Material = material or Enum.Material.SmoothPlastic
-	instance.TopSurface = Enum.SurfaceType.Smooth
-	instance.BottomSurface = Enum.SurfaceType.Smooth
-	instance.Parent = parent
-	return instance
-end
-
--- A text label filling a GUI, white with a dark outline.
-local function textLabel(parent: Instance, text: string, position: UDim2, size: UDim2, color: Color3?): TextLabel
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Position = position
-	label.Size = size
-	label.Text = text
-	label.TextColor3 = color or Color3.new(1, 1, 1)
-	label.TextStrokeTransparency = 0.3
-	label.TextScaled = true
-	label.TextWrapped = true
-	label.Font = Enum.Font.GothamBlack
-	label.Parent = parent
-	return label
-end
-
--- A standing sign facing the spawn (+Z) with a title and a body text.
-local function sign(parent: Instance, position: Vector3, title: string, body: string, color: Color3)
-	local board = part(parent, Vector3.new(14, 8, 0.6), CFrame.new(position + Vector3.new(0, 5.5, 0)), HubConfig.signColor)
-	board.Name = "Sign"
-	part(parent, Vector3.new(0.6, 2, 0.6), CFrame.new(position + Vector3.new(-5, 1, 0)), HubConfig.wallColor)
-	part(parent, Vector3.new(0.6, 2, 0.6), CFrame.new(position + Vector3.new(5, 1, 0)), HubConfig.wallColor)
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Back -- the face toward +Z
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 40
-	gui.Parent = board
-	local stripe = Instance.new("Frame")
-	stripe.Size = UDim2.new(1, 0, 0.06, 0)
-	stripe.BackgroundColor3 = color
-	stripe.BorderSizePixel = 0
-	stripe.Parent = gui
-	textLabel(gui, title, UDim2.fromScale(0.05, 0.1), UDim2.fromScale(0.9, 0.26), color)
-	local text = textLabel(gui, body, UDim2.fromScale(0.07, 0.42), UDim2.fromScale(0.86, 0.5))
-	text.Font = Enum.Font.GothamBold
-end
-
--- A pad: a flat slab with a bright rim, and a floating label above it.
-local function pad(parent: Instance, name: string, config): Pad
-	local center = hubPosition(config.offset)
-	local size = config.size
-	part(parent, Vector3.new(size + 1, 0.5, size + 1), CFrame.new(center + Vector3.new(0, 0.75, 0)), config.color, Enum.Material.Neon)
-	local top = part(
-		parent,
-		Vector3.new(size, 0.6, size),
-		CFrame.new(center + Vector3.new(0, 0.85, 0)),
-		config.color:Lerp(Color3.new(0, 0, 0), 0.45),
-		Enum.Material.Metal
-	)
-	top.Name = name .. "Pad"
-
-	local anchor = part(parent, Vector3.new(1, 1, 1), CFrame.new(center + Vector3.new(0, 9, 0)), config.color)
-	anchor.Transparency = 1
-	anchor.CanCollide = false
-	anchor.CanQuery = false
-	anchor.CanTouch = false
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(14, 4)
-	billboard.LightInfluence = 0
-	billboard.MaxDistance = 150
-	billboard.Parent = anchor
-	local label = textLabel(billboard, "", UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.55), config.color)
-	local sub = textLabel(billboard, "", UDim2.fromScale(0, 0.58), UDim2.fromScale(1, 0.42))
-	return { part = top, label = label, sub = sub }
-end
-
-local function build()
-	local folder = Instance.new("Folder")
-	folder.Name = "Hub"
-	local center = HubConfig.center
-	local size = HubConfig.floorSize
-	part(folder, Vector3.new(size.X, 1, size.Y), CFrame.new(center + Vector3.new(0, 0.5, 0)), HubConfig.floorColor, Enum.Material.Slate).Name =
-		"Floor"
-	-- Low walls on three sides; the spawn side (+Z) has a wall too, so nobody walks off the hub.
-	local height = HubConfig.wallHeight
-	for _, side in { -1, 1 } do
-		part(
-			folder,
-			Vector3.new(size.X + 2, height, 1),
-			CFrame.new(center + Vector3.new(0, 1 + height / 2, side * (size.Y / 2 + 0.5))),
-			HubConfig.wallColor
-		)
-		part(
-			folder,
-			Vector3.new(1, height, size.Y),
-			CFrame.new(center + Vector3.new(side * (size.X / 2 + 0.5), 1 + height / 2, 0)),
-			HubConfig.wallColor
-		)
-	end
-
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Anchored = true
-	spawn.Neutral = true
-	spawn.Duration = 0 -- no spawn force field
-	spawn.Size = Vector3.new(8, 0.4, 8)
-	spawn.CFrame = CFrame.new(hubPosition(HubConfig.spawnOffset) + Vector3.new(0, 1.2, 0))
-	spawn.Color = HubConfig.wallColor
-	spawn.Material = Enum.Material.SmoothPlastic
-	spawn.Parent = folder
-
-	local play = HubConfig.pads.play
-	local practice = HubConfig.pads.practice
-	pads.play = pad(folder, "Play", play)
-	pads.practice = pad(folder, "Practice", practice)
-	sign(
-		folder,
-		hubPosition(play.offset + Vector3.new(0, 1, -(play.size / 2 + 3))),
-		"PLAY",
-		string.format(
-			"Stand on this pad to queue. A match starts %d seconds after a second player joins, or at once with %d. Step off to leave the queue.",
-			QUEUE.countdownSeconds,
-			QUEUE.playersToStartAtOnce
-		),
-		play.color
-	)
-	sign(
-		folder,
-		hubPosition(practice.offset + Vector3.new(0, 1, -(practice.size / 2 + 3))),
-		"PRACTICE",
-		"Stand on this pad to start a solo practice match right away, against creeps and practice boards.",
-		practice.color
-	)
-	folder.Parent = workspace
+local function rootOf(player: Player): BasePart?
+	local character = player.Character
+	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
 -- True if the player's avatar stands on (or just above) the pad.
-local function isOnPad(player: Player, padPart: Part): boolean
+local function isOnPad(player: Player, which: HubBuilder.Pad): boolean
 	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = rootOf(player)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not root or not humanoid or humanoid.Health <= 0 then
 		return false
 	end
-	local relative = padPart.CFrame:PointToObjectSpace(root.Position)
-	local half = padPart.Size / 2
-	return math.abs(relative.X) <= half.X
-		and math.abs(relative.Z) <= half.Z
-		and relative.Y >= 0
-		and relative.Y <= half.Y + HubConfig.standHeight
+	local position = root.Position
+	local flat = Vector3.new(position.X - which.center.X, 0, position.Z - which.center.Z)
+	local height = position.Y - which.top
+	return flat.Magnitude <= which.radius and height >= 0 and height <= HubConfig.standHeight
 end
 
 -- Anchors the avatar out of sight for the match.
@@ -209,15 +69,16 @@ local function park(player: Player, index: number)
 	character:PivotTo(CFrame.new(HubConfig.parkPosition + Vector3.new(index * 4, 0, 0)))
 end
 
--- Sends the avatar back to the hub's spawn, free to move.
-local function unpark(player: Player)
+-- Sends the avatar back to the hub's spawn, free to move, facing the pads.
+local function toSpawn(player: Player)
 	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = rootOf(player)
 	if not character or not root then
 		return
 	end
-	local spread = Vector3.new(math.random(-6, 6), 4, math.random(-3, 3))
-	character:PivotTo(CFrame.new(hubPosition(HubConfig.spawnOffset) + spread))
+	local spread = Vector3.new(math.random(-3, 3), 0, math.random(-2, 2))
+	character:PivotTo(CFrame.new(HubBuilder.spawnPosition() + spread))
+	root.AssemblyLinearVelocity = Vector3.zero
 	root.Anchored = false
 end
 
@@ -232,7 +93,7 @@ local function setInMatch(player: Player, value: boolean)
 		player:SetAttribute("Queued", false)
 		task.spawn(park, player, #Players:GetPlayers())
 	else
-		unpark(player)
+		toSpawn(player)
 	end
 end
 
@@ -251,17 +112,25 @@ local function startMatch(players: { Player })
 	end
 end
 
-local function setPadText(which: Pad, label: string, sub: string)
-	if which.label.Text ~= label then
-		which.label.Text = label
+local function setStatus(which: HubBuilder.Pad, text: string)
+	if which.status.Text ~= text then
+		which.status.Text = text
 	end
-	if which.sub.Text ~= sub then
-		which.sub.Text = sub
+end
+
+-- Players in the hub who fell or got outside it go back to the spawn.
+local function rescue()
+	for _, player in Players:GetPlayers() do
+		local root = rootOf(player)
+		if root and not inMatch[player.UserId] and not root.Anchored and HubBuilder.isOutside(root.Position) then
+			toSpawn(player)
+		end
 	end
 end
 
 -- One check of the pads: who is queued, whether the countdown runs, and starting matches.
 local function poll()
+	rescue()
 	local now = workspace:GetServerTimeNow()
 	if RoundService.isRunning() then
 		for _, player in Players:GetPlayers() do
@@ -273,14 +142,14 @@ local function poll()
 		countdownEndsAt = nil
 		hubState:SetAttribute("Queued", 0)
 		hubState:SetAttribute("StartsAt", 0)
-		setPadText(pads.play, "MATCH IN PROGRESS", "Queue opens when it ends")
-		setPadText(pads.practice, "MATCH IN PROGRESS", "Practice opens when it ends")
+		setStatus(pads.play, "MATCH IN PROGRESS")
+		setStatus(pads.practice, "MATCH IN PROGRESS")
 		return
 	end
 
 	-- Practice: the first player found on the pad starts at once.
 	for _, player in Players:GetPlayers() do
-		if not inMatch[player.UserId] and isOnPad(player, pads.practice.part) then
+		if not inMatch[player.UserId] and isOnPad(player, pads.practice) then
 			startMatch({ player })
 			return
 		end
@@ -289,7 +158,7 @@ local function poll()
 	-- The queue, oldest first.
 	local queued = {}
 	for _, player in Players:GetPlayers() do
-		local on = not inMatch[player.UserId] and isOnPad(player, pads.play.part)
+		local on = not inMatch[player.UserId] and isOnPad(player, pads.play)
 		if on and not queuedSince[player.UserId] then
 			queuedSince[player.UserId] = os.clock()
 		elseif not on then
@@ -322,15 +191,14 @@ local function poll()
 
 	hubState:SetAttribute("Queued", #queued)
 	hubState:SetAttribute("StartsAt", countdownEndsAt or 0)
-	local sub
+	local count = string.format("%d/%d queued", #queued, QUEUE.playersToStartAtOnce)
 	if countdownEndsAt then
-		sub = string.format("Match starts in %d", math.max(0, math.ceil(countdownEndsAt - now)))
+		setStatus(pads.play, string.format("%s  ·  starts in %d", count, math.max(0, math.ceil(countdownEndsAt - now))))
 	else
 		local missing = QUEUE.playersToStartCountdown - #queued
-		sub = string.format("Waiting for %d more player%s", missing, if missing == 1 then "" else "s")
+		setStatus(pads.play, string.format("%s  ·  need %d more", count, missing))
 	end
-	setPadText(pads.play, string.format("PLAY  %d/%d queued", #queued, QUEUE.playersToStartAtOnce), sub)
-	setPadText(pads.practice, "PRACTICE", "Solo match, starts at once")
+	setStatus(pads.practice, "Ready  ·  starts at once")
 end
 
 function HubService.start()
@@ -339,7 +207,7 @@ function HubService.start()
 	hubState:SetAttribute("Queued", 0)
 	hubState:SetAttribute("StartsAt", 0)
 	hubState.Parent = ReplicatedStorage
-	build()
+	pads = HubBuilder.build()
 
 	local function onPlayer(player: Player)
 		-- A participant who rejoins the running match goes straight back to it.
