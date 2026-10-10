@@ -4,7 +4,8 @@
 --   * tap it to pick it up (it lights up), then tap the unit. Tap it again to put it down.
 -- An item in a unit's slot can be picked up the same way from the unit info panel and tapped onto
 -- another unit (a move). While a unit is selected, items sharing one of its recommendation tags
--- (Items.unitTags) are outlined in gold; tags never block equipping.
+-- (Items.unitTags) are outlined in gold; tags never block equipping. Items that just arrived
+-- (picked from an item choice, or returned by a sale, merge or unequip) flash green for a moment.
 -- The client only asks; the server decides (RequestEquipItem, RequestMoveItem). Presentation only.
 
 local Players = game:GetService("Players")
@@ -34,6 +35,8 @@ local ICON = 26
 local GAP = 4
 local DRAG_THRESHOLD = 8 -- pixels before a press becomes a drag
 local SELECTED_COLOR = Color3.new(1, 1, 1)
+local FRESH_COLOR = Color3.fromRGB(120, 255, 140) -- an item that just arrived
+local FRESH_SECONDS = 1.6
 
 function InventoryStrip.start()
 	local matchState = ReplicatedStorage:WaitForChild("MatchState")
@@ -49,6 +52,18 @@ function InventoryStrip.start()
 	UI.padding(panel, 6)
 	UI.list(panel, 4)
 	panel.Visible = false
+
+	-- Where "+item" text rises from: the panel's top edge (the panel itself lays out its children).
+	local arrivalAnchor = Instance.new("Frame")
+	arrivalAnchor.BackgroundTransparency = 1
+	arrivalAnchor.Size = UDim2.fromOffset(SIZES.traitPanelWidth, 0)
+	arrivalAnchor.Position = panel.Position - UDim2.fromOffset(0, 40)
+	arrivalAnchor.Parent = root
+	local rootScale = root:FindFirstChildOfClass("UIScale") :: UIScale
+	panel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local height = panel.AbsoluteSize.Y / math.max(rootScale.Scale, 0.01) -- in reference pixels
+		arrivalAnchor.Position = panel.Position - UDim2.fromOffset(0, height)
+	end)
 
 	local title = UI.text(panel, "", SIZES.textSmall, FONTS.body, COLORS.textDim)
 	title.LayoutOrder = 1
@@ -83,11 +98,16 @@ function InventoryStrip.start()
 		return matchState:GetAttribute("Phase") == Phase.Preparation
 	end
 
+	local fresh: { [number]: number } = {} -- inventory index -> os.clock() its arrival highlight ends
+
 	local function refreshHighlights()
 		local selection = ItemSelection.get()
+		local now = os.clock()
 		for index, icon in icons do
 			local itemId = inventory[index]
-			if selection and selection.kind == "inventory" and selection.index == index then
+			if fresh[index] and now < fresh[index] then
+				ItemIcon.setHighlight(icon, FRESH_COLOR)
+			elseif selection and selection.kind == "inventory" and selection.index == index then
 				ItemIcon.setHighlight(icon, SELECTED_COLOR)
 			elseif #tags > 0 and Items.matches(itemId, tags) then
 				ItemIcon.setHighlight(icon, COLORS.gold)
@@ -206,10 +226,38 @@ function InventoryStrip.start()
 		tags = if unit then Items.unitTags(unit.classes) else {}
 		refreshHighlights()
 	end)
+	-- Items that just arrived (picked, or returned by a sale, a merge or an unequip) light up and pop
+	-- for a moment, so the player sees where they went.
+	local function flashArrivals(previous: { string })
+		local had: { [string]: number } = {}
+		for _, itemId in previous do
+			had[itemId] = (had[itemId] or 0) + 1
+		end
+		local seen: { [string]: number } = {}
+		table.clear(fresh)
+		local names = {}
+		for index, itemId in inventory do
+			seen[itemId] = (seen[itemId] or 0) + 1
+			if seen[itemId] > (had[itemId] or 0) then
+				fresh[index] = os.clock() + FRESH_SECONDS
+				UI.pop(icons[index], 1.5)
+				table.insert(names, ItemIcon.name(itemId))
+			end
+		end
+		if #names == 0 then
+			return
+		end
+		refreshHighlights()
+		UI.floatUp(arrivalAnchor, "+" .. table.concat(names, ", +"), COLORS.gold)
+		task.delay(FRESH_SECONDS, refreshHighlights)
+	end
+
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(view)
+		local previous = inventory
 		inventory = view.inventory or {}
 		ItemSelection.clear()
 		render()
+		flashArrivals(previous)
 	end)
 	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
 		if not canEquip() then
