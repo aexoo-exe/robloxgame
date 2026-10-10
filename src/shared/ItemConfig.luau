@@ -100,7 +100,7 @@ return freezeAll({
 			category = Category.Offensive,
 			tags = { "Sustain", "Attack" },
 			stats = { AD = percent(10) },
-			effect = { lifestealPercent = 20, belowPercent = 40, shieldPercent = 25, shieldSeconds = 5 },
+			effect = { lifestealPercent = 12, belowPercent = 40, shieldPercent = 15, shieldSeconds = 5 },
 		},
 
 		-- Ability ----------------------------------------------------------------------------------

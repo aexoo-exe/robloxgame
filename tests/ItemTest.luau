@@ -302,9 +302,9 @@ table.insert(tests, {
 		Battle.damage(battle, holder, dummy, 100, "TRUE", "Damage")
 		local hit = eventsOfKind(battle, "Damage")[1]
 		expectEqual(hit.damage, 120, "+20% against a bigger enemy")
-		expectEqual(holder.health, 524, "healed 20% of 120")
+		expectEqual(holder.health, 514, "healed 12% of 120, rounded")
 		Battle.damage(battle, dummy, holder, 200, "TRUE", "Damage")
-		expectEqual(holder.shield, 250, "below 40%: a shield of 25% max health")
+		expectEqual(holder.shield, 150, "below 40%: a shield of 15% max health")
 		local shields = eventsOfKind(battle, "Shield")
 		expectEqual(shields[#shields].item, "ghouls_mask", "the shield event names the item")
 	end,
