@@ -24,6 +24,8 @@ return table.freeze({
 	RequestMoveItem = "RequestMoveItem",
 	-- Client -> server: (offerIndex: number): pick one item of the open item choice
 	RequestPickItem = "RequestPickItem",
+	-- Client -> server: (): back to the hub, once knocked out or when the match is over (HubService)
+	RequestLeaveMatch = "RequestLeaveMatch",
 
 	-- Server -> owning client: the player's units (Board.getUnits).
 	BoardUpdated = "BoardUpdated",

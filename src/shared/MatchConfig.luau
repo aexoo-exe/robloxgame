@@ -1,17 +1,15 @@
 -- Tunable match settings shared by server and client. Values from docs/design/match-structure.md
--- (timers: section 6, starting HP: section 2, leavers: section 7); lobby timings are our own.
+-- (timers: section 6, starting HP: section 2, leavers: section 7). How a match is started (the
+-- hub's pads and queue) is in HubConfig.
 return table.freeze({
 	-- Phase durations in seconds. Combat ends earlier when every fight has finished.
 	preparationDuration = 30,
 	combatMaxDuration = 50,
 	resultsDuration = 5,
 
-	-- Lobby: once minPlayersToStart players are present, a countdown runs and the match starts with
-	-- the players present (up to maxPlayers). 1 so a solo Studio test starts a practice match.
-	minPlayersToStart = 1,
+	-- Most players in one match.
 	maxPlayers = 8,
-	lobbyCountdown = 10,
-	-- Seconds the final placements stay on screen before the next match's lobby.
+	-- Seconds the final placements stay on screen before everyone returns to the hub.
 	finalPlacementsDuration = 15,
 
 	startingHealth = 100,

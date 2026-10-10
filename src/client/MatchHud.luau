@@ -1,6 +1,8 @@
 -- Match-level screens, read from the public MatchState:
 --   * a banner while you are knocked out, with your placement
 --   * the final placements screen during MatchOver, the winner on top with confetti
+--   * a "Back to hub" button with either of those (RequestLeaveMatch); everyone returns to the hub
+--     anyway when the final placements end
 -- The player list lives in PlayerList. Presentation only; redraws a few times per second.
 
 local Players = game:GetService("Players")
@@ -8,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Phase = require(Shared:WaitForChild("Phase"))
+local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 
 local Celebrate = require(script.Parent.Celebrate)
@@ -53,6 +56,19 @@ function MatchHud.start()
 	UI.list(finalList, 6)
 	finalList.Parent = final
 
+	-- Back to the hub: once knocked out, or while the final placements show (the server checks).
+	local leave = UI.button(root, COLORS.buy, UDim2.fromOffset(200, 44))
+	leave.AnchorPoint = Vector2.new(0.5, 1)
+	leave.Position = UDim2.new(0.5, 0, 1, -(UITheme.boardInsets.bottom + 16))
+	leave.Visible = false
+	local leaveLabel = UI.text(leave, "BACK TO HUB", SIZES.textLarge, FONTS.display)
+	leaveLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	leaveLabel.Position = UDim2.fromScale(0.5, 0.5)
+	local requestLeave = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestLeaveMatch)
+	leave.Activated:Connect(function()
+		requestLeave:FireServer()
+	end)
+
 	local wasOver = false
 	local function refresh()
 		local phase = matchState:GetAttribute("Phase")
@@ -62,6 +78,7 @@ function MatchHud.start()
 			UI.pop(banner)
 		end
 		banner.Visible = knockedOut
+		leave.Visible = own ~= nil and (knockedOut or phase == Phase.MatchOver)
 		if knockedOut then
 			bannerLabel.Text = "#" .. tostring(own:GetAttribute("Placement") or 0)
 		end

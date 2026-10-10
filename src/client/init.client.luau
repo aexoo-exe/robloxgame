@@ -9,6 +9,7 @@ local Arena = require(script.Arena)
 local BoardController = require(script.BoardController)
 local Celebrate = require(script.Celebrate)
 local CombatPlayback = require(script.CombatPlayback)
+local HubHud = require(script.HubHud)
 local InventoryStrip = require(script.InventoryStrip)
 local ItemPickPanel = require(script.ItemPickPanel)
 local MatchHud = require(script.MatchHud)
@@ -38,6 +39,19 @@ MatchHud.start()
 RewardScreen.start()
 UnitTooltip.start()
 RefusalNotice.start()
+HubHud.start()
+
+-- In a match (the server's InMatch attribute, HubService): the board camera and the match HUD.
+-- Otherwise the player walks around the hub with the normal camera.
+local localPlayer = game:GetService("Players").LocalPlayer
+local function applyMode()
+	local inMatch = localPlayer:GetAttribute("InMatch") == true
+	Arena.setActive(inMatch)
+	UI.setMatchShown(inMatch)
+	HubHud.setShown(not inMatch)
+end
+localPlayer:GetAttributeChangedSignal("InMatch"):Connect(applyMode)
+applyMode()
 
 -- Keep the board and bench in the part of the screen the HUD leaves free.
 local function fitBoard()

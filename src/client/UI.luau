@@ -49,9 +49,21 @@ function UI.boardInsets(): { top: number, bottom: number, left: number, right: n
 	}
 end
 
+-- Roots of the match HUD screens, hidden while the player is in the hub (UI.setMatchShown).
+local matchRoots: { Frame } = {}
+local matchShown = true
+
+-- Shows or hides every match HUD screen (all UI.screen screens except `hub` ones).
+function UI.setMatchShown(shown: boolean)
+	matchShown = shown
+	for _, root in matchRoots do
+		root.Visible = shown
+	end
+end
+
 -- A ScreenGui in the safe area with a root frame in reference pixels, scaled to fit. Returns both;
--- build inside the root.
-function UI.screen(name: string, displayOrder: number?): (ScreenGui, Frame)
+-- build inside the root. Screens are part of the match HUD (hidden in the hub) unless `hub` is true.
+function UI.screen(name: string, displayOrder: number?, hub: boolean?): (ScreenGui, Frame)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = name
 	gui.ResetOnSpawn = false
@@ -74,6 +86,10 @@ function UI.screen(name: string, displayOrder: number?): (ScreenGui, Frame)
 		root.Size = UDim2.fromOffset(size.X / factor, size.Y / factor)
 	end
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	if not hub then
+		root.Visible = matchShown
+		table.insert(matchRoots, root)
+	end
 	root.Parent = gui
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	fit()

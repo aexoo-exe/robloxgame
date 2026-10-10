@@ -1,13 +1,15 @@
 -- Builds the local arena from a board skin (BoardSkinConfig): a hex tile per field cell, a bench
 -- slot per bench position on its own tray, the platform under them, the floor and backdrop around
 -- them, and this client's lighting and sky. Also shows placement feedback (Arena.setHighlight,
--- Arena.setDropZones).
+-- Arena.setDropZones). The arena and its camera are only active while the player is in a match
+-- (Arena.setActive); in the hub the arena is hidden and the camera follows the avatar.
 -- Cells are in view coordinates: the local player's half is always rows 1..BoardConfig.rows,
 -- nearest the camera. Each tile top carries Column and Row attributes and each bench slot a Slot
 -- attribute, so clicks can be mapped back to board positions; no other arena part can be clicked.
 -- The layout (RenderConfig: hex size, gaps, bench distance) does not depend on the skin.
 
 local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -501,8 +503,6 @@ end
 -- Keeps the camera on the arena. Re-applied every frame so the default camera scripts cannot take
 -- it back (for example when the character respawns).
 local function lockCamera()
-	local camera = workspace.CurrentCamera
-	camera:GetPropertyChangedSignal("ViewportSize"):Connect(fitCamera)
 	fitCamera()
 	RunService:BindToRenderStep("ArenaCamera", Enum.RenderPriority.Camera.Value + 1, function()
 		local current = workspace.CurrentCamera
@@ -511,6 +511,35 @@ local function lockCamera()
 		end
 		current.CFrame = cameraCFrame
 	end)
+end
+
+-- Gives the camera back to the default scripts, following the player's avatar.
+local function releaseCamera()
+	RunService:UnbindFromRenderStep("ArenaCamera")
+	local camera = workspace.CurrentCamera
+	camera.CameraType = Enum.CameraType.Custom
+	local character = Players.LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		camera.CameraSubject = humanoid
+	end
+end
+
+local active = false
+
+-- In a match (true): the arena is shown and the camera is the board camera. In the hub (false): the
+-- arena is hidden and the camera follows the player's avatar.
+function Arena.setActive(value: boolean)
+	if value == active or not Arena.folder then
+		return
+	end
+	active = value
+	Arena.folder.Parent = if value then workspace else nil
+	if value then
+		lockCamera()
+	else
+		releaseCamera()
+	end
 end
 
 function Arena.start()
@@ -532,11 +561,11 @@ function Arena.start()
 	createGround(folder, ownSkin)
 	createBackdrop(folder, ownSkin)
 	applyLighting(ownSkin)
-	folder.Parent = workspace
 
+	-- Hidden until the player is in a match (Arena.setActive).
 	Arena.folder = folder
 	raycastParams.FilterDescendantsInstances = { folder }
-	lockCamera()
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fitCamera)
 end
 
 return Arena
