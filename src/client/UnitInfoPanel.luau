@@ -4,8 +4,9 @@
 -- recommended item tags (Items.unitTags, from its classes), its three item slots with each equipped
 -- item's effect text, and for the player's own units a Sell button showing the sell value. During
 -- Preparation, tapping one of its items picks it up (ItemSelection: tap another unit to move it
--- there), and the small arrow under an item returns it to the inventory. It closes when the unit is deselected, when you tap elsewhere, or with
--- its close button. Presentation only.
+-- there, or the inventory strip to return it), and the arrow on an item returns it to the
+-- inventory. During Combat and Results a tap on an item says items are locked. It closes when the
+-- unit is deselected, when you tap elsewhere, or with its close button. Presentation only.
 --
 -- There is no ability description text in the game data, so the ability shows its display name
 -- (SkinConfig) and mana cost only.
@@ -28,6 +29,7 @@ local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 local BoardController = require(script.Parent.BoardController)
 local ItemIcon = require(script.Parent.ItemIcon)
 local ItemSelection = require(script.Parent.ItemSelection)
+local RefusalNotice = require(script.Parent.RefusalNotice)
 local TraitIcon = require(script.Parent.TraitIcon)
 local UI = require(script.Parent.UI)
 
@@ -39,6 +41,7 @@ local SIZES = UITheme.sizes
 local ICONS = UITheme.icons
 local ITEM_SLOTS = 3
 local ITEM_SIZE = 34
+local RETURN_SIZE = 20 -- the return-to-inventory button on an equipped item
 local CLOSE_SIZE = 30
 local STAT_ROW = 20 -- height of a stat cell
 local STAT_GAP = 3
@@ -351,14 +354,29 @@ function UnitInfoPanel.start()
 							ItemSelection.set({ kind = "unit", unitId = info.unitId, slot = slot, itemId = itemId })
 						end
 					end)
-					local back = UI.button(frame, COLORS.panelLight, UDim2.fromOffset(14, 14))
+					-- Big enough to hit with a finger; tapping the inventory strip with the item picked
+					-- up returns it too (InventoryStrip).
+					local back = UI.button(frame, COLORS.panelLight, UDim2.fromOffset(RETURN_SIZE, RETURN_SIZE))
 					back.AnchorPoint = Vector2.new(1, 1)
-					back.Position = UDim2.new(1, 4, 1, 4)
+					back.Position = UDim2.new(1, 6, 1, 6)
+					back.ZIndex = 2
 					back.Text = "<"
 					back.TextColor3 = COLORS.text
-					back.TextSize = 11
+					back.TextSize = 14
+					back.Font = FONTS.display
 					back.Activated:Connect(function()
+						ItemSelection.clear()
 						requestUnequip:FireServer(info.unitId, slot)
+					end)
+				elseif own then
+					-- Locked during Combat and Results: say why instead of ignoring the tap.
+					local locked = Instance.new("TextButton")
+					locked.Size = UDim2.fromScale(1, 1)
+					locked.BackgroundTransparency = 1
+					locked.Text = ""
+					locked.Parent = frame
+					locked.Activated:Connect(function()
+						RefusalNotice.show(PlayerState.Refusal.ItemsLocked)
 					end)
 				end
 			end

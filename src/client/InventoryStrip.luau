@@ -3,7 +3,9 @@
 --   * drag it (mouse or touch) onto one of your units on the board or bench, or
 --   * tap it to pick it up (it lights up), then tap the unit. Tap it again to put it down.
 -- An item in a unit's slot can be picked up the same way from the unit info panel and tapped onto
--- another unit (a move). While a unit is selected, items sharing one of its recommendation tags
+-- another unit (a move), or onto this strip (back to the inventory). A drag released over the HUD
+-- (for example back on the strip) is cancelled. During Combat and Results items are locked; trying
+-- shows the server's refusal text (RefusalNotice) instead of doing nothing. While a unit is selected, items sharing one of its recommendation tags
 -- (Items.unitTags) are outlined in gold; tags never block equipping. Items that just arrived
 -- (picked from an item choice, or returned by a sale, merge or unequip) flash green for a moment.
 -- The client only asks; the server decides (RequestEquipItem, RequestMoveItem). Presentation only.
@@ -16,6 +18,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local Items = require(Shared:WaitForChild("Items"))
 local Phase = require(Shared:WaitForChild("Phase"))
+local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
@@ -24,6 +27,7 @@ local Arena = require(script.Parent.Arena)
 local BoardController = require(script.Parent.BoardController)
 local ItemIcon = require(script.Parent.ItemIcon)
 local ItemSelection = require(script.Parent.ItemSelection)
+local RefusalNotice = require(script.Parent.RefusalNotice)
 local UI = require(script.Parent.UI)
 
 local InventoryStrip = {}
@@ -43,6 +47,7 @@ function InventoryStrip.start()
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 	local requestEquip = remotes:WaitForChild(RemoteNames.RequestEquipItem)
 	local requestMove = remotes:WaitForChild(RemoteNames.RequestMoveItem)
+	local requestUnequip = remotes:WaitForChild(RemoteNames.RequestUnequipItem)
 
 	local _, root = UI.screen("InventoryStrip", 4)
 	local panel = UI.panel(root, UDim2.fromOffset(SIZES.traitPanelWidth, 0), false)
@@ -80,18 +85,21 @@ function InventoryStrip.start()
 	gridLayout.Parent = grid
 	grid.Parent = panel
 
-	-- The icon that follows the pointer while dragging, in its own unscaled screen.
+	-- The icon that follows the pointer while dragging, in its own unscaled screen. Input positions
+	-- are below the Roblox top bar inset, so this screen must not ignore it.
+	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local dragGui = Instance.new("ScreenGui")
 	dragGui.Name = "ItemDrag"
-	dragGui.IgnoreGuiInset = true
+	dragGui.IgnoreGuiInset = false
 	dragGui.DisplayOrder = 20
 	dragGui.ResetOnSpawn = false
-	dragGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	dragGui.Parent = playerGui
 
 	local inventory: { string } = {}
 	local icons: { Frame } = {}
 	local tags: { string } = {}
-	local press: { index: number, start: Vector2, input: InputObject }? = nil
+	-- A press on the strip; `index` is the icon under it (nil on the strip's background).
+	local press: { index: number?, start: Vector2, input: InputObject }? = nil
 	local ghost: Frame? = nil
 
 	local function canEquip(): boolean
@@ -117,24 +125,27 @@ function InventoryStrip.start()
 		end
 	end
 
+	-- The title, and whether the strip shows: it also shows (even empty) while an item picked up
+	-- from a unit can be tapped back into it.
+	local function updateTitle()
+		local selection = ItemSelection.get()
+		local returning = selection ~= nil and selection.kind == "unit"
+		panel.Visible = #inventory > 0 or returning
+		title.Text = if returning
+			then "TAP HERE TO RETURN IT"
+			else string.format("ITEMS %d/%d", #inventory, ItemConfig.rules.inventoryCap)
+		title.TextColor3 = if returning then COLORS.gold else COLORS.textDim
+	end
+
 	local function render()
 		for _, icon in icons do
 			icon:Destroy()
 		end
 		table.clear(icons)
-		title.Text = string.format("ITEMS %d/%d", #inventory, ItemConfig.rules.inventoryCap)
-		panel.Visible = #inventory > 0
+		updateTitle()
 		for index, itemId in inventory do
 			local icon = ItemIcon.new(itemId, ICON, grid)
 			icon.LayoutOrder = index
-			icon.Active = true
-			icon.InputBegan:Connect(function(input)
-				local isPress = input.UserInputType == Enum.UserInputType.MouseButton1
-					or input.UserInputType == Enum.UserInputType.Touch
-				if isPress and not press then
-					press = { index = index, start = Vector2.new(input.Position.X, input.Position.Y), input = input }
-				end
-			end)
 			icons[index] = icon
 		end
 		refreshHighlights()
@@ -148,24 +159,86 @@ function InventoryStrip.start()
 		press = nil
 	end
 
-	-- A tap toggles picking the item up.
-	local function tap(index: number)
-		local selection = ItemSelection.get()
-		if selection and selection.kind == "inventory" and selection.index == index then
-			ItemSelection.clear()
-		elseif inventory[index] and canEquip() then
-			ItemSelection.set({ kind = "inventory", index = index, itemId = inventory[index] })
+	-- Combat and Results lock items (the server refuses with this reason); say so instead of
+	-- silently ignoring the player.
+	local function explainLock()
+		local phase = matchState:GetAttribute("Phase")
+		if phase == Phase.Combat or phase == Phase.Results then
+			RefusalNotice.show(PlayerState.Refusal.ItemsLocked)
 		end
 	end
 
-	-- A drop over one of the player's units equips the item there.
-	local function drop(index: number, screenPosition: Vector2)
-		local hit = Arena.raycast(screenPosition)
-		local unitId = if hit then hit.Instance:GetAttribute("UnitId") else nil
-		if unitId and canEquip() and inventory[index] then
-			requestEquip:FireServer(index, unitId)
+	-- A tap on the strip: with an item picked up from a unit, sends it back to the inventory;
+	-- otherwise a tap on an icon toggles picking it up.
+	local function tap(index: number?)
+		local selection = ItemSelection.get()
+		if selection and selection.kind == "unit" then
+			requestUnequip:FireServer(selection.unitId, selection.slot)
+			ItemSelection.clear()
+		elseif not index or not inventory[index] then
+			return
+		elseif selection and selection.kind == "inventory" and selection.index == index then
+			ItemSelection.clear()
+		elseif canEquip() then
+			ItemSelection.set({ kind = "inventory", index = index, itemId = inventory[index] })
+		else
+			explainLock()
 		end
 	end
+
+	-- True if a screen position is over any visible HUD element (not the dragged icon).
+	local function overHud(screenPosition: Vector2): boolean
+		for _, object in playerGui:GetGuiObjectsAtPosition(screenPosition.X, screenPosition.Y) do
+			if object.Visible and object.BackgroundTransparency < 1 and not object:IsDescendantOf(dragGui) then
+				return true
+			end
+		end
+		return false
+	end
+
+	-- A drop over one of the player's units equips the item there. A drop over the HUD (for example
+	-- back on the strip) cancels, even if a unit stands behind it.
+	local function drop(index: number, screenPosition: Vector2)
+		if overHud(screenPosition) then
+			return
+		end
+		local hit = Arena.raycast(screenPosition)
+		local unitId = if hit then hit.Instance:GetAttribute("UnitId") else nil
+		if not unitId or not inventory[index] then
+			return
+		end
+		if canEquip() then
+			requestEquip:FireServer(index, unitId)
+		else
+			explainLock()
+		end
+	end
+
+	-- Presses on the strip: on an icon a press may become a drag; anywhere on the strip it may be a
+	-- tap (see tap). One handler on the panel, so icons never compete for the same press.
+	panel.Active = true
+	panel.InputBegan:Connect(function(input)
+		local isPress = input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not isPress or press then
+			return
+		end
+		local position = Vector2.new(input.Position.X, input.Position.Y)
+		local index = nil
+		for i, icon in icons do
+			local topLeft, size = icon.AbsolutePosition, icon.AbsoluteSize
+			if
+				position.X >= topLeft.X
+				and position.X <= topLeft.X + size.X
+				and position.Y >= topLeft.Y
+				and position.Y <= topLeft.Y + size.Y
+			then
+				index = i
+				break
+			end
+		end
+		press = { index = index, start = position, input = input }
+	end)
 
 	UserInputService.InputChanged:Connect(function(input)
 		if not press then
@@ -178,8 +251,16 @@ function InventoryStrip.start()
 			return
 		end
 		local position = Vector2.new(input.Position.X, input.Position.Y)
-		if not ghost and (position - press.start).Magnitude >= DRAG_THRESHOLD and canEquip() then
-			ghost = ItemIcon.new(inventory[press.index], ICON + 6, dragGui)
+		local index = press.index
+		if
+			not ghost
+			and index
+			and inventory[index]
+			and (position - press.start).Magnitude >= DRAG_THRESHOLD
+			and not (ItemSelection.get() and (ItemSelection.get() :: any).kind == "unit")
+		then
+			-- During combat the drag still follows the pointer, and the drop explains the lock.
+			ghost = ItemIcon.new(inventory[index], ICON + 6, dragGui)
 			ItemSelection.clear()
 		end
 		if ghost then
@@ -197,7 +278,7 @@ function InventoryStrip.start()
 			return
 		end
 		local index = press.index
-		if ghost then
+		if ghost and index then
 			drop(index, Vector2.new(input.Position.X, input.Position.Y))
 		else
 			tap(index)
@@ -220,10 +301,19 @@ function InventoryStrip.start()
 		return true
 	end)
 
-	ItemSelection.onChanged(refreshHighlights)
+	ItemSelection.onChanged(function()
+		updateTitle()
+		refreshHighlights()
+	end)
 	BoardController.onInspect(function(info)
 		local unit = if info then UnitConfig[info.unitType] else nil
 		tags = if unit then Items.unitTags(unit.classes) else {}
+		-- An item picked up from a unit is shown in that unit's info panel; when the panel closes
+		-- (a tap elsewhere), the item is put down too instead of staying picked up unseen.
+		local selection = ItemSelection.get()
+		if not info and selection and selection.kind == "unit" then
+			ItemSelection.clear()
+		end
 		refreshHighlights()
 	end)
 	-- Items that just arrived (picked, or returned by a sale, a merge or an unequip) light up and pop
@@ -255,6 +345,11 @@ function InventoryStrip.start()
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(view)
 		local previous = inventory
 		inventory = view.inventory or {}
+		-- A drag in progress points at an inventory index; if the inventory changed under it, the
+		-- index may now be a different item, so the drag is dropped.
+		if table.concat(previous, ",") ~= table.concat(inventory, ",") then
+			endDrag()
+		end
 		ItemSelection.clear()
 		render()
 		flashArrivals(previous)

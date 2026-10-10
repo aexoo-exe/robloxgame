@@ -12,6 +12,8 @@ local UI = require(script.Parent.UI)
 
 local RefusalNotice = {}
 
+local showReason: (string) -> () = function() end
+
 function RefusalNotice.start()
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 	local _, root = UI.screen("RefusalNotice", 10)
@@ -29,7 +31,7 @@ function RefusalNotice.start()
 	label.LayoutOrder = 2
 
 	local shownCount = 0
-	remotes:WaitForChild(RemoteNames.RequestRefused).OnClientEvent:Connect(function(reason: string)
+	showReason = function(reason: string)
 		shownCount += 1
 		local thisMessage = shownCount
 		label.Text = string.upper(reason)
@@ -40,7 +42,14 @@ function RefusalNotice.start()
 				toast.Visible = false
 			end
 		end)
-	end)
+	end
+	remotes:WaitForChild(RemoteNames.RequestRefused).OnClientEvent:Connect(showReason)
+end
+
+-- Shows a refusal the client already knows the server would give (for example
+-- PlayerState.Refusal.ItemsLocked when an item is dragged during combat), without a request.
+function RefusalNotice.show(reason: string)
+	showReason(reason)
 end
 
 return RefusalNotice
