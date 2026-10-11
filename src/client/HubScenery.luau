@@ -1,7 +1,7 @@
 -- The hub's client-side scenery (HubConfig):
 --   * a sea of clouds under the hub that hides everything below and around it, with puffs that
 --     drift slowly over it
---   * floating rocks that bob
+--   * small floating islets that bob, placed away from every walkable area
 --   * a statue on every roster gallery plinth (the unit's placeholder figure and character look,
 --     from Figure and CharacterLook) and the item pictogram over every shrine pedestal (ItemIcon)
 -- The plinths and pedestals are built by the server (HubBuilder) and carry UnitType / ItemId
@@ -29,7 +29,7 @@ local statues: Folder
 local active = false
 local animation: RBXScriptConnection? = nil
 local puffs: { { part: BasePart, speed: number } } = {}
-local rocks: { { part: BasePart, cap: BasePart?, base: CFrame, phase: number, period: number } } = {}
+local rocks: { { pieces: { { part: BasePart, offset: CFrame } }, base: CFrame, phase: number, period: number } } = {}
 local random = Random.new(7)
 
 local function decor(parent: Instance, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
@@ -94,16 +94,27 @@ local function buildClouds()
 	end
 end
 
--- Floating rocks with a grassy top, bobbing slowly.
+-- Small floating islets, bobbing slowly: a grass top over light rock tapering away in two layers,
+-- like the outer islands. Each config position is the center of its grass top.
 local function buildRocks()
+	local upright = CFrame.Angles(0, 0, math.pi / 2)
 	for _, offset in HubConfig.floatingRocks do
-		local size = random:NextNumber(5, 11)
+		local width = random:NextNumber(8, 16)
 		local base = CFrame.new(CENTER + offset) * CFrame.Angles(0, random:NextNumber(0, math.pi * 2), 0)
-		local rock = decor(scenery, Vector3.new(size, size * 0.8, size), base * CFrame.Angles(math.rad(45), 0, math.rad(35)), COLORS.rock, Enum.Material.Rock)
-		local cap = decor(scenery, Vector3.new(0.8, size * 0.9, size * 0.9), base * CFrame.new(0, size * 0.55, 0) * CFrame.Angles(0, 0, math.pi / 2), COLORS.grass, Enum.Material.Grass, Enum.PartType.Cylinder)
+		local pieces = {}
+		local function piece(part: BasePart)
+			table.insert(pieces, { part = part, offset = base:ToObjectSpace(part.CFrame) })
+		end
+		piece(decor(scenery, Vector3.new(1.2, width, width), base * CFrame.new(0, -0.6, 0) * upright, COLORS.grass, Enum.Material.Grass, Enum.PartType.Cylinder))
+		local layers = { { 0.92, 2.5 }, { 0.55, 3 } }
+		local depth = 1.2
+		for _, layer in layers do
+			local shift = CFrame.new(random:NextNumber(-0.8, 0.8), -depth - layer[2] / 2, random:NextNumber(-0.8, 0.8))
+			piece(decor(scenery, Vector3.new(layer[2], width * layer[1], width * layer[1]), base * shift * upright, COLORS.rockLight, Enum.Material.Rock, Enum.PartType.Cylinder))
+			depth += layer[2]
+		end
 		table.insert(rocks, {
-			part = rock,
-			cap = cap,
+			pieces = pieces,
 			base = base,
 			phase = random:NextNumber(0, math.pi * 2),
 			period = random:NextNumber(6, 10),
@@ -184,10 +195,8 @@ local function animate(dt: number)
 	for _, rock in rocks do
 		local lift = math.sin(now * 2 * math.pi / rock.period + rock.phase) * 1.4
 		local base = rock.base + Vector3.new(0, lift, 0)
-		local size = rock.part.Size
-		rock.part.CFrame = base * CFrame.Angles(math.rad(45), 0, math.rad(35))
-		if rock.cap then
-			rock.cap.CFrame = base * CFrame.new(0, size.X * 0.55, 0) * CFrame.Angles(0, 0, math.pi / 2)
+		for _, piece in rock.pieces do
+			piece.part.CFrame = base * piece.offset
 		end
 	end
 end

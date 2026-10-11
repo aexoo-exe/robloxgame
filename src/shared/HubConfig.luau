@@ -126,14 +126,14 @@ return table.freeze({
 	-- board shows `placeholder` until HubService.setLeaderboard gives it rows.
 	hall = table.freeze({
 		boards = table.freeze({
-			table.freeze({ id = "wins", title = "MOST WINS", position = v(-76, 10, 133) }),
-			table.freeze({ id = "top4", title = "TOP 4 FINISHES", position = v(-76, 10, 145) }),
-			table.freeze({ id = "played", title = "MATCHES PLAYED", position = v(-76, 10, 157) }),
+			table.freeze({ id = "wins", title = "MOST WINS", position = v(-72, 10, 133) }),
+			table.freeze({ id = "top4", title = "TOP 4 FINISHES", position = v(-72, 10, 145) }),
+			table.freeze({ id = "played", title = "MATCHES PLAYED", position = v(-72, 10, 157) }),
 		}),
-		facing = v(0, 10, 145),
+		-- Every board stands upright and faces straight into the terrace (+X), the podium in front.
 		rowsShown = 8,
 		placeholder = "Rankings coming soon",
-		podium = v(-58, 10, 145),
+		podium = v(-60, 10, 145),
 	}),
 
 	-- Outer islands and bridges.
@@ -158,8 +158,29 @@ return table.freeze({
 	stoneRadius = 2,
 
 	-- Decoration.
-	lanterns = table.freeze({ v(-13, 0, 92), v(13, 0, 92), v(-13, 0, -52), v(13, 0, -52), v(31, 0, -133), v(31, 0, -147) }),
-	trees = table.freeze({ v(22, 10, 134), v(-30, 10, 160), v(-136, -3, 18), v(-124, -3, 36), v(-140, -3, 34) }),
+	lanterns = table.freeze({
+		v(-13, 0, 92), v(13, 0, 92), v(-13, 0, -52), v(13, 0, -52), v(31, 0, -133), v(31, 0, -147),
+		v(-19, 10, 128), v(19, 10, 128), v(-44, 10, 162), v(18, 10, 162), v(-30, 0, 36), v(30, 0, -36),
+	}),
+	trees = table.freeze({
+		v(22, 10, 134), v(-30, 10, 160), v(-136, -3, 18), v(-124, -3, 36), v(-140, -3, 34),
+		v(-24, 0, 24), v(24, 0, -24), v(-24, 0, -24), v(-62, 10, 164), v(8, 10, 164), v(-30, 0, -140),
+	}),
+	-- Grass beds with a low hedge along their avenue side: rectangles on the main floor.
+	beds = table.freeze({
+		table.freeze({ x = { -33, -23 }, z = { 50, 118 }, hedge = -23 }),
+		table.freeze({ x = { 23, 33 }, z = { 76, 118 }, hedge = 23 }),
+		table.freeze({ x = { 23, 33 }, z = { 50, 57 }, hedge = 23 }),
+		table.freeze({ x = { -33, -23 }, z = { -126, -50 }, hedge = -23 }),
+		table.freeze({ x = { 23, 33 }, z = { -114, -50 }, hedge = 23 }),
+	}),
+	-- Round grass beds in the plaza (each of the plaza trees above stands in one): centers and radius.
+	plazaBeds = table.freeze({ v(-24, 0, 24), v(24, 0, 24), v(24, 0, -24), v(-24, 0, -24) }),
+	plazaBedRadius = 6,
+	-- Stone planters with a hedge on the arrival terrace (centers; terrace height).
+	planters = table.freeze({ v(-50, 10, 163), v(-30, 10, 128), v(24, 10, 150), v(-12, 10, 163), v(-40, 10, 145), v(-62, 10, 128) }),
+	-- A paving band inside the terrace's edge and a tile diamond around the spawn.
+	terraceBorder = 2,
 	waterfall = table.freeze({ pond = v(28, 0, 66), width = 6, drop = 75 }), -- falls off the +X edge
 
 	-- The boundary: an invisible box around the whole hub (walls and a ceiling). Players who fall
@@ -174,19 +195,25 @@ return table.freeze({
 		puffArea = 420, -- puffs drift within this distance of the center
 		driftSpeed = 2, -- studs per second
 	}),
+	-- Small floating islets that bob, all well outside the walkable areas (centers of their grass tops).
 	floatingRocks = table.freeze({
-		v(-60, 18, -60), v(70, 24, 60), v(-110, 8, -90), v(120, 16, -40), v(-40, 30, 120), v(60, 12, -190), v(-150, 20, 90), v(150, 28, 110),
+		v(-185, 12, -60), v(195, 18, 40), v(-70, 8, 215), v(80, 14, 205), v(-195, 22, 130), v(210, 6, -110), v(-125, 16, -215), v(40, 20, -240),
 	}),
 
 	colors = table.freeze({
 		grass = rgb(98, 160, 82),
-		rock = rgb(112, 98, 92),
-		rockDark = rgb(78, 68, 66),
-		ground = rgb(186, 178, 166),
-		avenue = rgb(222, 212, 194),
+		hedge = rgb(62, 120, 64),
+		rock = rgb(128, 108, 94),
+		rockDark = rgb(96, 80, 72),
+		rockLight = rgb(168, 150, 128), -- floating islets
+		ground = rgb(206, 190, 162), -- warm sandstone floors
+		avenue = rgb(234, 222, 198),
+		tile = rgb(196, 112, 82), -- terracotta: borders and the spawn diamond
 		inlay = rgb(232, 196, 120),
-		inlayInner = rgb(168, 160, 150),
-		curb = rgb(150, 140, 132),
+		inlayInner = rgb(184, 168, 146),
+		curb = rgb(176, 152, 124),
+		rail = rgb(196, 48, 42), -- the red rail on the curbs
+		roof = rgb(62, 128, 116), -- patina-green roofs
 		plinth = rgb(214, 208, 198),
 		torii = rgb(196, 48, 42),
 		dark = rgb(36, 30, 32),

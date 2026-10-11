@@ -112,26 +112,62 @@ local function slab(parent: Instance, x: { number }, z: { number }, top: number,
 	return part(parent, Vector3.new(x[2] - x[1], thickness, z[2] - z[1]), CFrame.new(at(position)), color, material)
 end
 
--- Rock tapering away under a rectangle (`top` is the rock's top).
+-- Uneven rock layers: the same seed every build, so the hub always looks the same.
+local shapeRandom = Random.new(11)
+
+local function jitter(amount: number): number
+	return shapeRandom:NextNumber(-amount, amount)
+end
+
+-- Rock tapering inward under a rectangle in uneven layers, each a little off-center and of its own
+-- proportions (`top` is the rock's top).
 local function rockUnderRect(parent: Instance, x: { number }, z: { number }, top: number)
-	local layers = { { 0.94, 9, COLORS.rock }, { 0.7, 12, COLORS.rockDark }, { 0.38, 14, COLORS.rock } }
+	local layers = {
+		{ 0.97, 5, COLORS.rock },
+		{ 0.84, 7, COLORS.rockDark },
+		{ 0.66, 9, COLORS.rock },
+		{ 0.44, 10, COLORS.rockDark },
+		{ 0.22, 8, COLORS.rock },
+	}
 	local midX, midZ = (x[1] + x[2]) / 2, (z[1] + z[2]) / 2
 	local halfX, halfZ = (x[2] - x[1]) / 2, (z[2] - z[1]) / 2
-	for _, layer in layers do
-		local scale = layer[1]
-		slab(parent, { midX - halfX * scale, midX + halfX * scale }, { midZ - halfZ * scale, midZ + halfZ * scale }, top, layer[2], layer[3], Enum.Material.Rock)
+	for index, layer in layers do
+		local scaleX = layer[1] * (1 + jitter(0.06))
+		local scaleZ = layer[1] * (1 + jitter(0.06))
+		local shift = if index == 1 then 0 else 1
+		local centerX = midX + jitter(halfX * 0.12) * shift
+		local centerZ = midZ + jitter(halfZ * 0.12) * shift
+		local material = if index % 2 == 0 then Enum.Material.Slate else Enum.Material.Rock
+		slab(parent, { centerX - halfX * scaleX, centerX + halfX * scaleX }, { centerZ - halfZ * scaleZ, centerZ + halfZ * scaleZ }, top, layer[2], layer[3], material)
 		top -= layer[2]
 	end
 end
 
--- Rock tapering away under a disc (`top` is the rock's top).
+-- The same under a disc.
 local function rockUnderDisc(parent: Instance, position: Vector3, radius: number, top: number, layers: number?)
-	local shapes = { { 0.92, 8, COLORS.rock }, { 0.62, 10, COLORS.rockDark }, { 0.3, 10, COLORS.rock } }
-	for i = 1, layers or 3 do
+	local shapes = {
+		{ 0.94, 6, COLORS.rock },
+		{ 0.72, 8, COLORS.rockDark },
+		{ 0.48, 9, COLORS.rock },
+		{ 0.24, 7, COLORS.rockDark },
+	}
+	for i = 1, layers or #shapes do
 		local layer = shapes[i]
-		disc(parent, Vector3.new(position.X, top, position.Z), radius * 2 * layer[1], layer[2], layer[3], Enum.Material.Rock)
+		local shift = if i == 1 then 0 else radius * 0.12
+		local center = Vector3.new(position.X + jitter(shift), top, position.Z + jitter(shift))
+		disc(parent, center, radius * 2 * layer[1] * (1 + jitter(0.05)), layer[2], layer[3], if i % 2 == 0 then Enum.Material.Slate else Enum.Material.Rock)
 		top -= layer[2]
 	end
+end
+
+-- A grass lip just below a rectangle's floor, sticking out past its edges: a green rim from above
+-- and a green band from the side, like the small islands.
+local function grassLipRect(parent: Instance, x: { number }, z: { number }, top: number)
+	slab(parent, { x[1] - 1.5, x[2] + 1.5 }, { z[1] - 1.5, z[2] + 1.5 }, top - 0.1, 2.5, COLORS.grass, Enum.Material.Grass)
+end
+
+local function grassLipDisc(parent: Instance, position: Vector3, radius: number, top: number)
+	disc(parent, Vector3.new(position.X, top - 0.1, position.Z), radius * 2 + 3, 2.5, COLORS.grass, Enum.Material.Grass)
 end
 
 local function light(parent: Instance, color: Color3, range: number, brightness: number)
@@ -189,6 +225,8 @@ local function curb(parent: Instance, from: Vector3, to: Vector3)
 	local middle = (from + to) / 2
 	local cframe = CFrame.lookAt(at(middle, 0.7), at(Vector3.new(to.X, middle.Y, to.Z), 0.7))
 	part(parent, Vector3.new(1.2, 1.4, length + 1), cframe, COLORS.curb, Enum.Material.Slate)
+	-- A red wooden rail along the top, the hub's accent color.
+	part(parent, Vector3.new(1.4, 0.3, length + 1.2), cframe * CFrame.new(0, 0.85, 0), COLORS.rail, Enum.Material.Wood)
 end
 
 -- Curbs around a disc island, leaving gaps at `openings` (angles).
@@ -338,20 +376,30 @@ end
 local function mainIsland(folder: Instance)
 	local spine = HubConfig.spine
 	slab(folder, spine.x, spine.z, 0, 3, COLORS.ground, Enum.Material.Slate)
+	grassLipRect(folder, spine.x, spine.z, 0)
 	rockUnderRect(folder, spine.x, spine.z, -3)
 	local plaza = HubConfig.plaza
 	disc(folder, plaza.center + Vector3.new(0, 0.04, 0), plaza.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
-	rockUnderDisc(folder, plaza.center, plaza.radius, -3, 2)
-	-- The avenue: pale paving from the stair to the arena gate, under the plaza's gold inlay.
+	grassLipDisc(folder, plaza.center, plaza.radius, 0.04)
+	rockUnderDisc(folder, plaza.center, plaza.radius, -3, 3)
+	-- The avenue: pale paving from the stair to the arena gate with a terracotta border, under the
+	-- plaza's gold inlay.
 	local half = HubConfig.avenueHalfWidth
 	slab(folder, { -half, half }, { spine.z[1] + 8, spine.z[2] }, 0.06, 0.3, COLORS.avenue, Enum.Material.Pavement)
+	for _, side in { -1, 1 } do
+		slab(folder, { side * half - 0.6, side * half + 0.6 }, { spine.z[1] + 8, spine.z[2] }, 0.07, 0.3, COLORS.tile, Enum.Material.Brick)
+	end
 	disc(folder, plaza.center + Vector3.new(0, 0.08, 0), 40, 0.3, COLORS.inlay, Enum.Material.Marble)
 	disc(folder, plaza.center + Vector3.new(0, 0.1, 0), 37, 0.3, COLORS.inlayInner, Enum.Material.Slate)
 
+	-- The terrace: its floor, a grass lip on its sides and back (the front meets the stair), a solid
+	-- riser down to the avenue behind the stair, and rock tapering under the rest.
 	local terrace = HubConfig.terrace
-	slab(folder, terrace.x, terrace.z, terrace.height, 2, COLORS.ground, Enum.Material.Slate)
-	slab(folder, { terrace.x[1] + 0.5, terrace.x[2] - 0.5 }, { terrace.z[1] + 0.5, terrace.z[2] - 0.5 }, terrace.height - 2, 20, COLORS.rock, Enum.Material.Rock)
-	rockUnderRect(folder, terrace.x, terrace.z, terrace.height - 22)
+	local h = terrace.height
+	slab(folder, terrace.x, terrace.z, h, 2, COLORS.ground, Enum.Material.Slate)
+	slab(folder, { terrace.x[1] - 1.5, terrace.x[2] + 1.5 }, { terrace.z[1], terrace.z[2] + 1.5 }, h - 0.1, 2.5, COLORS.grass, Enum.Material.Grass)
+	slab(folder, { terrace.x[1] + 0.5, terrace.x[2] - 0.5 }, { terrace.z[1], terrace.z[1] + 6 }, h - 2, h - 2, COLORS.rock, Enum.Material.Rock)
+	rockUnderRect(folder, terrace.x, terrace.z, h - 2)
 
 	-- The grand stair down from the terrace's front edge, with a balustrade on each side.
 	local stairs = HubConfig.stairs
@@ -538,13 +586,13 @@ local function arenaGate(folder: Instance): Pad
 			folder,
 			Vector3.new(8, 1.4, 9),
 			CFrame.new(at(c + Vector3.new(side * (half + 6), gate.height + 3.6, 0))) * CFrame.Angles(0, 0, math.rad(side * 18)),
-			COLORS.dark,
+			COLORS.roof,
 			Enum.Material.Slate
 		)
 	end
 	part(folder, Vector3.new(gate.width + 8, 3, 5), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 0))), COLORS.dark, Enum.Material.Wood)
 	part(folder, Vector3.new(gate.width + 4, 2, 3.6), CFrame.new(at(c + Vector3.new(0, gate.height - 3, 0))), COLORS.torii, Enum.Material.Wood)
-	part(folder, Vector3.new(gate.width + 6, 1.4, 9), CFrame.new(at(c + Vector3.new(0, gate.height + 3.7, 0))), COLORS.dark, Enum.Material.Slate)
+	part(folder, Vector3.new(gate.width + 6, 1.4, 9), CFrame.new(at(c + Vector3.new(0, gate.height + 3.7, 0))), COLORS.roof, Enum.Material.Slate)
 	part(folder, Vector3.new(gate.width - 4, gate.height - 5, 1), CFrame.new(at(c + Vector3.new(0, (gate.height - 5) / 2, -1.5))), COLORS.dark, Enum.Material.Wood)
 	local portal = part(folder, Vector3.new(gate.width - 8, gate.height - 9, 0.3), CFrame.new(at(c + Vector3.new(0, (gate.height - 9) / 2 + 1, 2.6))), COLORS.portal, Enum.Material.Neon)
 	portal.Transparency = 0.55
@@ -573,13 +621,15 @@ local function trainingYard(folder: Instance): Pad
 	local yard = HubConfig.yard
 	local x, z = { config.x[1] - 1, config.x[2] + 1 }, { config.z[1] - 1, config.z[2] + 1 }
 	slab(folder, x, z, config.height, 3, COLORS.wood, Enum.Material.WoodPlanks)
+	-- A grass lip on the three outer sides (the fourth meets the plaza).
+	slab(folder, { x[1], x[2] + 1.5 }, { z[1] - 1.5, z[2] + 1.5 }, config.height - 0.1, 2.5, COLORS.grass, Enum.Material.Grass)
 	rockUnderRect(folder, x, z, config.height - 3)
 	local height = yard.wallHeight
 	local wall = function(from: Vector3, to: Vector3)
 		local length = (to - from).Magnitude
 		local frame = CFrame.lookAt(at((from + to) / 2, height / 2), at(to, height / 2))
 		part(folder, Vector3.new(1.2, height, length + 1.2), frame, COLORS.spawnStone, Enum.Material.Plaster)
-		part(folder, Vector3.new(2.2, 0.8, length + 2.2), frame * CFrame.new(0, height / 2 + 0.3, 0), COLORS.dark, Enum.Material.Slate)
+		part(folder, Vector3.new(2.2, 0.8, length + 2.2), frame * CFrame.new(0, height / 2 + 0.3, 0), COLORS.roof, Enum.Material.Slate)
 	end
 	local y = config.height
 	local open = yard.openingHalfWidth
@@ -621,7 +671,8 @@ local function shrine(folder: Instance)
 	local config = HubConfig.shrine
 	local origin = config.center
 	disc(folder, origin + Vector3.new(0, 0.3, 0), config.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
-	rockUnderDisc(folder, origin, config.radius, -2.7, 2)
+	grassLipDisc(folder, origin, config.radius, 0.3)
+	rockUnderDisc(folder, origin, config.radius, -2.7, 3)
 	disc(folder, origin + Vector3.new(0, 0.9, 0), config.daisRadius * 2, 0.8, COLORS.plinth, Enum.Material.Marble)
 	local roofHeight = 9.5
 	for i = 0, 7 do
@@ -630,7 +681,7 @@ local function shrine(folder: Instance)
 	end
 	for tier, size in { { 32, roofHeight + 0.5 }, { 20, roofHeight + 2.5 } } do
 		for _, turn in { 0, 45 } do
-			part(folder, Vector3.new(size[1], 1.2, size[1]), CFrame.new(at(origin, size[2])) * CFrame.Angles(0, math.rad(turn), 0), if tier == 1 then COLORS.dark else COLORS.torii, Enum.Material.Slate)
+			part(folder, Vector3.new(size[1], 1.2, size[1]), CFrame.new(at(origin, size[2])) * CFrame.Angles(0, math.rad(turn), 0), if tier == 1 then COLORS.roof else COLORS.torii, Enum.Material.Slate)
 		end
 	end
 	part(folder, Vector3.new(1.6, 1.6, 1.6), CFrame.new(at(origin, roofHeight + 4)), COLORS.gold, Enum.Material.Metal, Enum.PartType.Ball)
@@ -669,9 +720,16 @@ local function hallOfFame(folder: Instance): { [string]: Board }
 	local config = HubConfig.hall
 	local boards = {}
 	for _, entry in config.boards do
-		local frame = facing(entry.position, config.facing)
+		-- Upright, facing straight into the terrace (+X), in a wooden frame with a small roof, so
+		-- its back reads as a finished sign from outside too.
+		local frame = facing(entry.position, entry.position + Vector3.new(10, 0, 0))
 		local board = part(folder, Vector3.new(10, 11, 0.8), frame * CFrame.new(0, 6.5, 0), COLORS.displayBoard)
+		part(folder, Vector3.new(10.6, 11.6, 0.4), frame * CFrame.new(0, 6.5, 0.6), COLORS.wood, Enum.Material.WoodPlanks)
+		for _, side in { -1, 1 } do
+			part(folder, Vector3.new(0.8, 13, 0.8), frame * CFrame.new(side * 5.5, 6.5, 0.2), COLORS.rail, Enum.Material.Wood)
+		end
 		part(folder, Vector3.new(11.4, 0.6, 1.2), frame * CFrame.new(0, 12.3, 0), COLORS.gold, Enum.Material.Metal)
+		part(folder, Vector3.new(13, 0.7, 3.2), frame * CFrame.new(0, 13.3, 0.2), COLORS.roof, Enum.Material.Slate)
 		local gui = surface(board, Enum.NormalId.Front, 40)
 		label(gui, entry.title, 0.03, 0.12, COLORS.gold, Enum.Font.GothamBlack)
 		local list = Instance.new("Frame")
@@ -687,13 +745,18 @@ local function hallOfFame(folder: Instance): { [string]: Board }
 		local placeholder = label(gui, config.placeholder, 0.45, 0.12, Color3.fromRGB(200, 200, 215), Enum.Font.GothamMedium)
 		boards[entry.id] = { list = list, placeholder = placeholder }
 	end
-	-- A podium: 2nd, 1st, 3rd.
+	-- A podium in front of the boards, facing the same way: a base, then 2nd, 1st and 3rd, with a
+	-- trophy on 1st. Its numbers face the rest of the terrace (away from the boards).
 	local podium = config.podium
-	local frame = facing(podium, config.facing)
-	for index, step in { { -4.2, 2, "2" }, { 0, 3, "1" }, { 4.2, 1.4, "3" } } do
-		local block = part(folder, Vector3.new(4, step[2], 4), frame * CFrame.new(step[1], step[2] / 2, 0), if index == 2 then COLORS.gold else COLORS.plinth, Enum.Material.Marble)
+	local frame = facing(podium, podium + Vector3.new(10, 0, 0))
+	part(folder, Vector3.new(14, 0.4, 5.6), frame * CFrame.new(0, 0.2, 0), COLORS.curb, Enum.Material.Slate)
+	-- Local +X is the viewer's left here, so 2nd stands on the left as seen from the terrace.
+	for index, step in { { 4.2, 2, "2" }, { 0, 3, "1" }, { -4.2, 1.4, "3" } } do
+		local block = part(folder, Vector3.new(4, step[2], 4), frame * CFrame.new(step[1], 0.4 + step[2] / 2, 0), if index == 2 then COLORS.gold else COLORS.plinth, Enum.Material.Marble)
 		label(surface(block, Enum.NormalId.Front, 30), step[3], 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
 	end
+	part(folder, Vector3.new(0.4, 1.2, 1.2), frame * CFrame.new(0, 3.6, 0) * UPRIGHT, COLORS.gold, Enum.Material.Metal, Enum.PartType.Cylinder)
+	part(folder, Vector3.new(1.4, 1.4, 1.4), frame * CFrame.new(0, 4.4, 0), COLORS.gold, Enum.Material.Metal, Enum.PartType.Ball)
 	return boards
 end
 
@@ -702,6 +765,7 @@ local function outerIslands(folder: Instance)
 	local islands = HubConfig.islands
 	local lookout, garden, hidden = islands.lookout, islands.garden, islands.hidden
 	disc(folder, lookout.center, lookout.radius * 2, 3, COLORS.ground, Enum.Material.Slate)
+	grassLipDisc(folder, lookout.center, lookout.radius, lookout.center.Y)
 	rockUnderDisc(folder, lookout.center, lookout.radius, lookout.center.Y - 3)
 	ringCurb(folder, lookout.center, lookout.radius, { 270, 73 })
 	-- A telescope on a stand and a bench, looking out over the clouds.
@@ -769,6 +833,39 @@ local function waterfall(folder: Instance)
 	puff.Parent = mist
 end
 
+-- Breaks up the big floors: grass beds with a low hedge beside the gallery, round grass beds in
+-- the plaza, stone planters with hedges on the terrace, a terracotta band inside the terrace's
+-- edge and a tile diamond around the spawn.
+local function gardens(folder: Instance)
+	for _, bed in HubConfig.beds do
+		slab(folder, bed.x, bed.z, 0.25, 0.5, COLORS.grass, Enum.Material.Grass)
+		slab(folder, { bed.hedge - 0.7, bed.hedge + 0.7 }, { bed.z[1] + 0.5, bed.z[2] - 0.5 }, 1.6, 1.4, COLORS.hedge, Enum.Material.Grass)
+	end
+	for _, center in HubConfig.plazaBeds do
+		local radius = HubConfig.plazaBedRadius
+		disc(folder, center + Vector3.new(0, 0.12, 0), radius * 2 + 1.2, 0.3, COLORS.tile, Enum.Material.Brick)
+		disc(folder, center + Vector3.new(0, 0.16, 0), radius * 2, 0.3, COLORS.grass, Enum.Material.Grass)
+	end
+	for _, position in HubConfig.planters do
+		part(folder, Vector3.new(6, 1.2, 2.5), CFrame.new(at(position, 0.6)), COLORS.curb, Enum.Material.Slate)
+		part(folder, Vector3.new(5.4, 1, 1.9), CFrame.new(at(position, 1.7)), COLORS.hedge, Enum.Material.Grass)
+	end
+
+	local terrace = HubConfig.terrace
+	local inset = HubConfig.terraceBorder + 1
+	local top = terrace.height + 0.05
+	local x1, x2 = terrace.x[1] + inset, terrace.x[2] - inset
+	local z1, z2 = terrace.z[1] + inset, terrace.z[2] - inset
+	slab(folder, { x1 - 0.6, x2 + 0.6 }, { z1 - 0.6, z1 + 0.6 }, top, 0.3, COLORS.tile, Enum.Material.Brick)
+	slab(folder, { x1 - 0.6, x2 + 0.6 }, { z2 - 0.6, z2 + 0.6 }, top, 0.3, COLORS.tile, Enum.Material.Brick)
+	slab(folder, { x1 - 0.6, x1 + 0.6 }, { z1, z2 }, top, 0.3, COLORS.tile, Enum.Material.Brick)
+	slab(folder, { x2 - 0.6, x2 + 0.6 }, { z1, z2 }, top, 0.3, COLORS.tile, Enum.Material.Brick)
+	local spawn = HubConfig.spawn
+	local turn = CFrame.Angles(0, math.rad(45), 0)
+	part(folder, Vector3.new(18, 0.3, 18), CFrame.new(at(spawn, 0.05 - 0.15)) * turn, COLORS.tile, Enum.Material.Brick)
+	part(folder, Vector3.new(15, 0.3, 15), CFrame.new(at(spawn, 0.07 - 0.15)) * turn, COLORS.avenue, Enum.Material.Pavement)
+end
+
 -- The invisible box around everything. Fully transparent, so the camera ignores it.
 local function boundary(folder: Instance)
 	local bounds = HubConfig.bounds
@@ -802,6 +899,7 @@ function HubBuilder.build(): ({ play: Pad, practice: Pad }, { [string]: Board })
 	folder.Name = "Hub"
 	mainIsland(folder)
 	edges(folder)
+	gardens(folder)
 	arrival(folder)
 	plaza(folder)
 	gallery(folder)
