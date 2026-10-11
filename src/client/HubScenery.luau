@@ -61,8 +61,9 @@ local function blob(parent: Instance, size: Vector3, cframe: CFrame, color: Colo
 	return part
 end
 
--- The cloud sea: a huge flat layer under the hub and a ring of more around it to the horizon
--- (the hub's haze hides the rest), and puffs drifting on top.
+-- The cloud sea: a huge flat layer of cool white under the hub and a ring of faintly blue layers
+-- around it to the horizon (the hub's haze hides the rest), with many small flat puffs drifting on
+-- top so the surface looks lumpy and soft. No part casts a shadow.
 local function buildClouds()
 	local config = HubConfig.clouds
 	local top = CENTER.Y + config.seaHeight
@@ -81,17 +82,28 @@ local function buildClouds()
 			Enum.PartType.Cylinder
 		)
 	end
+	-- Small flat puffs, semi-translucent, at slightly different heights, spread over the sea around
+	-- the island (not under its middle, where nobody sees them).
+	local area, hidden = config.puffArea, config.puffHidden
 	for _ = 1, config.puffs do
-		local angle = random:NextNumber(0, math.pi * 2)
-		local distance = random:NextNumber(40, config.puffArea)
-		local width = random:NextNumber(30, 80)
-		local position = CENTER + Vector3.new(math.cos(angle) * distance, config.seaHeight + random:NextNumber(-1, 4), math.sin(angle) * distance)
+		local x, z = 0, 0
+		for _ = 1, 12 do
+			x, z = random:NextNumber(-area, area), random:NextNumber(-area, area)
+			if math.abs(x) > hidden.X or math.abs(z) > hidden.Y then
+				break
+			end
+		end
+		local width = random:NextNumber(config.puffWidth[1], config.puffWidth[2])
+		local height = random:NextNumber(config.puffHeight[1], config.puffHeight[2])
+		local lift = random:NextNumber(config.puffLift[1], config.puffLift[2])
+		local position = CENTER + Vector3.new(x, config.seaHeight + lift, z)
 		local part = blob(
 			scenery,
-			Vector3.new(width, random:NextNumber(10, 22), width * random:NextNumber(0.5, 0.9)),
-			CFrame.new(position),
-			if random:NextNumber() < 0.5 then COLORS.cloud else COLORS.cloudShade
+			Vector3.new(width, height, width * random:NextNumber(0.55, 0.95)),
+			CFrame.new(position) * CFrame.Angles(0, random:NextNumber(0, math.pi), 0),
+			if random:NextNumber() < 0.6 then COLORS.cloud else COLORS.cloudShade
 		)
+		part.Transparency = random:NextNumber(config.puffTransparency[1], config.puffTransparency[2])
 		table.insert(puffs, { part = part, speed = config.driftSpeed * random:NextNumber(0.6, 1.4) })
 	end
 end
@@ -298,11 +310,11 @@ local function animate(dt: number)
 
 	local area = HubConfig.clouds.puffArea
 	for _, puff in puffs do
-		local position = puff.part.Position + Vector3.new(puff.speed * dt, 0, 0)
-		if position.X - CENTER.X > area then
-			position -= Vector3.new(area * 2, 0, 0)
+		local move = Vector3.new(puff.speed * dt, 0, 0)
+		if puff.part.Position.X + move.X - CENTER.X > area then
+			move -= Vector3.new(area * 2, 0, 0)
 		end
-		puff.part.CFrame = CFrame.new(position)
+		puff.part.CFrame += move -- keeps each puff's turn
 	end
 	for _, rock in rocks do
 		local lift = math.sin(now * 2 * math.pi / rock.period + rock.phase) * 1.4

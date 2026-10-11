@@ -64,8 +64,8 @@ local PALETTE = table.freeze({
 	water = rgb(110, 200, 245),
 	waterLight = rgb(196, 236, 255),
 	foam = rgb(245, 252, 255),
-	cloud = rgb(255, 250, 242),
-	cloudShade = rgb(255, 224, 198), -- peach on the sunlit puffs
+	cloud = rgb(248, 251, 255), -- bright cool white
+	cloudShade = rgb(222, 232, 246), -- the same with a faint blue, for cloud in shade
 	-- Fixtures.
 	steel = rgb(214, 224, 236),
 	hilt = rgb(40, 30, 36),
@@ -290,8 +290,15 @@ return table.freeze({
 	-- Client-side scenery (HubScenery).
 	clouds = table.freeze({
 		seaHeight = -45, -- the top of the cloud sea
-		puffs = 22, -- drifting cloud puffs on the sea near the hub
-		puffArea = 420, -- puffs drift within this distance of the center
+		-- Many small, flat, overlapping puffs at slightly different heights make the sea's surface
+		-- lumpy and soft around the island. None is bigger than an outer island (about 30 across).
+		puffs = 40,
+		puffArea = 300, -- puffs drift within this distance of the center (X and Z)
+		puffHidden = Vector2.new(110, 140), -- no puffs start under the island's middle (half extents X, Z)
+		puffWidth = { 14, 30 },
+		puffHeight = { 3, 6 },
+		puffLift = { 0.5, 3 }, -- above the sea's top
+		puffTransparency = { 0.15, 0.4 },
 		driftSpeed = 2, -- studs per second
 	}),
 	-- Small floating islets that bob, all well outside the walkable areas (centers of their grass tops).
