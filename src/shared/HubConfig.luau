@@ -56,8 +56,13 @@ return table.freeze({
 	gallery = table.freeze({
 		spacing = 4.2, -- between plinth centers
 		groupGap = 3, -- extra space before each faction group, for its banner
-		plinthHeight = 2.2,
+		plinthHeight = 3.4,
 		statueHeight = 6, -- the figure's height on its plinth
+		statueLight = table.freeze({ range = 12, brightness = 2.2, angle = 70 }), -- an uplight on each plinth
+		-- Faction banners over each group: taller and wider than the plaza's, name large enough to
+		-- read from the avenue.
+		bannerScale = 1.15,
+		bannerWidth = 1.4,
 		rows = table.freeze({
 			table.freeze({ x = -17, from = 98, to = 47, factions = { "Shinobi", "Crew" } }),
 			table.freeze({ x = 17, from = 98, to = 47, factions = { "Heroes", "Corps" } }),
@@ -108,7 +113,25 @@ return table.freeze({
 	yard = table.freeze({
 		wallHeight = 7,
 		openingHalfWidth = 6,
-		dummies = table.freeze({ v(86, 0, -18), v(86, 0, -6), v(86, 0, 6), v(86, 0, 18), v(66, 0, -20), v(66, 0, 20) }),
+		-- Training dummies: position and size (1 = the small ones).
+		dummies = table.freeze({
+			table.freeze({ position = v(86, 0, -18), scale = 1 }),
+			table.freeze({ position = v(84, 0, -6), scale = 1.6 }),
+			table.freeze({ position = v(84, 0, 6), scale = 1.6 }),
+			table.freeze({ position = v(86, 0, 18), scale = 1 }),
+			table.freeze({ position = v(66, 0, -20), scale = 1 }),
+			table.freeze({ position = v(66, 0, 20), scale = 1 }),
+		}),
+		ring = table.freeze({ center = v(64, 0, 0), radius = 9 }), -- the marked sparring ring
+		mats = table.freeze({ v(51, 0, -19), v(51, 0, 19), v(76, 0, -20), v(76, 0, 20) }),
+		matColors = table.freeze({ Color3.fromRGB(60, 110, 190), Color3.fromRGB(190, 70, 60) }),
+		racks = table.freeze({ v(52, 0, -26.3), v(68, 0, -26.3), v(68, 0, 26.3) }), -- against the side walls
+		walkwayDepth = 3, -- the roofed walkway inside the back and side walls
+		walkwayHeight = 5.5,
+		walkwayPosts = table.freeze({ 44, 60, 76 }), -- x of the posts along the side walls (corners added)
+		walkwayBackPosts = table.freeze({ -8, 8 }), -- z of the posts along the back wall
+		-- Two figures that loop a sparring bout in the ring (unit types for their looks).
+		sparring = table.freeze({ units = { "flashline", "wolfstep" }, gap = 4.5, cycle = 1.6 }),
 	}),
 
 	-- Item shrine: a pavilion off the plaza's -X side with the items on pedestals in an arc,
@@ -181,7 +204,22 @@ return table.freeze({
 	planters = table.freeze({ v(-50, 10, 163), v(-30, 10, 128), v(24, 10, 150), v(-12, 10, 163), v(-40, 10, 145), v(-62, 10, 128) }),
 	-- A paving band inside the terrace's edge and a tile diamond around the spawn.
 	terraceBorder = 2,
-	waterfall = table.freeze({ pond = v(28, 0, 66), width = 6, drop = 75 }), -- falls off the +X edge
+	-- A spring pool, a stream running to the +X edge, and the falls straight down the island's side
+	-- into the clouds.
+	waterfall = table.freeze({ pond = v(28, 0, 66), width = 7, drop = 75 }),
+	-- The signpost at the plaza's north entrance: an arrow board per destination.
+	signpost = table.freeze({
+		position = v(-7, 0, 38),
+		signs = table.freeze({
+			table.freeze({ text = "ARENA", toward = v(0, 0, -132) }),
+			table.freeze({ text = "TRAINING", toward = v(67, 0, 0) }),
+			table.freeze({ text = "ITEMS", toward = v(-68, 0, 0) }),
+			table.freeze({ text = "HALL OF FAME", toward = v(-60, 10, 145) }),
+		}),
+	}),
+	-- Soft glowing pools of light on the floor (translucent discs): under every lantern, around the
+	-- Play platform, at the yard's opening and in front of the arena gate.
+	lightPools = table.freeze({ lantern = 9, pad = 40, yard = 14, gate = 22, transparency = 0.86 }),
 
 	-- The boundary: an invisible box around the whole hub (walls and a ceiling). Players who fall
 	-- below `fallHeight` are sent back to the spawn.
@@ -191,7 +229,7 @@ return table.freeze({
 	-- Client-side scenery (HubScenery).
 	clouds = table.freeze({
 		seaHeight = -45, -- the top of the cloud sea
-		puffs = 36, -- drifting cloud puffs on the sea near the hub
+		puffs = 26, -- drifting cloud puffs on the sea near the hub
 		puffArea = 420, -- puffs drift within this distance of the center
 		driftSpeed = 2, -- studs per second
 	}),
@@ -262,6 +300,17 @@ return table.freeze({
 		sky = table.freeze({ CelestialBodiesShown = true, StarCount = 3000, SunAngularSize = 14 }),
 		colorCorrection = table.freeze({ Brightness = 0, Contrast = 0.08, Saturation = 0.06, TintColor = rgb(255, 248, 242) }),
 		bloom = table.freeze({ Intensity = 0.25, Size = 18, Threshold = 2.2 }),
+	}),
+
+	-- Hub sounds (client only, while in the hub; all stop when a match starts). Ids starting with
+	-- rbxasset:// are sounds that ship with Roblox itself (no upload). An empty id is a slot to fill
+	-- with your own sound id ("rbxassetid://..."); empty slots are simply skipped.
+	sounds = table.freeze({
+		music = table.freeze({ id = "", volume = 0.3 }), -- SLOT: looping background music
+		wind = table.freeze({ id = "rbxasset://sounds/action_falling.mp3", volume = 0.12, speed = 0.6 }), -- looping wind
+		waterfall = table.freeze({ id = "rbxasset://sounds/action_swim.mp3", volume = 0.7, speed = 0.7, reach = 90 }), -- at the falls
+		padChime = table.freeze({ id = "rbxasset://sounds/electronicpingshort.wav", volume = 0.5 }), -- stepping on the Play pad
+		countdownTick = table.freeze({ id = "rbxasset://sounds/clickfast.wav", volume = 0.6 }), -- each of the last 5 seconds
 	}),
 
 	-- Where match participants' avatars wait during a match: under the arena's baseplate, out of

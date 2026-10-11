@@ -248,9 +248,16 @@ local function ringCurb(parent: Instance, position: Vector3, radius: number, ope
 	end
 end
 
--- A banner: a pole with a cloth in the faction's color showing its symbol letters and name,
--- facing `toward`. `scale` 1 is the tall plaza banner.
-local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId: string, scale: number)
+-- A glowing pool of light on the floor: a translucent disc just above it.
+local function lightPool(parent: Instance, position: Vector3, diameter: number, color: Color3)
+	local pool = disc(parent, position + Vector3.new(0, 0.13, 0), diameter, 0.05, color, Enum.Material.Neon)
+	pool.Transparency = HubConfig.lightPools.transparency
+	ghost(pool)
+end
+
+-- A banner: a pole with a cloth in the faction's color showing its symbol letters and name in
+-- large letters, facing `toward`. `scale` 1 is the plaza banner; `widthScale` widens the cloth.
+local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId: string, scale: number, widthScale: number?)
 	local trait = TraitIconConfig[traitId]
 	if not trait then
 		return
@@ -258,7 +265,7 @@ local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId:
 	local color = traitColor(traitId)
 	local poleHeight = 14 * scale
 	part(parent, Vector3.new(poleHeight, 0.45, 0.45), CFrame.new(at(base, poleHeight / 2)) * UPRIGHT, COLORS.dark, Enum.Material.Wood, Enum.PartType.Cylinder)
-	local clothSize = Vector2.new(3.4, 7) * scale
+	local clothSize = Vector2.new(3.4 * (widthScale or 1), 7) * scale
 	local frame = facing(base, toward)
 	local cloth = part(
 		parent,
@@ -268,12 +275,14 @@ local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId:
 		Enum.Material.Fabric
 	)
 	ghost(cloth)
+	cloth:SetAttribute("Sway", true) -- HubScenery sways it gently around its top edge
 	local gui = surface(cloth, Enum.NormalId.Front, 30)
 	gui.LightInfluence = 0.3
 	local emblem = Instance.new("Frame")
 	emblem.AnchorPoint = Vector2.new(0.5, 0)
-	emblem.Position = UDim2.fromScale(0.5, 0.1)
-	emblem.Size = UDim2.fromScale(0.8, 0.8 * clothSize.X / clothSize.Y)
+	emblem.Position = UDim2.fromScale(0.5, 0.08)
+	local emblemWidth = math.min(0.8, 0.42 * clothSize.Y / clothSize.X) -- never taller than 42% of the cloth
+	emblem.Size = UDim2.fromScale(emblemWidth, emblemWidth * clothSize.X / clothSize.Y)
 	emblem.BackgroundColor3 = Color3.new(1, 1, 1)
 	emblem.BackgroundTransparency = 0.1
 	local round = Instance.new("UICorner")
@@ -281,7 +290,9 @@ local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId:
 	round.Parent = emblem
 	emblem.Parent = gui
 	label(emblem, trait.letters, 0.15, 0.7, color, Enum.Font.GothamBlack).TextStrokeTransparency = 1
-	label(gui, string.upper(trait.name), 0.6, 0.13, Color3.new(1, 1, 1), Enum.Font.GothamBold)
+	local name = label(gui, string.upper(trait.name), 0.56, 0.3, Color3.new(1, 1, 1), Enum.Font.GothamBlack)
+	name.TextStrokeTransparency = 0
+	name.TextStrokeColor3 = COLORS.dark
 	local fringe = Instance.new("Frame")
 	fringe.Position = UDim2.fromScale(0, 0.93)
 	fringe.Size = UDim2.fromScale(1, 0.07)
@@ -296,7 +307,9 @@ local function lantern(parent: Instance, base: Vector3)
 	part(parent, Vector3.new(2.8, 1, 1), CFrame.new(at(base, 2.1)) * UPRIGHT, COLORS.lanternStone, Enum.Material.Slate, Enum.PartType.Cylinder)
 	local lamp = part(parent, Vector3.new(1.7, 1.5, 1.7), CFrame.new(at(base, 4.25)), COLORS.lanternLight, Enum.Material.Neon)
 	light(lamp, COLORS.lanternLight, 16, 1.2)
+	lamp:SetAttribute("Flame", true) -- HubScenery flickers its glow and light
 	part(parent, Vector3.new(2.9, 0.6, 2.9), CFrame.new(at(base, 5.3)) * CFrame.Angles(0, math.rad(45), 0), COLORS.lanternStone, Enum.Material.Slate)
+	lightPool(parent, base, HubConfig.lightPools.lantern, COLORS.lanternLight)
 end
 
 -- A cherry tree with falling petals.
@@ -314,7 +327,8 @@ local function tree(parent: Instance, base: Vector3)
 			petals.Lifetime = NumberRange.new(6, 9)
 			petals.Speed = NumberRange.new(0.5, 1.5)
 			petals.SpreadAngle = Vector2.new(180, 180)
-			petals.Acceleration = Vector3.new(0.6, -0.8, 0.3)
+			petals.Acceleration = Vector3.new(1.4, -0.6, 0.7) -- a light breeze carries them
+			petals.Drag = 0.3
 			petals.RotSpeed = NumberRange.new(-60, 60)
 			petals.Rotation = NumberRange.new(0, 360)
 			petals.LightEmission = 0.1
@@ -525,7 +539,7 @@ local function gallery(folder: Instance)
 		local outward = if row.x < 0 then -1 else 1
 		for _, faction in row.factions do
 			local base = Vector3.new(row.x + outward * 3.2, 0, cursor + direction * config.groupGap / 2)
-			banner(folder, base, Vector3.new(0, 0, base.Z), faction, 0.6)
+			banner(folder, base, Vector3.new(0, 0, base.Z), faction, config.bannerScale, config.bannerWidth)
 			cursor += direction * config.groupGap
 			for _, unitType in byFaction[faction] or {} do
 				local position = Vector3.new(row.x, 0, cursor + direction * config.spacing / 2)
@@ -540,6 +554,15 @@ local function gallery(folder: Instance)
 				)
 				plinth.Name = unitType
 				plinth:SetAttribute("UnitType", unitType)
+				-- A small uplight on the statue, so each one stands out along the avenue.
+				local uplight = Instance.new("SpotLight")
+				uplight.Face = Enum.NormalId.Top
+				uplight.Color = COLORS.lanternLight:Lerp(Color3.new(1, 1, 1), 0.5)
+				uplight.Range = config.statueLight.range
+				uplight.Brightness = config.statueLight.brightness
+				uplight.Angle = config.statueLight.angle
+				uplight.Shadows = false
+				uplight.Parent = plinth
 				local gui = surface(plinth, Enum.NormalId.Front, 40)
 				local band = Instance.new("Frame")
 				band.Position = UDim2.fromScale(0, 0.12)
@@ -598,6 +621,12 @@ local function arenaGate(folder: Instance): Pad
 	portal.Transparency = 0.55
 	ghost(portal)
 	light(portal, COLORS.portal, 26, 1.5)
+	portal:SetAttribute("Pulse", true) -- HubScenery makes it pulse
+
+	-- Light pools around the platform and in front of the gate.
+	local pools = HubConfig.lightPools
+	lightPool(folder, origin, pools.pad, config.color)
+	lightPool(folder, Vector3.new(c.X, 0, c.Z + 4), pools.gate, COLORS.portal)
 	local plaque = part(folder, Vector3.new(8, 2.6, 0.4), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 2.7))), COLORS.gold, Enum.Material.Metal)
 	label(surface(plaque, Enum.NormalId.Back, 40), "闘技場  ARENA", 0.12, 0.76, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
 
@@ -615,7 +644,8 @@ local function arenaGate(folder: Instance): Pad
 	}
 end
 
--- The training yard: a walled wooden courtyard whose floor is the Practice pad, with dummies.
+-- The training yard: a walled wooden courtyard whose floor is the Practice pad, dressed with a
+-- sparring ring, practice mats, weapon racks, a roofed walkway along the walls and dummies.
 local function trainingYard(folder: Instance): Pad
 	local config = HubConfig.pads.practice
 	local yard = HubConfig.yard
@@ -642,15 +672,59 @@ local function trainingYard(folder: Instance): Pad
 	local beam = part(folder, Vector3.new(1.6, 1.6, open * 2 + 3), CFrame.new(at(Vector3.new(x[1], y + height + 0.2, 0))), COLORS.torii, Enum.Material.Wood)
 	label(surface(beam, Enum.NormalId.Left, 40), "修行場  TRAINING YARD", 0.05, 0.9, COLORS.gold, Enum.Font.GothamBlack)
 
-	for _, position in yard.dummies do
-		local base = position + Vector3.new(0, y, 0)
-		local toward = Vector3.new(x[1], base.Y, base.Z)
-		local frame = facing(base, toward)
-		part(folder, Vector3.new(5, 0.5, 0.5), CFrame.new(at(base, 2.5)) * UPRIGHT, COLORS.wood, Enum.Material.Wood, Enum.PartType.Cylinder)
-		part(folder, Vector3.new(1.6, 2.6, 1.2), frame * CFrame.new(0, 4.4, 0), COLORS.blossom:Lerp(COLORS.wood, 0.7), Enum.Material.Fabric)
-		part(folder, Vector3.new(4, 0.4, 0.4), frame * CFrame.new(0, 5, 0), COLORS.wood, Enum.Material.Wood)
-		part(folder, Vector3.new(1.4, 1.4, 1.4), frame * CFrame.new(0, 6.5, 0), COLORS.spawnStone, Enum.Material.Fabric, Enum.PartType.Ball)
+	-- Training dummies (some larger), facing the opening.
+	for _, dummy in yard.dummies do
+		local s = dummy.scale
+		local base = dummy.position + Vector3.new(0, y, 0)
+		local frame = facing(base, Vector3.new(x[1], base.Y, base.Z))
+		part(folder, Vector3.new(5 * s, 0.5 * s, 0.5 * s), CFrame.new(at(base, 2.5 * s)) * UPRIGHT, COLORS.wood, Enum.Material.Wood, Enum.PartType.Cylinder)
+		part(folder, Vector3.new(1.6, 2.6, 1.2) * s, frame * CFrame.new(0, 4.4 * s, 0), COLORS.blossom:Lerp(COLORS.wood, 0.7), Enum.Material.Fabric)
+		part(folder, Vector3.new(4, 0.4, 0.4) * s, frame * CFrame.new(0, 5 * s, 0), COLORS.wood, Enum.Material.Wood)
+		part(folder, Vector3.one * 1.4 * s, frame * CFrame.new(0, 6.5 * s, 0), COLORS.spawnStone, Enum.Material.Fabric, Enum.PartType.Ball)
 	end
+
+	-- The sparring ring (HubScenery puts two sparring figures in it) and practice mats.
+	local ring = yard.ring
+	disc(folder, ring.center + Vector3.new(0, y + 0.06, 0), ring.radius * 2, 0.1, COLORS.tile, Enum.Material.Fabric)
+	disc(folder, ring.center + Vector3.new(0, y + 0.08, 0), ring.radius * 2 - 1.2, 0.1, COLORS.avenue, Enum.Material.Fabric)
+	for index, position in yard.mats do
+		local color = yard.matColors[(index - 1) % #yard.matColors + 1]
+		part(folder, Vector3.new(6, 0.15, 4), CFrame.new(at(position, y + 0.075)), color, Enum.Material.Fabric)
+	end
+
+	-- Weapon racks against the side walls: a backboard, a base and two staves, facing the yard.
+	for _, position in yard.racks do
+		local base = position + Vector3.new(0, y, 0)
+		local frame = facing(base, Vector3.new(base.X, base.Y, 0))
+		part(folder, Vector3.new(4, 3.4, 0.3), frame * CFrame.new(0, 1.9, 0.3), COLORS.wood, Enum.Material.Wood)
+		part(folder, Vector3.new(4.2, 0.4, 0.9), frame * CFrame.new(0, 0.2, 0), COLORS.dark, Enum.Material.Wood)
+		for _, side in { -1, 1 } do
+			part(folder, Vector3.new(0.22, 3.8, 0.22), frame * CFrame.new(side * 1.1, 2.1, -0.1) * CFrame.Angles(math.rad(-6), 0, 0), if side < 0 then COLORS.blade else COLORS.trunk, Enum.Material.Metal)
+		end
+	end
+
+	-- A roofed walkway inside the back and side walls: red posts and a green roof.
+	local depth, roofHeight = yard.walkwayDepth, yard.walkwayHeight
+	local postX = x[2] - depth
+	local posts = {}
+	for _, px in yard.walkwayPosts do
+		table.insert(posts, Vector3.new(px, y, z[1] + depth))
+		table.insert(posts, Vector3.new(px, y, z[2] - depth))
+	end
+	table.insert(posts, Vector3.new(postX, y, z[1] + depth))
+	table.insert(posts, Vector3.new(postX, y, z[2] - depth))
+	for _, pz in yard.walkwayBackPosts do
+		table.insert(posts, Vector3.new(postX, y, pz))
+	end
+	for _, post in posts do
+		part(folder, Vector3.new(0.7, roofHeight, 0.7), CFrame.new(at(post, roofHeight / 2)), COLORS.rail, Enum.Material.Wood)
+	end
+	local roofTop = y + roofHeight + 0.5
+	slab(folder, { x[1] + 0.6, x[2] }, { z[1], z[1] + depth + 0.6 }, roofTop, 0.5, COLORS.roof, Enum.Material.Slate)
+	slab(folder, { x[1] + 0.6, x[2] }, { z[2] - depth - 0.6, z[2] }, roofTop, 0.5, COLORS.roof, Enum.Material.Slate)
+	slab(folder, { postX - 0.6, x[2] }, { z[1] + depth + 0.6, z[2] - depth - 0.6 }, roofTop, 0.5, COLORS.roof, Enum.Material.Slate)
+
+	lightPool(folder, Vector3.new(x[1] - 4, 0, 0), HubConfig.lightPools.yard, config.color)
 
 	local status = display(folder, config.display, config.displayFacing, config.color, config.title, config.hint)
 	return {
@@ -798,39 +872,111 @@ local function outerIslands(folder: Instance)
 	end
 end
 
--- A stream from a pond off the +X edge, falling into the clouds.
+local function emitter(parent: Instance, settings: { [string]: any })
+	local particles = Instance.new("ParticleEmitter")
+	for property, value in settings do
+		(particles :: any)[property] = value
+	end
+	particles.Parent = parent
+end
+
+-- The waterfall: a spring pool with a stone rim, a straight stream between stone banks to the +X
+-- edge, a band of foam where it tips over, and three layered sheets falling straight down the
+-- island's side into the clouds, with spray along them and mist where they meet the clouds.
 local function waterfall(folder: Instance)
 	local config = HubConfig.waterfall
 	local pond = config.pond
+	local width = config.width
 	local edgeX = HubConfig.spine.x[2]
-	local water = disc(folder, pond + Vector3.new(0, 0.12, 0), 10, 0.3, COLORS.water, Enum.Material.Glass)
-	water.Transparency = 0.2
-	local stream = part(folder, Vector3.new(edgeX - pond.X + 1.5, 0.3, config.width * 0.6), CFrame.new(at(Vector3.new((pond.X + edgeX) / 2 + 0.7, 0.1, pond.Z))), COLORS.water, Enum.Material.Glass)
-	stream.Transparency = 0.2
-	local sheet = part(folder, Vector3.new(0.8, config.drop, config.width), CFrame.new(at(Vector3.new(edgeX + 1.2, 0.1 - config.drop / 2, pond.Z))), COLORS.water, Enum.Material.Glass)
-	sheet.Transparency = 0.35
-	ghost(sheet)
-	local spray = Instance.new("ParticleEmitter")
-	spray.Color = ColorSequence.new(Color3.fromRGB(235, 245, 255))
-	spray.Size = NumberSequence.new(1.2, 2.4)
-	spray.Transparency = NumberSequence.new(0.4, 1)
-	spray.Rate = 30
-	spray.Lifetime = NumberRange.new(1.5, 2.2)
-	spray.Speed = NumberRange.new(4, 8)
-	spray.EmissionDirection = Enum.NormalId.Bottom
-	spray.Acceleration = Vector3.new(0, -20, 0)
-	spray.Parent = sheet
-	local mist = ghost(part(folder, Vector3.new(8, 1, 8), CFrame.new(at(Vector3.new(edgeX + 1.2, HubConfig.clouds.seaHeight + 1, pond.Z))), COLORS.cloud))
+	local lipX = edgeX + 1.5 -- the grass lip's outer edge: the falls start just past it
+	disc(folder, pond + Vector3.new(0, 0.1, 0), 11.6, 0.3, COLORS.curb, Enum.Material.Slate)
+	local pool = disc(folder, pond + Vector3.new(0, 0.14, 0), 10, 0.3, COLORS.water, Enum.Material.Glass)
+	pool.Transparency = 0.15
+	local streamLength = lipX + 0.4 - pond.X
+	local stream = part(folder, Vector3.new(streamLength, 0.3, width), CFrame.new(at(Vector3.new(pond.X + streamLength / 2, -0.02, pond.Z))), COLORS.water, Enum.Material.Glass)
+	stream.Transparency = 0.15
+	for _, side in { -1, 1 } do
+		local bankStart = pond.X + 4.5
+		part(folder, Vector3.new(edgeX - bankStart, 0.6, 0.8), CFrame.new(at(Vector3.new((bankStart + edgeX) / 2, 0.3, pond.Z + side * (width / 2 + 0.4)))), COLORS.curb, Enum.Material.Slate)
+	end
+	local foam = part(folder, Vector3.new(1.4, 0.7, width + 0.4), CFrame.new(at(Vector3.new(lipX + 0.5, 0, pond.Z))), Color3.fromRGB(240, 248, 255), Enum.Material.Neon)
+	foam.Transparency = 0.3
+	ghost(foam)
+	emitter(foam, {
+		Color = ColorSequence.new(Color3.new(1, 1, 1)),
+		Size = NumberSequence.new(0.6, 1.4),
+		Transparency = NumberSequence.new(0.3, 1),
+		Rate = 25,
+		Lifetime = NumberRange.new(0.6, 1),
+		Speed = NumberRange.new(2, 4),
+		SpreadAngle = Vector2.new(40, 40),
+		EmissionDirection = Enum.NormalId.Top,
+		Acceleration = Vector3.new(4, -12, 0),
+	})
+
+	-- Three sheets, back to front: a deep one, the main one and pale streaks.
+	local top = 0.3
+	local sheets = {
+		{ 0.9, width + 1, COLORS.water:Lerp(Color3.new(0, 0, 0), 0.2), Enum.Material.Glass, 0.3 },
+		{ 1.4, width, COLORS.water, Enum.Material.Glass, 0.35 },
+		{ 1.9, width - 2, Color3.fromRGB(225, 240, 255), Enum.Material.Neon, 0.75 },
+	}
+	for index, sheet in sheets do
+		local piece = part(
+			folder,
+			Vector3.new(0.4, config.drop, sheet[2]),
+			CFrame.new(at(Vector3.new(lipX + sheet[1], top - config.drop / 2, pond.Z))),
+			sheet[3],
+			sheet[4]
+		)
+		piece.Transparency = sheet[5]
+		ghost(piece)
+		if index == 2 then
+			piece:SetAttribute("Waterfall", true) -- HubAudio plays the falls' sound here
+			emitter(piece, {
+				Color = ColorSequence.new(Color3.fromRGB(235, 245, 255)),
+				Size = NumberSequence.new(1.2, 2.6),
+				Transparency = NumberSequence.new(0.4, 1),
+				Rate = 35,
+				Lifetime = NumberRange.new(1.5, 2.2),
+				Speed = NumberRange.new(4, 8),
+				EmissionDirection = Enum.NormalId.Right,
+				Acceleration = Vector3.new(0, -20, 0),
+			})
+		end
+	end
+	local mist = ghost(part(folder, Vector3.new(12, 1, 12), CFrame.new(at(Vector3.new(lipX + 2, HubConfig.clouds.seaHeight + 1, pond.Z))), COLORS.cloud))
 	mist.Transparency = 1
-	local puff = Instance.new("ParticleEmitter")
-	puff.Color = ColorSequence.new(Color3.new(1, 1, 1))
-	puff.Size = NumberSequence.new(4, 9)
-	puff.Transparency = NumberSequence.new(0.5, 1)
-	puff.Rate = 4
-	puff.Lifetime = NumberRange.new(3, 4)
-	puff.Speed = NumberRange.new(1, 2)
-	puff.EmissionDirection = Enum.NormalId.Top
-	puff.Parent = mist
+	emitter(mist, {
+		Color = ColorSequence.new(Color3.new(1, 1, 1)),
+		Size = NumberSequence.new(5, 12),
+		Transparency = NumberSequence.new(0.45, 1),
+		Rate = 8,
+		Lifetime = NumberRange.new(3, 5),
+		Speed = NumberRange.new(1, 3),
+		SpreadAngle = Vector2.new(60, 60),
+		EmissionDirection = Enum.NormalId.Top,
+	})
+end
+
+-- The signpost at the plaza: a post with an arrow board per destination, each board pointing its
+-- way. The arrow on each face points the right way for someone reading that face.
+local function signpost(folder: Instance)
+	local config = HubConfig.signpost
+	local position = config.position
+	part(folder, Vector3.new(8, 0.6, 0.6), CFrame.new(at(position, 4)) * UPRIGHT, COLORS.wood, Enum.Material.Wood, Enum.PartType.Cylinder)
+	part(folder, Vector3.one * 0.9, CFrame.new(at(position, 8.2)), COLORS.gold, Enum.Material.Metal, Enum.PartType.Ball)
+	for index, sign in config.signs do
+		local flat = Vector3.new(sign.toward.X - position.X, 0, sign.toward.Z - position.Z)
+		local direction = if flat.Magnitude > 0 then flat.Unit else Vector3.xAxis
+		local center = at(position + direction * 2.7, 7.2 - index * 1.15)
+		local board = part(folder, Vector3.new(5, 0.95, 0.25), CFrame.fromMatrix(center, direction, Vector3.yAxis), COLORS.avenue, Enum.Material.Wood)
+		-- The board's +X points the way: on its front face that is the reader's left.
+		local front = label(surface(board, Enum.NormalId.Front, 40), "◀  " .. sign.text, 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack)
+		local back = label(surface(board, Enum.NormalId.Back, 40), sign.text .. "  ▶", 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack)
+		front.TextStrokeTransparency = 1
+		back.TextStrokeTransparency = 1
+	end
 end
 
 -- Breaks up the big floors: grass beds with a low hedge beside the gallery, round grass beds in
@@ -900,6 +1046,7 @@ function HubBuilder.build(): ({ play: Pad, practice: Pad }, { [string]: Board })
 	mainIsland(folder)
 	edges(folder)
 	gardens(folder)
+	signpost(folder)
 	arrival(folder)
 	plaza(folder)
 	gallery(folder)

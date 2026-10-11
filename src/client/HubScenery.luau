@@ -2,6 +2,8 @@
 --   * a sea of clouds under the hub that hides everything below and around it, with puffs that
 --     drift slowly over it
 --   * small floating islets that bob, placed away from every walkable area
+--   * gentle motion on tagged hub parts: banners sway, lantern flames flicker, the portal pulses
+--   * two figures looping a sparring bout in the training yard's ring
 --   * a statue on every roster gallery plinth (the unit's placeholder figure and character look,
 --     from Figure and CharacterLook) and the item pictogram over every shrine pedestal (ItemIcon)
 -- The plinths and pedestals are built by the server (HubBuilder) and carry UnitType / ItemId
@@ -182,8 +184,114 @@ local function eachChild(name: string, add: (Instance) -> ())
 	end)
 end
 
+-- Server parts that move on this client only (HubBuilder tags them): banners that sway, lantern
+-- flames that flicker, the arena portal that pulses. Changed locally; the server never moves them.
+local swayers: { { part: BasePart, base: CFrame, phase: number } } = {}
+local flames: { { part: BasePart, color: Color3, seed: number } } = {}
+local pulses: { BasePart } = {}
+local FLAME_LOW = Color3.fromRGB(255, 140, 70)
+
+local function track(instance: Instance)
+	if not instance:IsA("BasePart") then
+		return
+	end
+	if instance:GetAttribute("Sway") then
+		table.insert(swayers, { part = instance, base = instance.CFrame, phase = random:NextNumber(0, math.pi * 2) })
+	end
+	if instance:GetAttribute("Flame") then
+		table.insert(flames, { part = instance, color = instance.Color, seed = random:NextNumber(0, 100) })
+	end
+	if instance:GetAttribute("Pulse") then
+		table.insert(pulses, instance)
+	end
+end
+
+-- Two figures looping a sparring bout in the training yard's ring: they take turns to step in and
+-- strike while the other rocks back.
+type Sparrer = { figure: Figure.Figure, base: CFrame, height: number, attacksFirst: boolean }
+local sparrers: { Sparrer } = {}
+
+local function buildSparring()
+	local yard = HubConfig.yard
+	local center = CENTER + yard.ring.center + Vector3.new(0, HubConfig.pads.practice.height + 0.08, 0)
+	local half = yard.sparring.gap / 2
+	local spots = { center - Vector3.new(half, 0, 0), center + Vector3.new(half, 0, 0) }
+	for index, unitType in yard.sparring.units do
+		local look = CharacterLook.of(unitType)
+		local height = 4.6 * look.scale
+		local hitbox = Instance.new("Part")
+		hitbox.Name = "Sparrer" .. index
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = false
+		hitbox.CanTouch = false
+		hitbox.Transparency = 1
+		hitbox.Size = Vector3.new(2, height, 2)
+		hitbox.Parent = statues
+		local here, there = spots[index], spots[3 - index]
+		table.insert(sparrers, {
+			figure = Figure.new(look.figure, look.color, height, hitbox),
+			base = CFrame.lookAt(here, Vector3.new(there.X, here.Y, there.Z)),
+			height = height,
+			attacksFirst = index == 1,
+		})
+	end
+end
+
+-- 0 at the start and end of a half-cycle, 1 in its middle.
+local function swing(progress: number): number
+	return math.sin(math.pi * math.clamp(progress, 0, 1))
+end
+
+local function animateSparring(now: number)
+	local cycle = HubConfig.yard.sparring.cycle
+	local progress = (now % cycle) / cycle
+	for _, sparrer in sparrers do
+		local first = progress < 0.5
+		local attacking = first == sparrer.attacksFirst
+		local amount = swing((progress % 0.5) * 2)
+		local strike = if attacking then amount else 0
+		local hit = if attacking then 0 else amount
+		local figure = sparrer.figure
+		local root = sparrer.base * CFrame.new(0, 0, -strike * 0.8 + hit * 0.3)
+		Figure.place(figure, root * CFrame.new(0, sparrer.height / 2, 0), root, {
+			bob = math.sin(now * 6) * 0.05,
+			lean = strike * 0.25 - hit * 0.2,
+			fall = 0,
+			leftArm = figure.restArms[1] + strike * 0.3 + hit * 0.4,
+			rightArm = figure.restArms[2] + strike * 1.6,
+			leftLeg = strike * 0.4,
+			rightLeg = -strike * 0.2,
+			stride = 0,
+		})
+	end
+end
+
 local function animate(dt: number)
 	local now = os.clock()
+	for _, swayer in swayers do
+		local size = swayer.part.Size
+		local angle = math.sin(now * 1.4 + swayer.phase) * math.rad(5) + math.sin(now * 2.3 + swayer.phase * 1.7) * math.rad(1.5)
+		swayer.part.CFrame = swayer.base * CFrame.new(0, size.Y / 2, 0) * CFrame.Angles(angle, 0, 0) * CFrame.new(0, -size.Y / 2, 0)
+	end
+	for _, flame in flames do
+		local flicker = math.noise(now * 4, flame.seed)
+		flame.part.Color = flame.color:Lerp(FLAME_LOW, math.clamp(0.2 - flicker * 0.5, 0, 0.6))
+		local glow = flame.part:FindFirstChildOfClass("PointLight")
+		if glow then
+			glow.Brightness = 1.2 * (1 + flicker * 0.5)
+		end
+	end
+	local pulse = (math.sin(now * 2) + 1) / 2
+	for _, portal in pulses do
+		portal.Transparency = 0.4 + 0.3 * pulse
+		local glow = portal:FindFirstChildOfClass("PointLight")
+		if glow then
+			glow.Brightness = 1 + pulse
+		end
+	end
+	animateSparring(now)
+
 	local area = HubConfig.clouds.puffArea
 	for _, puff in puffs do
 		local position = puff.part.Position + Vector3.new(puff.speed * dt, 0, 0)
@@ -223,8 +331,16 @@ function HubScenery.start()
 	statues.Parent = workspace
 	buildClouds()
 	buildRocks()
+	buildSparring()
 	eachChild("Gallery", addStatue)
 	eachChild("Shrine", addItemIcon)
+	task.spawn(function()
+		local hub = workspace:WaitForChild("Hub")
+		hub.DescendantAdded:Connect(track)
+		for _, descendant in hub:GetDescendants() do
+			track(descendant)
+		end
+	end)
 end
 
 return HubScenery
