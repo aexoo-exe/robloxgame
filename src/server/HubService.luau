@@ -75,7 +75,7 @@ local function lightSpots(which: HubBuilder.Pad, count: number)
 		local color = if lit then which.color else HubConfig.colors.spotOff
 		if spot.Color ~= color then
 			spot.Color = color
-			spot.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			spot.Material = if lit then Enum.Material.Neon else Enum.Material.Metal -- unlit as built
 		end
 	end
 end

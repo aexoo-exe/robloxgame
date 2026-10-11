@@ -96,8 +96,8 @@ local function buildClouds()
 	end
 end
 
--- Small floating islets, bobbing slowly: a grass top over light rock tapering away in two layers,
--- like the outer islands. Each config position is the center of its grass top.
+-- Small floating islets, bobbing slowly: a grass top over light rock that tapers to a point in
+-- turned, tilted chunks, like the islands' undersides. Each config position is the center of its grass top.
 local function buildRocks()
 	local upright = CFrame.Angles(0, 0, math.pi / 2)
 	for _, offset in HubConfig.floatingRocks do
@@ -108,13 +108,17 @@ local function buildRocks()
 			table.insert(pieces, { part = part, offset = base:ToObjectSpace(part.CFrame) })
 		end
 		piece(decor(scenery, Vector3.new(1.2, width, width), base * CFrame.new(0, -0.6, 0) * upright, COLORS.grass, Enum.Material.Grass, Enum.PartType.Cylinder))
-		local layers = { { 0.92, 2.5 }, { 0.55, 3 } }
-		local depth = 1.2
+		-- Rock under it: two turned, tilted chunks in two shades, then a point.
+		local layers = { { 0.68, 2.6, COLORS.rockLight }, { 0.44, 3, COLORS.rockWarm } }
+		local depth = 1.1
 		for _, layer in layers do
-			local shift = CFrame.new(random:NextNumber(-0.8, 0.8), -depth - layer[2] / 2, random:NextNumber(-0.8, 0.8))
-			piece(decor(scenery, Vector3.new(layer[2], width * layer[1], width * layer[1]), base * shift * upright, COLORS.rockLight, Enum.Material.Rock, Enum.PartType.Cylinder))
-			depth += layer[2]
+			local shift = CFrame.new(random:NextNumber(-0.6, 0.6), -depth - layer[2] / 2, random:NextNumber(-0.6, 0.6))
+				* CFrame.Angles(random:NextNumber(-0.08, 0.08), random:NextNumber(0, math.pi), random:NextNumber(-0.08, 0.08))
+			piece(decor(scenery, Vector3.new(width * layer[1], layer[2], width * layer[1]), base * shift, layer[3], Enum.Material.Rock))
+			depth += layer[2] * 0.85
 		end
+		local tip = width * 0.26
+		piece(decor(scenery, Vector3.one * tip, base * CFrame.new(0, -depth - tip * 0.2, 0) * CFrame.Angles(math.rad(45), random:NextNumber(0, math.pi), math.rad(35)), COLORS.rock, Enum.Material.Basalt))
 		table.insert(rocks, {
 			pieces = pieces,
 			base = base,

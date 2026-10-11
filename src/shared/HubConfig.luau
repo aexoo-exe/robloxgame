@@ -4,6 +4,9 @@
 -- HubExhibits (client) shows statue and item info; HubLighting (client) sets the lighting. Only
 -- the hub uses any of this, and the client-side pieces only exist while the player is in the hub.
 --
+-- Look: every color comes from `palette` through the `colors` roles and the per-zone `accents`;
+-- every material comes from the `materials` roles (built-in Enum.Material names).
+--
 -- Coordinates: every position is relative to `center`, whose height is the main floor's walking
 -- height (y = 0 here). +X is right and -Z is "forward" as seen from the spawn, which faces down the
 -- avenue toward the arena gate. Angles are in degrees around a point: 0 toward -Z, 90 toward +X.
@@ -16,6 +19,64 @@ end
 local function v(x: number, y: number, z: number): Vector3
 	return Vector3.new(x, y, z)
 end
+
+-- The hub's named colors (see `colors` and `accents` below for what uses each).
+local PALETTE = table.freeze({
+	-- Warm stone.
+	cream = rgb(244, 232, 206),
+	stoneLight = rgb(250, 243, 228),
+	honey = rgb(226, 186, 120),
+	sand = rgb(214, 192, 152),
+	roseStone = rgb(222, 170, 140),
+	granite = rgb(150, 140, 132),
+	graniteDark = rgb(96, 86, 82),
+	charcoal = rgb(40, 34, 36),
+	-- Wood.
+	woodRed = rgb(128, 62, 40),
+	woodDark = rgb(84, 46, 32),
+	woodLight = rgb(178, 122, 78),
+	-- Accents.
+	vermilion = rgb(222, 58, 36),
+	jade = rgb(52, 160, 130),
+	gold = rgb(240, 190, 64),
+	bronze = rgb(184, 120, 60),
+	navy = rgb(30, 42, 86),
+	indigo = rgb(68, 60, 156),
+	terracotta = rgb(204, 104, 66),
+	violet = rgb(140, 82, 192),
+	crimson = rgb(178, 30, 48),
+	-- Greens.
+	grassLight = rgb(132, 200, 86),
+	grass = rgb(88, 170, 70),
+	grassDeep = rgb(50, 126, 58),
+	-- Blossoms and flowers.
+	blossomLight = rgb(255, 210, 228),
+	blossom = rgb(255, 162, 198),
+	blossomDeep = rgb(232, 108, 160),
+	flowerYellow = rgb(255, 222, 80),
+	flowerWhite = rgb(255, 250, 244),
+	-- Rock.
+	rockWarm = rgb(152, 118, 94),
+	rock = rgb(118, 94, 80),
+	rockDeep = rgb(80, 64, 58),
+	rockLight = rgb(186, 158, 126),
+	-- Water and sky.
+	water = rgb(110, 200, 245),
+	waterLight = rgb(196, 236, 255),
+	foam = rgb(245, 252, 255),
+	cloud = rgb(255, 250, 242),
+	cloudShade = rgb(255, 224, 198), -- peach on the sunlit puffs
+	-- Fixtures.
+	steel = rgb(214, 224, 236),
+	hilt = rgb(40, 30, 36),
+	glow = rgb(255, 170, 80),
+	lanternGlow = rgb(255, 196, 110),
+	spawnGlow = rgb(255, 214, 120),
+	portal = rgb(255, 110, 70),
+	spotOff = rgb(40, 52, 46),
+	displayBoard = rgb(26, 24, 34),
+	displayFrame = rgb(52, 44, 56),
+})
 
 return table.freeze({
 	-- Queue (the Play pad). Standing on the pad queues the player; stepping off leaves the queue.
@@ -124,7 +185,7 @@ return table.freeze({
 		}),
 		ring = table.freeze({ center = v(64, 0, 0), radius = 9 }), -- the marked sparring ring
 		mats = table.freeze({ v(51, 0, -19), v(51, 0, 19), v(76, 0, -20), v(76, 0, 20) }),
-		matColors = table.freeze({ Color3.fromRGB(60, 110, 190), Color3.fromRGB(190, 70, 60) }),
+		matColors = table.freeze({ PALETTE.indigo, PALETTE.terracotta }), -- the yard's accents
 		racks = table.freeze({ v(52, 0, -26.3), v(68, 0, -26.3), v(68, 0, 26.3) }), -- against the side walls
 		walkwayDepth = 3, -- the roofed walkway inside the back and side walls
 		walkwayHeight = 5.5,
@@ -229,7 +290,7 @@ return table.freeze({
 	-- Client-side scenery (HubScenery).
 	clouds = table.freeze({
 		seaHeight = -45, -- the top of the cloud sea
-		puffs = 26, -- drifting cloud puffs on the sea near the hub
+		puffs = 22, -- drifting cloud puffs on the sea near the hub
 		puffArea = 420, -- puffs drift within this distance of the center
 		driftSpeed = 2, -- studs per second
 	}),
@@ -238,68 +299,148 @@ return table.freeze({
 		v(-185, 12, -60), v(195, 18, 40), v(-70, 8, 215), v(80, 14, 205), v(-195, 22, 130), v(210, 6, -110), v(-125, 16, -215), v(40, 20, -240),
 	}),
 
+	-- Every hub color comes from this palette: a warm base (cream and honey stone, deep red-brown
+	-- wood), strong accents (vermilion, jade, gold), lush greens and cherry-blossom pinks.
+	palette = PALETTE,
+
+	-- Colors by role, each one a palette entry. Change a role here to recolor everything that uses it.
 	colors = table.freeze({
-		grass = rgb(98, 160, 82),
-		hedge = rgb(62, 120, 64),
-		rock = rgb(128, 108, 94),
-		rockDark = rgb(96, 80, 72),
-		rockLight = rgb(168, 150, 128), -- floating islets
-		ground = rgb(206, 190, 162), -- warm sandstone floors
-		avenue = rgb(234, 222, 198),
-		tile = rgb(196, 112, 82), -- terracotta: borders and the spawn diamond
-		inlay = rgb(232, 196, 120),
-		inlayInner = rgb(184, 168, 146),
-		curb = rgb(176, 152, 124),
-		rail = rgb(196, 48, 42), -- the red rail on the curbs
-		roof = rgb(62, 128, 116), -- patina-green roofs
-		plinth = rgb(214, 208, 198),
-		torii = rgb(196, 48, 42),
-		dark = rgb(36, 30, 32),
-		lanternStone = rgb(168, 160, 150),
-		lanternLight = rgb(255, 196, 110),
-		blossom = rgb(255, 184, 214),
-		trunk = rgb(92, 60, 48),
-		wood = rgb(150, 104, 64),
-		displayBoard = rgb(26, 24, 34),
-		displayFrame = rgb(52, 44, 56),
-		spawnStone = rgb(236, 232, 226),
-		spawnGlow = rgb(255, 214, 120),
-		gold = rgb(232, 184, 72),
-		blade = rgb(214, 224, 236),
-		hilt = rgb(40, 30, 36),
-		glow = rgb(255, 170, 80),
-		water = rgb(120, 190, 235),
-		spotOff = rgb(40, 52, 46),
-		portal = rgb(255, 120, 80),
-		cloud = rgb(255, 246, 244),
-		cloudShade = rgb(236, 222, 232),
+		-- Ground: each area has its own tone, edged by a darker border course.
+		ground = PALETTE.sand, -- the main island's general floor
+		avenue = PALETTE.honey, -- the avenue paving and the stair
+		plaza = PALETTE.cream,
+		terraceFloor = PALETTE.roseStone,
+		border = PALETTE.graniteDark, -- border courses around floors and paths
+		tile = PALETTE.terracotta, -- terracotta borders and the spawn diamond
+		inlay = PALETTE.gold,
+		inlayInner = PALETTE.granite,
+		-- Stone.
+		curb = PALETTE.granite,
+		baseCourse = PALETTE.graniteDark, -- the darker course at the foot of walls and plinths
+		stoneCap = PALETTE.stoneLight, -- the lighter cap on plinths, pedestals and walls
+		plinth = PALETTE.cream,
+		lanternStone = PALETTE.granite,
+		spawnStone = PALETTE.stoneLight,
+		-- Rock under the islands, three shades.
+		rock = PALETTE.rock,
+		rockDark = PALETTE.rockDeep,
+		rockWarm = PALETTE.rockWarm,
+		rockLight = PALETTE.rockLight, -- floating islets
+		-- Greens and blossoms.
+		grass = PALETTE.grass,
+		grassLight = PALETTE.grassLight,
+		hedge = PALETTE.grassDeep,
+		blossom = PALETTE.blossom,
+		blossomLight = PALETTE.blossomLight,
+		blossomDeep = PALETTE.blossomDeep,
+		flowerYellow = PALETTE.flowerYellow,
+		flowerWhite = PALETTE.flowerWhite,
+		trunk = PALETTE.woodDark,
+		-- Wood and accents.
+		wood = PALETTE.woodRed,
+		woodLight = PALETTE.woodLight,
+		rail = PALETTE.vermilion,
+		torii = PALETTE.vermilion,
+		roof = PALETTE.jade,
+		gold = PALETTE.gold,
+		dark = PALETTE.charcoal,
+		-- Fixtures.
+		lanternLight = PALETTE.lanternGlow,
+		spawnGlow = PALETTE.spawnGlow,
+		displayBoard = PALETTE.displayBoard,
+		displayFrame = PALETTE.displayFrame,
+		blade = PALETTE.steel,
+		hilt = PALETTE.hilt,
+		glow = PALETTE.glow,
+		portal = PALETTE.portal,
+		spotOff = PALETTE.spotOff,
+		-- Water and sky.
+		water = PALETTE.water,
+		waterLight = PALETTE.waterLight,
+		foam = PALETTE.foam,
+		cloud = PALETTE.cloud,
+		cloudShade = PALETTE.cloudShade,
+	}),
+
+	-- Each zone's own accents, so the areas read apart at a glance.
+	accents = table.freeze({
+		arena = table.freeze({ main = PALETTE.crimson, trim = PALETTE.gold }),
+		yard = table.freeze({ main = PALETTE.indigo, trim = PALETTE.terracotta }),
+		shrine = table.freeze({ main = PALETTE.violet, trim = PALETTE.gold }),
+		hall = table.freeze({ main = PALETTE.navy, trim = PALETTE.bronze }),
+	}),
+
+	-- A small, fixed-seed color variation on repeated surfaces (paving, stone, rock, grass, foliage),
+	-- so large areas are not one flat tone. `value` is the brightness spread, `hue` the hue spread.
+	colorJitter = table.freeze({ seed = 23, value = 0.06, hue = 0.012 }),
+
+	-- Materials by role: Enum.Material names, all built into Roblox (no uploads). A name this engine
+	-- does not have falls back through `materialFallbacks`, then to SmoothPlastic, with a warning.
+	materials = table.freeze({
+		ground = "Cobblestone",
+		avenue = "Pavement",
+		plaza = "Cobblestone",
+		terrace = "Cobblestone",
+		border = "Granite",
+		tile = "Brick",
+		inlay = "Marble",
+		curb = "Granite",
+		stone = "Slate", -- lantern stone, steps, small stone pieces
+		plinth = "Limestone",
+		pedestal = "Marble",
+		swordStone = "Marble",
+		wall = "Plaster",
+		wood = "Wood",
+		planks = "WoodPlanks",
+		roof = "ClayRoofTiles",
+		grass = "Grass",
+		foliage = "LeafyGrass", -- hedges, bushes, blossom clusters
+		rock = "Rock",
+		rockDeep = "Basalt",
+		fabric = "Fabric",
+		ringEdge = "Brick",
+		metal = "Metal",
+		glow = "Neon",
+		water = "Glass",
+	}),
+	materialFallbacks = table.freeze({
+		ClayRoofTiles = "Slate",
+		RoofShingles = "Slate",
+		LeafyGrass = "Grass",
+		Limestone = "Slate",
+		Basalt = "Rock",
+		Cobblestone = "Slate",
+		Pavement = "Concrete",
+		Granite = "Slate",
+		Plaster = "Concrete",
 	}),
 
 	-- Hub lighting and sky (client only, while in the hub; the arena's own lighting comes back for
-	-- matches). Warm late afternoon, toned down so colors and text stay readable. `properties` are
-	-- Lighting properties; the rest are created in Lighting.
+	-- matches). Warm late afternoon under a clear, deeper blue sky: a light atmosphere with little
+	-- haze, so the far side of the island keeps its color, and a warm tone toward the sun.
+	-- `properties` are Lighting properties; the rest are created in Lighting.
 	lighting = table.freeze({
 		properties = table.freeze({
-			ClockTime = 16.4,
-			Brightness = 1.8,
-			Ambient = rgb(104, 96, 110),
-			OutdoorAmbient = rgb(150, 140, 150),
-			EnvironmentDiffuseScale = 0.4,
-			EnvironmentSpecularScale = 0.3,
+			ClockTime = 16.2,
+			Brightness = 2,
+			Ambient = rgb(108, 98, 104),
+			OutdoorAmbient = rgb(150, 140, 136),
+			EnvironmentDiffuseScale = 0.45,
+			EnvironmentSpecularScale = 0.35,
 			ExposureCompensation = 0,
 			GlobalShadows = true,
 		}),
 		atmosphere = table.freeze({
-			Density = 0.36,
-			Offset = 0.05,
-			Color = rgb(246, 214, 204),
-			Decay = rgb(160, 130, 170),
-			Glare = 0.15,
-			Haze = 1.4,
+			Density = 0.2,
+			Offset = 0.25,
+			Color = rgb(178, 208, 255), -- clear blue
+			Decay = rgb(255, 178, 128), -- warm toward the sun
+			Glare = 0.3,
+			Haze = 0.5,
 		}),
 		sky = table.freeze({ CelestialBodiesShown = true, StarCount = 3000, SunAngularSize = 14 }),
-		colorCorrection = table.freeze({ Brightness = 0, Contrast = 0.08, Saturation = 0.06, TintColor = rgb(255, 248, 242) }),
-		bloom = table.freeze({ Intensity = 0.25, Size = 18, Threshold = 2.2 }),
+		colorCorrection = table.freeze({ Brightness = 0, Contrast = 0.12, Saturation = 0.18, TintColor = rgb(255, 246, 236) }),
+		bloom = table.freeze({ Intensity = 0.2, Size = 18, Threshold = 2.3 }),
 	}),
 
 	-- Hub sounds (client only, while in the hub; all stop when a match starts). Ids starting with
