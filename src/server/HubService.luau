@@ -119,8 +119,8 @@ local function setInMatch(player: Player, value: boolean)
 	end
 end
 
-local function startMatch(players: { Player })
-	local participants = RoundService.startMatch(players)
+local function startMatch(players: { Player }, isPractice: boolean?)
+	local participants = RoundService.startMatch(players, isPractice)
 	if not participants then
 		return
 	end
@@ -173,7 +173,7 @@ local function poll()
 	-- Practice: the first player found on the pad starts at once.
 	for _, player in Players:GetPlayers() do
 		if not inMatch[player.UserId] and isOnPad(player, pads.practice) then
-			startMatch({ player })
+			startMatch({ player }, true)
 			return
 		end
 	end
@@ -267,6 +267,14 @@ function HubService.start()
 	-- Knocked out (or the match is decided): back to the hub now.
 	Remotes.create(RemoteNames.RequestLeaveMatch).OnServerEvent:Connect(function(player: Player)
 		if inMatch[player.UserId] and RoundService.canLeave(player.UserId) then
+			setInMatch(player, false)
+		end
+	end)
+
+	-- A practice match can be left at any time: it ends and the player is back in the hub at once.
+	-- RoundService refuses this for player matches.
+	Remotes.create(RemoteNames.RequestLeavePractice).OnServerEvent:Connect(function(player: Player)
+		if inMatch[player.UserId] and RoundService.leavePractice(player.UserId) then
 			setInMatch(player, false)
 		end
 	end)

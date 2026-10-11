@@ -3,6 +3,8 @@
 --   * the final placements screen during MatchOver, the winner on top with confetti
 --   * a "Back to hub" button with either of those (RequestLeaveMatch); everyone returns to the hub
 --     anyway when the final placements end
+--   * in a practice match only, a small "Leave" button (top left) with a "Leave practice?"
+--     confirmation (RequestLeavePractice): ends the practice match and returns to the hub at once
 -- The player list lives in PlayerList. Presentation only; redraws a few times per second.
 
 local Players = game:GetService("Players")
@@ -69,6 +71,69 @@ function MatchHud.start()
 		requestLeave:FireServer()
 	end)
 
+	-- Practice matches only (MatchState Practice): a small Leave button in the top-left corner, away
+	-- from the board, shop and bench, that asks before leaving. The server ends the practice match
+	-- and sends the player back to the hub; it refuses in a player match.
+	local requestLeavePractice = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestLeavePractice)
+	local practiceLeave = UI.button(root, COLORS.sell, UDim2.fromOffset(84, 32))
+	practiceLeave.Position = UDim2.fromOffset(SIZES.margin, 6)
+	practiceLeave.Visible = false
+	local practiceLabel = UI.text(practiceLeave, "LEAVE", SIZES.text, FONTS.display)
+	practiceLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	practiceLabel.Position = UDim2.fromScale(0.5, 0.5)
+
+	-- The confirmation, on its own screen above the rest of the HUD. Its backdrop takes every press,
+	-- so nothing behind it is touched while it is open.
+	local _, dialogRoot = UI.screen("LeavePracticeDialog", 15)
+	local backdrop = Instance.new("TextButton")
+	backdrop.Text = ""
+	backdrop.AutoButtonColor = false
+	backdrop.Size = UDim2.fromScale(1, 1)
+	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+	backdrop.BackgroundTransparency = 0.45
+	backdrop.Visible = false
+	backdrop.Parent = dialogRoot
+	local dialog = UI.panel(backdrop, UDim2.fromOffset(0, 0))
+	dialog.AutomaticSize = Enum.AutomaticSize.XY
+	dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+	dialog.Position = UDim2.fromScale(0.5, 0.5)
+	local dialogContent = Instance.new("Frame")
+	dialogContent.BackgroundTransparency = 1
+	dialogContent.AutomaticSize = Enum.AutomaticSize.XY
+	UI.padding(dialogContent, 16)
+	UI.list(dialogContent, 14, Enum.HorizontalAlignment.Center)
+	dialogContent.Parent = dialog
+	UI.text(dialogContent, "Leave practice?", SIZES.textLarge + 2, FONTS.display).LayoutOrder = 1
+	local choices = UI.row(dialogContent, 12)
+	choices.LayoutOrder = 2
+	local function choice(text: string, color: Color3, order: number): TextButton
+		local button = UI.button(choices, color, UDim2.fromOffset(120, 42))
+		button.LayoutOrder = order
+		local label = UI.text(button, text, SIZES.textLarge, FONTS.display)
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.Position = UDim2.fromScale(0.5, 0.5)
+		return button
+	end
+	local confirm = choice("LEAVE", COLORS.sell, 1)
+	local cancel = choice("CANCEL", COLORS.panelLight, 2)
+
+	local function setDialog(open: boolean)
+		backdrop.Visible = open
+		if open then
+			UI.pop(dialog, 1.08)
+		end
+	end
+	practiceLeave.Activated:Connect(function()
+		setDialog(true)
+	end)
+	cancel.Activated:Connect(function()
+		setDialog(false)
+	end)
+	confirm.Activated:Connect(function()
+		setDialog(false)
+		requestLeavePractice:FireServer()
+	end)
+
 	local wasOver = false
 	local function refresh()
 		local phase = matchState:GetAttribute("Phase")
@@ -79,6 +144,15 @@ function MatchHud.start()
 		end
 		banner.Visible = knockedOut
 		leave.Visible = own ~= nil and (knockedOut or phase == Phase.MatchOver)
+		local canLeavePractice = matchState:GetAttribute("Practice") == true
+			and own ~= nil
+			and not knockedOut
+			and phase ~= Phase.MatchOver
+			and phase ~= Phase.Waiting
+		practiceLeave.Visible = canLeavePractice
+		if not canLeavePractice and backdrop.Visible then
+			setDialog(false)
+		end
 		if knockedOut then
 			bannerLabel.Text = "#" .. tostring(own:GetAttribute("Placement") or 0)
 		end
