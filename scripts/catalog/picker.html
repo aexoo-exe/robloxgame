@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avatar Picker</title>
+<!--
+  Template for the local catalog picker. scripts/catalog-shortlist.luau copies it to
+  docs/references/catalog/index.html next to data.js (the shortlists) and the thumbnails.
+  Open that copy in a browser. Picks are kept in this browser until exported.
+-->
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d22; --dim: #6b6a70; --line: #dcd8d0;
+    --accent: #2f6fdb; --pick: #1f9d55; --pick-bg: #e6f6ec; --warn: #b5541c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171b; --panel: #222228; --ink: #ececf0; --dim: #9a99a3; --line: #34343c;
+      --accent: #6aa0ff; --pick: #4cc483; --pick-bg: #1d3328; --warn: #f0a36b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; }
+  header .counts { color: var(--dim); }
+  header input[type=search] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .help { color: var(--dim); font-size: 12px; flex-basis: 100%; }
+  main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+  .unit { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 18px; padding: 14px; }
+  .unit-head { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .reference { width: 200px; max-width: 40vw; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+  .unit-info { flex: 1; min-width: 240px; }
+  .unit-info h2 { margin: 0 0 2px; font-size: 18px; font-family: ui-monospace, monospace; }
+  .unit-info .name { color: var(--dim); margin-bottom: 8px; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); margin-right: 6px; }
+  .badge.changed { color: var(--warn); border-color: var(--warn); }
+  .picked { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .chip { display: flex; align-items: center; gap: 6px; background: var(--pick-bg); border: 1px solid var(--pick); border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+  .chip img { width: 36px; height: 36px; object-fit: contain; }
+  .chip button { padding: 0 6px; font-size: 12px; }
+  .add { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dim); }
+  .add select, .add input { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .add input { width: 150px; }
+  .slot { margin-top: 12px; }
+  .slot h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 0 0 6px; }
+  .slot .rule { font-weight: normal; text-transform: none; letter-spacing: 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .card { border: 2px solid var(--line); border-radius: 8px; padding: 6px; cursor: pointer; background: var(--panel); position: relative; }
+  .card:hover { border-color: var(--accent); }
+  .card.on { border-color: var(--pick); background: var(--pick-bg); }
+  .card.on::after { content: "Picked"; position: absolute; top: 6px; right: 6px; background: var(--pick); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--bg); border-radius: 6px; }
+  .card .missing { width: 100%; aspect-ratio: 1; display: grid; place-items: center; color: var(--dim); background: var(--bg); border-radius: 6px; font-size: 12px; }
+  .card .title { font-size: 12px; font-weight: 600; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .meta { font-size: 11px; color: var(--dim); }
+  .card a { color: var(--accent); }
+  .empty { color: var(--dim); font-style: italic; }
+  @media (max-width: 600px) { .cards { grid-template-columns: repeat(2, 1fr); } .reference { width: 140px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Avatar picker</h1>
+  <span class="counts" id="counts"></span>
+  <input type="search" id="filter" placeholder="Filter by unit id">
+  <label><input type="checkbox" id="unpicked"> Only units with no picks</label>
+  <button class="primary" id="export">Export picks</button>
+  <button id="reset" title="Forget the picks made in this browser and show the current config again">Reset to current config</button>
+  <div class="help">Click a card to pick it: one shirt, one pants and one face per unit; any number of accessories. Picks stay in this browser.
+    <b>Export picks</b> saves picks.json (usually to Downloads); then run the apply script, which looks in docs/references/catalog/ and then in Downloads.</div>
+</header>
+<main id="main"></main>
+<script src="data.js"></script>
+<script>
+(function () {
+  "use strict";
+  var STORE = "avatarPicker.picks.v1";
+  var SLOTS = [
+    { key: "Hair", label: "Hair", accessory: true },
+    { key: "Hat", label: "Hat", accessory: true },
+    { key: "shirt", label: "Shirt (classic)", single: true },
+    { key: "pants", label: "Pants (classic)", single: true },
+    { key: "face", label: "Face (classic)", single: true },
+    { key: "Face", label: "Face accessory", accessory: true },
+    { key: "Neck", label: "Neck", accessory: true },
+    { key: "Shoulders", label: "Shoulders", accessory: true },
+    { key: "Front", label: "Front", accessory: true },
+    { key: "Back", label: "Back", accessory: true },
+    { key: "Waist", label: "Waist", accessory: true }
+  ];
+  var TYPE_NAMES = { 8: "Hat", 41: "Hair", 42: "Face accessory", 43: "Neck", 44: "Shoulder", 45: "Front", 46: "Back", 47: "Waist", 11: "Classic shirt", 12: "Classic pants", 18: "Classic face" };
+
+  var main = document.getElementById("main");
+  var data = window.CATALOG;
+  if (!data || !data.units) {
+    main.innerHTML = "<p class='empty'>No data.js yet. Run <code>lune run scripts/catalog-shortlist</code> from the repository root first.</p>";
+    return;
+  }
+
+  // A unit's picks: { shirt, pants, face, accessories: [{ slot, id }] }.
+  function normalize(pick) {
+    pick = pick || {};
+    var out = { shirt: pick.shirt || null, pants: pick.pants || null, face: pick.face || null, accessories: [] };
+    (pick.accessories || []).forEach(function (a) { out.accessories.push({ slot: a.slot, id: Number(a.id) }); });
+    ["shirt", "pants", "face"].forEach(function (k) { if (out[k]) out[k] = Number(out[k]); });
+    return out;
+  }
+  function isEmpty(pick) { return !pick.shirt && !pick.pants && !pick.face && pick.accessories.length === 0; }
+  function same(a, b) {
+    var key = function (p) {
+      return [p.shirt, p.pants, p.face].join("|") + "|" + p.accessories.map(function (x) { return x.slot + ":" + x.id; }).sort().join(",");
+    };
+    return key(a) === key(b);
+  }
+
+  var current = {}, picks = {}, stored = null;
+  try { stored = JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { stored = null; }
+  data.units.forEach(function (u) {
+    current[u.unit] = normalize(u.current);
+    picks[u.unit] = normalize(stored && stored[u.unit] ? stored[u.unit] : u.current);
+  });
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(picks)); } catch (e) { /* private window: picks last for this visit */ } }
+
+  function isPicked(unit, slot, id) {
+    var p = picks[unit];
+    if (slot === "shirt" || slot === "pants" || slot === "face") return p[slot] === id;
+    return p.accessories.some(function (a) { return a.slot === slot && a.id === id; });
+  }
+  function toggle(unit, slot, id) {
+    var p = picks[unit];
+    if (slot === "shirt" || slot === "pants" || slot === "face") {
+      p[slot] = p[slot] === id ? null : id;
+    } else if (isPicked(unit, slot, id)) {
+      p.accessories = p.accessories.filter(function (a) { return !(a.slot === slot && a.id === id); });
+    } else {
+      p.accessories.push({ slot: slot, id: id });
+    }
+    save();
+    render();
+  }
+
+  // Item info by id, from every shortlist of the unit.
+  function itemIndex(u) {
+    var index = {};
+    Object.keys(u.slots || {}).forEach(function (slot) { (u.slots[slot] || []).forEach(function (it) { index[it.id] = it; }); });
+    return index;
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function thumb(unit, id) {
+    var img = el("img"); img.loading = "lazy"; img.alt = String(id); img.src = unit + "/" + id + ".png";
+    img.onerror = function () { var m = el("div", "missing", "no thumbnail"); img.replaceWith(m); };
+    return img;
+  }
+  function catalogLink(id) { var a = el("a", null, String(id)); a.href = "https://www.roblox.com/catalog/" + id; a.target = "_blank"; a.rel = "noopener"; a.onclick = function (e) { e.stopPropagation(); }; return a; }
+
+  function renderUnit(u) {
+    var p = picks[u.unit];
+    var section = el("section", "unit"); section.id = u.unit;
+    var head = el("div", "unit-head");
+    if (u.reference) { var ref = el("img", "reference"); ref.src = u.reference; ref.alt = u.unit + " reference"; head.appendChild(ref); }
+    var info = el("div", "unit-info");
+    info.appendChild(el("h2", null, u.unit));
+    info.appendChild(el("div", "name", u.name || ""));
+    var badges = el("div");
+    if (!isEmpty(current[u.unit])) badges.appendChild(el("span", "badge", "in config"));
+    if (!same(p, current[u.unit])) badges.appendChild(el("span", "badge changed", "changed, not exported"));
+    if (!u.fetched) badges.appendChild(el("span", "badge", "not searched yet"));
+    info.appendChild(badges);
+
+    // Current picks, as removable chips.
+    var index = itemIndex(u);
+    var chips = el("div", "picked");
+    var chosen = [];
+    ["shirt", "pants", "face"].forEach(function (k) { if (p[k]) chosen.push({ slot: k, id: p[k] }); });
+    p.accessories.forEach(function (a) { chosen.push(a); });
+    if (chosen.length === 0) chips.appendChild(el("span", "empty", "No picks yet."));
+    chosen.forEach(function (c) {
+      var chip = el("span", "chip");
+      chip.appendChild(thumb(u.unit, c.id));
+      var it = index[c.id];
+      chip.appendChild(el("span", null, c.slot + ": " + (it ? it.name : c.id)));
+      var x = el("button", null, "x"); x.title = "Remove";
+      x.onclick = function () { toggle(u.unit, c.slot, c.id); };
+      chip.appendChild(x);
+      chips.appendChild(chip);
+    });
+    info.appendChild(chips);
+
+    // Add an item found by hand: slot + asset id.
+    var add = el("div", "add");
+    add.appendChild(el("span", null, "Add by id:"));
+    var sel = el("select");
+    SLOTS.forEach(function (s) { var o = el("option", null, s.label); o.value = s.key; sel.appendChild(o); });
+    var input = el("input"); input.placeholder = "catalog asset id"; input.inputMode = "numeric";
+    var go = el("button", null, "Add");
+    go.onclick = function () {
+      var id = Number(String(input.value).replace(/\D/g, ""));
+      if (!id) return;
+      if (!isPicked(u.unit, sel.value, id)) toggle(u.unit, sel.value, id);
+    };
+    add.appendChild(sel); add.appendChild(input); add.appendChild(go);
+    info.appendChild(add);
+    head.appendChild(info);
+    section.appendChild(head);
+
+    var anySlot = false;
+    SLOTS.forEach(function (s) {
+      var items = (u.slots || {})[s.key] || [];
+      if (items.length === 0) return;
+      anySlot = true;
+      var box = el("div", "slot");
+      var h = el("h3", null, s.label + " ");
+      h.appendChild(el("span", "rule", s.single ? "(pick one)" : "(pick any)"));
+      box.appendChild(h);
+      var cards = el("div", "cards");
+      items.forEach(function (it) {
+        var card = el("div", "card" + (isPicked(u.unit, s.key, it.id) ? " on" : ""));
+        card.title = "Click to pick or unpick";
+        card.appendChild(thumb(u.unit, it.id));
+        card.appendChild(el("div", "title", it.name));
+        var meta = el("div", "meta");
+        meta.appendChild(catalogLink(it.id));
+        meta.appendChild(document.createTextNode(" · " + (TYPE_NAMES[it.type] || it.type)));
+        card.appendChild(meta);
+        card.appendChild(el("div", "meta", "by " + (it.creator || "?") + (it.price != null ? " · " + it.price + " R$" : "") + (it.favorites ? " · " + it.favorites + " fav" : "")));
+        card.onclick = function () { toggle(u.unit, s.key, it.id); };
+        cards.appendChild(card);
+      });
+      box.appendChild(cards);
+      section.appendChild(box);
+    });
+    if (!anySlot) section.appendChild(el("p", "empty", u.fetched ? "No R6-usable items found. Add items by id above, or add extra keywords in searches.json." : "Not searched yet: run the shortlist script for this unit."));
+    return section;
+  }
+
+  var filterInput = document.getElementById("filter");
+  var unpickedBox = document.getElementById("unpicked");
+  function render() {
+    var scroll = window.scrollY;
+    main.innerHTML = "";
+    var text = filterInput.value.trim().toLowerCase();
+    var shown = 0, withPicks = 0;
+    data.units.forEach(function (u) {
+      var has = !isEmpty(picks[u.unit]);
+      if (has) withPicks++;
+      if (unpickedBox.checked && has) return;
+      if (text && u.unit.indexOf(text) === -1) return;
+      main.appendChild(renderUnit(u));
+      shown++;
+    });
+    if (shown === 0) main.appendChild(el("p", "empty", "No units match."));
+    document.getElementById("counts").textContent = withPicks + " of " + data.units.length + " units have picks · data from " + (data.generated || "?");
+    window.scrollTo(0, scroll);
+  }
+  filterInput.oninput = render;
+  unpickedBox.onchange = render;
+
+  document.getElementById("export").onclick = function () {
+    // Every unit with picks, plus units cleared here that are still in the config (so the apply
+    // script removes them).
+    var out = {};
+    data.units.forEach(function (u) {
+      var p = picks[u.unit];
+      if (!isEmpty(p) || !isEmpty(current[u.unit])) {
+        var entry = { accessories: p.accessories.slice() };
+        ["shirt", "pants", "face"].forEach(function (k) { if (p[k]) entry[k] = p[k]; });
+        out[u.unit] = entry;
+      }
+    });
+    var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "picks.json";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  };
+  document.getElementById("reset").onclick = function () {
+    if (!confirm("Forget the picks made in this browser and go back to the current config?")) return;
+    try { localStorage.removeItem(STORE); } catch (e) { /* ignore */ }
+    data.units.forEach(function (u) { picks[u.unit] = normalize(u.current); });
+    render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>

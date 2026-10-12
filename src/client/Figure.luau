@@ -32,6 +32,7 @@ export type Look = {
 	detail: string?, -- "low" leaves out a look's fine details (hub statues)
 	avatar: string?, -- unit id of a catalog avatar (UnitAvatarConfig); used once it is ready
 	avatarProp: boolean?, -- false: an avatar holds no class prop (UnitAvatarConfig `prop`)
+	avatarWeapons: { any }?, -- LookKit weapons worn with an avatar (UnitAvatarConfig `weapons`)
 }
 
 -- One frame's posture. Angles are in radians; arms and legs are raised forward from hanging.
@@ -291,6 +292,17 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	model.Parent = parent
 	if look.avatarProp ~= false then
 		buildProps(figure, look, parent)
+	end
+	-- LookKit weapons worn with the avatar (UnitAvatarConfig `weapons`), on the same anchors.
+	if look.avatarWeapons then
+		for _, spec in LookKit.weaponSpecs(look.avatarWeapons, figure.body, figure.height, look.detail == "low") do
+			addPiece(
+				figure,
+				newPart(parent, spec.shape, spec.size, spec.color, spec.material),
+				spec.anchor,
+				spec.offset
+			)
+		end
 	end
 end
 

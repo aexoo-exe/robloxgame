@@ -33,6 +33,7 @@ type Context = {
 	hs: number, -- head size
 	low: boolean,
 	thin: number, -- overlay thickness
+	grip: CFrame?, -- the current held weapon's grip, when it rides an anchor other than a hand
 }
 
 local rad = math.rad
@@ -975,9 +976,11 @@ end
 -- Weapons ---------------------------------------------------------------------------------------
 
 -- Held weapons ride a hand anchor (the end of the arm, -Z is the arm's front) so they follow every
--- swing; the grip is just inside the hand. Worn weapons ride the hips.
+-- swing; the grip is just inside the hand. Worn weapons ride the hips. A held weapon with an
+-- `anchor` rides that anchor instead, its grip at `at` (height fractions) turned by `turn`
+-- (degrees), e.g. a sword held in the mouth; the blade still runs along the grip's -Z.
 local function grip(ctx: Context): CFrame
-	return CF(0, ctx.h * 0.045, 0)
+	return ctx.grip or CF(0, ctx.h * 0.045, 0)
 end
 
 local function metal(w: any): Options
@@ -988,14 +991,25 @@ LookKit.WEAPONS = {
 	katana = function(ctx: Context, w: any, anchor: string)
 		local h, g = ctx.h, grip(ctx)
 		local length = (w.length or 0.5) * h
-		add(ctx, anchor, "Block", V(h * 0.032, h * 0.036, h * 0.14), g * CF(0, 0, h * 0.01), w.hilt, PLAIN)
-		add(ctx, anchor, "Block", V(h * 0.07, h * 0.07, h * 0.016), g * CF(0, 0, -h * 0.068), w.guard or w.hilt, PLAIN)
+		-- `hiltLength` (height fraction): longer hilts show either side of an avatar's blocky fist.
+		local hiltLength = (w.hiltLength or 0.14) * h
+		local front = h * 0.01 - hiltLength / 2
+		add(ctx, anchor, "Block", V(h * 0.032, h * 0.036, hiltLength), g * CF(0, 0, h * 0.01), w.hilt, PLAIN)
+		add(
+			ctx,
+			anchor,
+			"Block",
+			V(h * 0.07, h * 0.07, h * 0.016),
+			g * CF(0, 0, front - h * 0.008),
+			w.guard or w.hilt,
+			PLAIN
+		)
 		add(
 			ctx,
 			anchor,
 			"Block",
 			V(h * 0.018, h * 0.042, length),
-			g * CF(0, 0, -h * 0.076 - length / 2),
+			g * CF(0, 0, front - h * 0.016 - length / 2),
 			w.blade,
 			metal(w)
 		)
@@ -1197,13 +1211,34 @@ local function weapons(ctx: Context)
 	for _, w in ctx.look.weapons or {} do
 		local build = LookKit.WEAPONS[w.kind]
 		assert(build, "unknown weapon kind " .. tostring(w.kind))
-		if w.hand == "both" then
+		if w.anchor then
+			local angles = w.turn or Vector3.zero
+			ctx.grip = CF((w.at or Vector3.zero) * ctx.h) * turn(angles.X, angles.Y, angles.Z)
+			build(ctx, w, w.anchor)
+			ctx.grip = nil
+		elseif w.hand == "both" then
 			build(ctx, w, "leftHand")
 			build(ctx, w, "rightHand")
 		else
 			build(ctx, w, (w.hand or "right") .. "Hand")
 		end
 	end
+end
+
+-- Only the weapons of `weapons` (UnitLookConfig `weapons` format), for figures whose body comes
+-- from elsewhere (catalog avatars, UnitAvatarConfig).
+function LookKit.weaponSpecs(weaponList: { any }, body: { [string]: number }, height: number, low: boolean?): { Spec }
+	local ctx: Context = {
+		specs = {},
+		look = { weapons = weaponList },
+		body = body,
+		h = height,
+		hs = body.headSize,
+		low = low == true,
+		thin = height * 0.012,
+	}
+	weapons(ctx)
+	return ctx.specs
 end
 
 -- The parts of `look` (a UnitLookConfig entry) for a figure with proportions `body` (studs) and

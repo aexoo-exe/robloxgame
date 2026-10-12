@@ -37,8 +37,9 @@ end
 local cache: { [string]: CharacterLook } = {}
 
 -- A character's prop and arm look: its first class's, changed by its FigureConfig.characters
--- override (prop, arms, attackHand) if it has one, then by its UnitLookConfig look (hand, arms).
-local function classLookOf(character, override, unitLook): any
+-- override (prop, arms, attackHand) if it has one, then by its UnitLookConfig look and its
+-- UnitAvatarConfig avatar (hand, arms).
+local function classLookOf(character, override, unitLook, avatar): any
 	local classLook = FigureConfig.classes[character.classes[1]]
 	if override then
 		local prop = override.prop
@@ -55,10 +56,12 @@ local function classLookOf(character, override, unitLook): any
 			classLook.hand = override.attackHand or classLook.hand
 		end
 	end
-	if unitLook and (unitLook.arms or unitLook.hand) then
-		classLook = table.clone(classLook)
-		classLook.arms = unitLook.arms or classLook.arms
-		classLook.hand = unitLook.hand or classLook.hand
+	for _, source in { unitLook or false, avatar or false } do
+		if source and (source.arms or source.hand) then
+			classLook = table.clone(classLook)
+			classLook.arms = source.arms or classLook.arms
+			classLook.hand = source.hand or classLook.hand
+		end
 	end
 	return classLook
 end
@@ -92,7 +95,7 @@ function CharacterLook.of(unitType: string): CharacterLook
 			scale = scale,
 			figure = {
 				style = "roster",
-				classLook = classLookOf(character, override, unitLook),
+				classLook = classLookOf(character, override, unitLook, avatar),
 				ringColor = RenderConfig.costColors[character.cost],
 				model = skin.model,
 				bulk = bulk,
@@ -100,6 +103,7 @@ function CharacterLook.of(unitType: string): CharacterLook
 				unitLook = unitLook,
 				avatar = if avatar then unitType else nil,
 				avatarProp = not avatar or avatar.prop ~= false,
+				avatarWeapons = if avatar then avatar.weapons else nil,
 			},
 		}
 	else

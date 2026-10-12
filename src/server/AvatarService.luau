@@ -52,11 +52,9 @@ local function describe(entry: any, only: any?): HumanoidDescription
 		description.Pants = entry.pants or 0
 		description.Face = entry.face or 0
 	end
+	local properties = description :: any
 	for limb, property in LIMB_COLORS do
-		local color = (entry.colors and entry.colors[limb]) or entry.skin
-		if color then
-			(description :: any)[property] = color
-		end
+		properties[property] = (entry.colors and entry.colors[limb]) or entry.skin or UnitAvatarConfig.defaultSkin
 	end
 	return description
 end
@@ -244,9 +242,27 @@ function AvatarService.start()
 		folder:SetAttribute(unitType, "loading")
 	end
 	folder.Parent = ReplicatedStorage
-	for unitType, entry in UnitAvatarConfig.units do
-		task.spawn(build, unitType, entry)
+
+	-- A queue worked by `buildAtOnce` builders, so dozens of avatars do not all hit Roblox at once.
+	-- The default clothing is learned first, so the builders share one probe.
+	local jobs = {}
+	for unitType in UnitAvatarConfig.units do
+		table.insert(jobs, unitType)
 	end
+	table.sort(jobs)
+	task.spawn(function()
+		defaultClothing()
+		local nextJob = 1
+		for _ = 1, math.min(UnitAvatarConfig.buildAtOnce, #jobs) do
+			task.spawn(function()
+				while nextJob <= #jobs do
+					local unitType = jobs[nextJob]
+					nextJob += 1
+					build(unitType, UnitAvatarConfig.units[unitType])
+				end
+			end)
+		end
+	end)
 end
 
 return AvatarService
