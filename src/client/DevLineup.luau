@@ -163,6 +163,17 @@ local function report()
 		if entry.mounted then
 			print(string.format("[DevLineup] %s: %d parts with its horse", entry.unitType, parts))
 		end
+		local avatar = entry.figure.avatar
+		if avatar then
+			print(
+				string.format(
+					"[DevLineup] %s: catalog avatar, %d parts (with ring and prop), %d instances in the rig",
+					entry.unitType,
+					parts,
+					#avatar:GetDescendants()
+				)
+			)
+		end
 		total += parts
 		if parts > most then
 			most, mostId = parts, entry.unitType
@@ -205,7 +216,8 @@ local function open()
 		for column, unitType in ids do
 			local look = CharacterLook.of(unitType)
 			local height = HEIGHT * look.scale
-			local x = (column - (#ids + 1) / 2) * SPACING
+			-- Mirrored so each row reads left to right from the camera (which looks along +Z).
+			local x = ((#ids + 1) / 2 - column) * SPACING
 			-- Facing -Z, toward the camera.
 			local root = CFrame.new(BASE + Vector3.new(x, 0, (rowIndex - 1) * ROW_GAP))
 			local hitbox = Instance.new("Part")
@@ -228,7 +240,7 @@ local function open()
 
 			local label = Instance.new("BillboardGui")
 			label.Size = UDim2.fromOffset(150, 22)
-			label.StudsOffset = Vector3.new(0, height * (if mounted then 1.5 else 1.15), 0)
+			label.StudsOffset = Vector3.new(0, height * (if mounted then 0.95 else 0.62), 0) -- just over the head
 			label.MaxDistance = 250
 			local text = Instance.new("TextLabel")
 			text.Size = UDim2.fromScale(1, 1)

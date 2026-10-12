@@ -66,6 +66,34 @@ return table.freeze({
 	bossEyeColor = Color3.fromRGB(255, 70, 50),
 
 	visorColor = Color3.fromRGB(30, 30, 40),
+	-- Catalog avatars (UnitAvatarConfig): an R6 rig is 5 studs from the feet to the top of the head,
+	-- scaled to the figure's height. Its proportions as fractions of that height, so the figure's
+	-- anchors land on the rig's joints: hips at 2 studs, shoulders 1.5 above them, the head's center
+	-- at 4.5. `handReach` (from the shoulder pivot to the bottom of the hand) is shorter than the arm
+	-- because an R6 arm hangs from half a stud above its top.
+	avatarRigHeight = 5,
+	avatarBody = table.freeze({
+		legLength = 0.4,
+		legWidth = 0.2,
+		legSpacing = 0.1,
+		torsoHeight = 0.4,
+		torsoWidth = 0.4,
+		torsoDepth = 0.2,
+		neck = 0,
+		headSize = 0.2,
+		armLength = 0.4,
+		armWidth = 0.2,
+		handReach = 0.3,
+	}),
+	-- An avatar's textured clothing cannot be recolored, so flashes, glows and selection are a
+	-- Highlight: flashes fill in their color; selection is a soft white fill with an outline.
+	avatarHighlight = table.freeze({
+		flashFill = 0.3,
+		selectColor = Color3.fromRGB(255, 255, 255),
+		selectFill = 0.75,
+		selectOutline = 0.1,
+	}),
+
 	-- Units with a hand-built look (UnitLookConfig) keep their own colors in a tinted form
 	-- (RenderConfig.formLooks `tint`): each part is blended this far toward the tint.
 	lookTintBlend = 0.5,

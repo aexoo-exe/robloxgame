@@ -20,6 +20,7 @@ local HubConfig = require(Shared:WaitForChild("HubConfig"))
 local CharacterLook = require(script.Parent.CharacterLook)
 local Figure = require(script.Parent.Figure)
 local ItemIcon = require(script.Parent.ItemIcon)
+local UnitAvatars = require(script.Parent.UnitAvatars)
 
 local HubScenery = {}
 
@@ -141,11 +142,7 @@ local function buildRocks()
 end
 
 -- A statue on a plinth: the unit's figure at rest, facing the way the plinth faces.
-local function addStatue(plinth: Instance)
-	local unitType = plinth:GetAttribute("UnitType")
-	if not plinth:IsA("BasePart") or type(unitType) ~= "string" then
-		return
-	end
+local function buildStatue(plinth: BasePart, unitType: string)
 	local look = CharacterLook.of(unitType)
 	local height = HubConfig.gallery.statueHeight * look.scale
 	local root = plinth.CFrame * CFrame.new(0, plinth.Size.Y / 2, 0)
@@ -172,6 +169,24 @@ local function addStatue(plinth: Instance)
 		rightLeg = 0,
 		stride = 0,
 	})
+end
+
+-- A unit with a catalog avatar waits for it (ready or failed, at most AVATAR_WAIT seconds) so the
+-- statue is built once, as the avatar or as the fallback.
+local AVATAR_WAIT = 30
+
+local function addStatue(plinth: Instance)
+	local unitType = plinth:GetAttribute("UnitType")
+	if not plinth:IsA("BasePart") or type(unitType) ~= "string" then
+		return
+	end
+	if CharacterLook.of(unitType).figure.avatar then
+		UnitAvatars.whenSettled(unitType, AVATAR_WAIT, function()
+			buildStatue(plinth, unitType)
+		end)
+	else
+		buildStatue(plinth, unitType)
+	end
 end
 
 -- The item's pictogram floating over its pedestal.

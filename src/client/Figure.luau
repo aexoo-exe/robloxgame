@@ -1,6 +1,9 @@
--- A unit's figure: a hand-built look when the unit has one (UnitLookConfig, built by LookKit), else
--- a placeholder humanoid built from parts (FigureConfig), or a finished model when its SkinConfig
+-- A unit's figure: a catalog avatar when the unit has one ready (UnitAvatarConfig, UnitAvatars),
+-- else a hand-built look when the unit has one (UnitLookConfig, built by LookKit), else a
+-- placeholder humanoid built from parts (FigureConfig), or a finished model when its SkinConfig
 -- entry names one, plus the cost ring and, for a mounted rider, a horse. Presentation only.
+-- A catalog avatar is an R6 rig whose parts ride the same anchors as any figure, so it takes every
+-- pose; its clothing is textured, so hit flashes, cast glows and selection show as a Highlight.
 --
 -- Every piece is an anchored part that cannot be clicked (the unit's invisible hitbox takes clicks
 -- and carries the info board) and casts no shadow. A piece hangs from a named anchor (root, hips,
@@ -13,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local FigureConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FigureConfig"))
 
 local LookKit = require(script.Parent.LookKit)
+local UnitAvatars = require(script.Parent.UnitAvatars)
 
 local Figure = {}
 
@@ -26,6 +30,8 @@ export type Look = {
 	attackPose: string?, -- "recoil" or "point" for ranged attacks (FigureConfig.characters)
 	unitLook: any?, -- a UnitLookConfig entry: drawn with LookKit instead of the placeholder
 	detail: string?, -- "low" leaves out a look's fine details (hub statues)
+	avatar: string?, -- unit id of a catalog avatar (UnitAvatarConfig); used once it is ready
+	avatarProp: boolean?, -- false: an avatar holds no class prop (UnitAvatarConfig `prop`)
 }
 
 -- One frame's posture. Angles are in radians; arms and legs are raised forward from hanging.
@@ -64,6 +70,9 @@ export type Figure = {
 	baseMaterials: { [BasePart]: Enum.Material },
 	formTint: Color3?, -- a form's tint (RenderConfig.formLooks), blended into a look's own colors
 	unitLook: any?,
+	avatar: Model?, -- the catalog avatar's model, if the figure is one
+	highlight: Highlight?, -- an avatar's flash, glow and selection (made on first use)
+	decals: { { decal: Decal, transparency: number } }, -- faded with the parts (an avatar's face)
 	color: Color3,
 	transparency: number,
 	isModel: boolean,
@@ -206,7 +215,11 @@ local function buildBody(figure: Figure, look: Look, parent: Instance)
 			addPiece(figure, part, "head", offset)
 		end
 	end
+end
 
+-- The class prop (FigureConfig.classes) on the hand anchor(s), for placeholders and avatars.
+local function buildProps(figure: Figure, look: Look, parent: Instance)
+	local h = figure.height
 	local classLook = look.classLook
 	if classLook then
 		local hands = if classLook.hand == "both" then { "left", "right" } else { classLook.hand }
@@ -218,6 +231,66 @@ local function buildBody(figure: Figure, look: Look, parent: Instance)
 				addPiece(figure, part, hand .. "Hand", offset)
 			end
 		end
+	end
+end
+
+local REST_POSE: Pose = {
+	bob = 0,
+	lean = 0,
+	fall = 0,
+	leftArm = 0,
+	rightArm = 0,
+	leftLeg = 0,
+	rightLeg = 0,
+	stride = 0,
+}
+
+-- The R6 body part each anchor carries (accessories carry their AvatarBodyPart attribute).
+local AVATAR_ANCHORS = {
+	Head = "head",
+	Torso = "hips",
+	["Left Arm"] = "leftArm",
+	["Right Arm"] = "rightArm",
+	["Left Leg"] = "leftLeg",
+	["Right Leg"] = "rightLeg",
+}
+
+local computeAnchors: (figure: Figure, root: CFrame, pose: Pose) -> ()
+
+-- A catalog avatar: a copy of the server's rest-pose template (UnitAvatars), scaled to the figure's
+-- height. Its body uses R6 proportions (FigureConfig.avatarBody), so the rig's parts sit on the
+-- figure's anchors at rest; each part keeps its offset from its anchor and follows every pose.
+-- Accessories ride the anchor of the body part they are attached to. The class prop goes on the
+-- hands as for placeholders. Body parts take form tints; textured clothing and accessories do not.
+local function buildAvatar(figure: Figure, look: Look, template: Model, parent: Instance)
+	local model = template:Clone()
+	model:ScaleTo(figure.height / FigureConfig.avatarRigHeight)
+	computeAnchors(figure, CFrame.identity, REST_POSE)
+	local rest = table.clone(figure.anchors)
+	-- Every part is measured from the torso, whose center sits half a torso above the hips anchor
+	-- (the model's pivot is not reliable: it does not replicate as the server set it).
+	local torso = model:FindFirstChild("Torso") :: BasePart
+	local torsoRest = rest.hips * CFrame.new(0, figure.body.torsoHeight / 2, 0)
+	local torsoFrame = torso.CFrame
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			local bodyPart = AVATAR_ANCHORS[descendant.Name]
+			local anchor = bodyPart or AVATAR_ANCHORS[descendant:GetAttribute("AvatarBodyPart") or ""] or "hips"
+			local at = torsoRest * torsoFrame:ToObjectSpace(descendant.CFrame)
+			addPiece(figure, descendant, anchor, rest[anchor]:ToObjectSpace(at))
+			if bodyPart then
+				table.insert(figure.tinted, descendant)
+				figure.baseColors[descendant] = descendant.Color
+				figure.baseMaterials[descendant] = descendant.Material
+			end
+		elseif descendant:IsA("Decal") then
+			table.insert(figure.decals, { decal = descendant, transparency = descendant.Transparency })
+		end
+	end
+	figure.avatar = model
+	model.Parent = parent
+	if look.avatarProp ~= false then
+		buildProps(figure, look, parent)
 	end
 end
 
@@ -240,13 +313,19 @@ end
 -- unit's invisible click target, moved along with it as the first piece).
 function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart, transparency: number?): Figure
 	local pve = look.style == "creep" or look.style == "boss"
-	local proportions = if pve then FigureConfig.pveBody else FigureConfig.body
+	-- A catalog avatar is used only once it is ready; until then (or if it failed) the unit keeps
+	-- its hand-built look or placeholder.
+	local avatar = if look.avatar and not look.model then UnitAvatars.template(look.avatar) else nil
+	local proportions = if avatar
+		then FigureConfig.avatarBody
+		elseif pve then FigureConfig.pveBody
+		else FigureConfig.body
 	local body = {}
 	for key, value in proportions do
 		body[key] = value * height
 	end
-	-- Bulk widens the torso and limbs, and the head a little.
-	local bulk = look.bulk or 1
+	-- Bulk widens the torso and limbs, and the head a little (not an avatar: its rig is fixed).
+	local bulk = if avatar then 1 else look.bulk or 1
 	for _, key in { "torsoWidth", "torsoDepth", "armWidth", "legWidth", "legSpacing" } do
 		body[key] *= bulk
 	end
@@ -269,6 +348,9 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		baseMaterials = {},
 		formTint = nil,
 		unitLook = look.unitLook,
+		avatar = nil,
+		highlight = nil,
+		decals = {},
 		color = color,
 		transparency = transparency or 0,
 		isModel = false,
@@ -281,10 +363,13 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	if template then
 		figure.isModel = true
 		buildModel(figure, template, hitbox)
+	elseif avatar then
+		buildAvatar(figure, look, avatar, hitbox)
 	elseif look.unitLook then
 		buildLook(figure, look, hitbox)
 	else
 		buildBody(figure, look, hitbox)
+		buildProps(figure, look, hitbox)
 	end
 
 	if look.ringColor then
@@ -410,6 +495,37 @@ end
 -- form tint while a tinted form is on (FigureConfig.lookTintBlend).
 function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?)
 	local formTint = figure.formTint
+	local avatar = figure.avatar
+	if avatar then
+		-- Clothing and accessories are textured, so recoloring parts would barely show: a Highlight
+		-- over the whole avatar shows the flash or glow (or a soft white fill with an outline for
+		-- selection). Its body parts still take the form tint below. A Highlight is made only on first
+		-- use and is off otherwise (Roblox draws at most 31 at once).
+		local look = FigureConfig.avatarHighlight
+		local highlight = figure.highlight
+		if color or material then
+			if not highlight then
+				highlight = Instance.new("Highlight")
+				highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+				highlight.Adornee = avatar
+				highlight.Parent = avatar
+				figure.highlight = highlight
+			end
+			local h = highlight :: Highlight
+			h.FillColor = color or look.selectColor
+			h.FillTransparency = if color then look.flashFill else look.selectFill
+			h.OutlineColor = color or look.selectColor
+			h.OutlineTransparency = if color then 1 else look.selectOutline
+			h.Enabled = true
+		elseif highlight then
+			highlight.Enabled = false
+		end
+		for _, part in figure.tinted do
+			local base = figure.baseColors[part]
+			part.Color = if formTint then base:Lerp(formTint, FigureConfig.lookTintBlend) else base
+		end
+		return
+	end
 	for _, part in figure.tinted do
 		local base = figure.baseColors[part]
 		if color then
@@ -431,6 +547,12 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 			piece.part.Transparency = 1 - (1 - piece.transparency) * (1 - transparency)
 		end
 	end
+	for _, entry in figure.decals do
+		entry.decal.Transparency = 1 - (1 - entry.transparency) * (1 - transparency)
+	end
+	if figure.highlight and transparency >= 1 then
+		figure.highlight.Enabled = false
+	end
 end
 
 -- Where the tip of an arm raised `armAngle` radians forward would be, `beyond` studs past the end
@@ -444,15 +566,15 @@ function Figure.armTip(figure: Figure, side: number, armAngle: number, beyond: n
 	local b = figure.body
 	local shoulderX = (b.torsoWidth + b.armWidth) / 2 * (if side == 1 then -1 else 1)
 	local shoulder = hips * CFrame.new(shoulderX, b.torsoHeight - b.armWidth / 2, 0)
-	return (shoulder * CFrame.Angles(armAngle, 0, 0) * CFrame.new(0, -(b.armLength + beyond), 0)).Position
+	local reach = b.handReach or b.armLength
+	return (shoulder * CFrame.Angles(armAngle, 0, 0) * CFrame.new(0, -(reach + beyond), 0)).Position
 end
 
--- Places every piece: the hitbox at `hitboxCFrame`, the figure standing on `root` in `pose`.
-function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: Pose)
+-- Works out every anchor but the hitbox for the figure standing on `root` in `pose`.
+computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 	local b = figure.body
 	local anchors = figure.anchors
 	local horse = figure.horse
-	anchors.hitbox = hitboxCFrame
 	anchors.root = root
 	local feet = if pose.fall ~= 0 then root * CFrame.Angles(pose.fall, 0, 0) else root
 
@@ -471,8 +593,9 @@ function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: 
 		local rightArm = hips * CFrame.new(shoulderX, shoulderY, 0) * CFrame.Angles(pose.rightArm, 0, 0)
 		anchors.leftArm = leftArm
 		anchors.rightArm = rightArm
-		anchors.leftHand = leftArm * CFrame.new(0, -b.armLength, 0)
-		anchors.rightHand = rightArm * CFrame.new(0, -b.armLength, 0)
+		local reach = b.handReach or b.armLength
+		anchors.leftHand = leftArm * CFrame.new(0, -reach, 0)
+		anchors.rightHand = rightArm * CFrame.new(0, -reach, 0)
 		if horse then
 			-- Astride: legs raised forward and spread.
 			local raise, splay = rad(FigureConfig.horse.riderLegs), rad(FigureConfig.horse.riderLegSplay)
@@ -492,6 +615,13 @@ function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: 
 				* CFrame.Angles(pose.stride * HORSE_LEG_PHASES[i], 0, 0)
 		end
 	end
+end
+
+-- Places every piece: the hitbox at `hitboxCFrame`, the figure standing on `root` in `pose`.
+function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: Pose)
+	local anchors = figure.anchors
+	anchors.hitbox = hitboxCFrame
+	computeAnchors(figure, root, pose)
 
 	local cframes = figure.cframes
 	for i, piece in figure.pieces do

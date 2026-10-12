@@ -3,7 +3,9 @@
 -- (FigureConfig.classes) unless their FigureConfig.characters override changes the prop, size,
 -- bulk or attack pose, and a ring in their cost's color (RenderConfig.costColors). A character with
 -- a hand-built look (UnitLookConfig) is drawn from it instead of the placeholder; the look can
--- also set the attack hand, resting arms, scale and bulk. Creeps and bosses: their theme's look
+-- also set the attack hand, resting arms, scale and bulk. A character with a catalog avatar
+-- (UnitAvatarConfig) is drawn as that avatar once the server has it ready (Figure, UnitAvatars),
+-- falling back to its look or placeholder. Creeps and bosses: their theme's look
 -- (PveThemeConfig), drawn as hunched figures with no prop or ring. Presentation only.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,6 +16,7 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
+local UnitAvatarConfig = require(Shared:WaitForChild("UnitAvatarConfig"))
 local UnitLookConfig = require(Shared:WaitForChild("UnitLookConfig"))
 
 local Figure = require(script.Parent.Figure)
@@ -71,9 +74,13 @@ function CharacterLook.of(unitType: string): CharacterLook
 		local skin = SkinConfig[unitType]
 		local override = FigureConfig.characters[unitType]
 		local unitLook = UnitLookConfig[unitType]
+		local avatar = UnitAvatarConfig.units[unitType]
 		local scale = if override and override.scale then override.scale else 1
 		if unitLook and unitLook.scale then
 			scale *= unitLook.scale
+		end
+		if avatar and avatar.scale then
+			scale *= avatar.scale
 		end
 		local bulk = if override then override.bulk else nil
 		if not bulk and unitLook then
@@ -91,6 +98,8 @@ function CharacterLook.of(unitType: string): CharacterLook
 				bulk = bulk,
 				attackPose = if override then override.attackPose else nil,
 				unitLook = unitLook,
+				avatar = if avatar then unitType else nil,
+				avatarProp = not avatar or avatar.prop ~= false,
 			},
 		}
 	else
