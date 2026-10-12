@@ -4,7 +4,8 @@ tft clone
 
 ## Current stage
 
-i ain done shi yet
+-finalizing character models
+-animations next
 
 ## Repository structure
 
