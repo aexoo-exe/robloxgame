@@ -1,12 +1,14 @@
--- The item choice screen: while the player has an open item choice (PlayerState view `itemOffer`)
--- it shows each offered item's icon, name and effect text with a Pick button. "Later" folds it into
--- a small "Pick an item" button so the board stays usable; the choice stays open through the next
--- Preparation, and the server takes the first item if none was picked when Preparation ends.
+-- The item choice screen: opens by itself the moment an item choice is offered (PlayerState view
+-- `itemOffer`) and shows each offered item's icon, name and effect text with a Pick button. "Later"
+-- folds it into a small "Pick an item" button so the board stays usable; still unpicked, it opens
+-- again by itself when the next Preparation starts. The server takes the first item if none was
+-- picked when Preparation ends. A picked item lands in the inventory strip, which highlights it.
 -- The client only asks (RequestPickItem). Presentation only.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Phase = require(Shared:WaitForChild("Phase"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 
@@ -58,7 +60,9 @@ function ItemPickPanel.start()
 	label(reopen, "PICK AN ITEM", SIZES.text)
 
 	local offer: { string }? = nil
+	local offerKey = "" -- the open offer's item ids, to tell a new offer from the same one resent
 	local folded = false
+	local pending = false -- a pick was sent; further clicks wait for the server's answer
 
 	local function render()
 		for _, child in cards:GetChildren() do
@@ -97,7 +101,15 @@ function ItemPickPanel.start()
 			pick.LayoutOrder = 4
 			label(pick, "PICK", SIZES.text)
 			pick.Activated:Connect(function()
+				if pending then
+					return
+				end
+				pending = true
 				requestPick:FireServer(index)
+				-- A refused pick (full inventory) sends no new state; allow another try soon.
+				task.delay(1, function()
+					pending = false
+				end)
 			end)
 			card.Parent = cards
 		end
@@ -112,14 +124,28 @@ function ItemPickPanel.start()
 		render()
 	end)
 
+	-- A new choice opens by itself the moment it is offered (also when it replaces an older one).
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(view)
-		local wasOpen = offer ~= nil
 		offer = view.itemOffer
-		if offer and not wasOpen then
-			folded = false -- a new choice opens unfolded
+		pending = false
+		local key = if offer then table.concat(offer, ",") else ""
+		local isNew = offer ~= nil and key ~= offerKey
+		offerKey = key
+		if isNew then
+			folded = false
 		end
 		render()
-		if offer and not wasOpen then
+		if isNew then
+			UI.pop(panel, 1.06)
+		end
+	end)
+
+	-- Still unpicked when the next Preparation starts: it opens again.
+	local matchState = ReplicatedStorage:WaitForChild("MatchState")
+	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
+		if matchState:GetAttribute("Phase") == Phase.Preparation and offer and folded then
+			folded = false
+			render()
 			UI.pop(panel, 1.06)
 		end
 	end)

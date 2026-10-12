@@ -86,7 +86,7 @@ return freezeAll({
 	-- Phases (Shared.Phase) in the top bar: a short tag and its color.
 	phases = {
 		Waiting = { text = "WAITING", color = rgb(120, 125, 145) },
-		Lobby = { text = "GET READY", color = rgb(255, 198, 66) },
+		Intro = { text = "GET READY", color = rgb(255, 198, 66) },
 		Preparation = { text = "PLAN", color = rgb(60, 160, 255) },
 		Combat = { text = "FIGHT", color = rgb(240, 80, 70) },
 		Results = { text = "RESULT", color = rgb(255, 198, 66) },

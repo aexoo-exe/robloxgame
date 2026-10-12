@@ -1,8 +1,9 @@
 -- Server-authoritative match loop:
---   Waiting -> Lobby countdown -> rounds of Preparation -> Combat -> Results -> MatchOver -> Lobby
--- Players present when the lobby countdown ends (up to MatchConfig.maxPlayers) are the match's
--- participants; later joiners spectate until the next match. A single participant plays a
--- practice match against the scripted enemy boards.
+--   Waiting -> Intro -> rounds of Preparation -> Combat -> Results -> MatchOver -> Waiting
+-- One match runs at a time. HubService starts it (RoundService.startMatch) with the players who
+-- queued on the hub's Play pad, or one player from the Practice pad; everyone else stays in the
+-- hub until it ends. A single participant plays a practice match against the scripted enemy
+-- boards. RoundService.onMatchEnded callbacks run once the final placements have been shown.
 --
 -- Public match state, replicated to every client (server-to-client only):
 --   ReplicatedStorage.MatchState attributes
@@ -12,6 +13,7 @@
 --     Stage        number  stage of the current round
 --     RoundKind    string  "Creep", "Boss" or "PvP" (Pve.Kind) for the current round
 --     Winner       string  winner's name once the match is over, else ""
+--     Practice     boolean the running match is a solo practice match its player may leave anytime
 --   MatchState.Players: one Folder per participant, named by UserId, with attributes
 --     UserId, DisplayName, Health, Placement (0 until placed), Eliminated, Connected,
 --     Opponent (name during Combat, else ""), LastResult (text shown at Results),
@@ -41,8 +43,12 @@ local RoundService = {}
 local matchState: Folder
 local playersFolder: Folder
 local currentMatch: Match.Match? = nil
+local running = false -- from startMatch until the onMatchEnded callbacks have run
+local practice = false -- the running match is a solo practice match (started from the Practice pad)
+local stopRequested = false -- the practice player asked to leave: the match ends at once
 local started = false
 local seedRandom = Random.new()
+local endedCallbacks: { ({ number }) -> () } = {}
 
 local function setPhase(phase: string, duration: number?)
 	local endsAt = if duration then workspace:GetServerTimeNow() + duration else 0
@@ -75,28 +81,11 @@ local function setPlayerAttribute(userId: number, name: string, value: any)
 	end
 end
 
-local function hasEnoughPlayers(): boolean
-	return #Players:GetPlayers() >= MatchConfig.minPlayersToStart
-end
-
--- Waits until enough players are present and the lobby countdown completes without dropping
--- below the minimum.
-local function runLobby()
-	while true do
-		if not hasEnoughPlayers() then
-			setPhase(Phase.Waiting)
-			repeat
-				Players.PlayerAdded:Wait()
-			until hasEnoughPlayers()
-		end
-		setPhase(Phase.Lobby, MatchConfig.lobbyCountdown)
-		local endsAt = matchState:GetAttribute("PhaseEndsAt")
-		while workspace:GetServerTimeNow() < endsAt and hasEnoughPlayers() do
-			task.wait(0.25)
-		end
-		if hasEnoughPlayers() then
-			return
-		end
+-- Waits `seconds`, or less if the practice player asks to leave (RoundService.leavePractice).
+local function pause(seconds: number)
+	local endsAt = os.clock() + seconds
+	while os.clock() < endsAt and not stopRequested do
+		task.wait(math.min(0.1, endsAt - os.clock()))
 	end
 end
 
@@ -130,7 +119,10 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	if preparation > 0 then
 		setPhase(Phase.Preparation, preparation)
 		PlayerService.beginPreparation()
-		task.wait(preparation)
+		pause(preparation)
+		if stopRequested then
+			return
+		end
 	end
 
 	-- Every fight is simulated instantly; the Combat phase lasts as long as the longest playback.
@@ -141,7 +133,10 @@ local function playRound(match: Match.Match, names: { [number]: string })
 		setPlayerAttribute(userId, "Opponent", opponentName)
 	end
 	setPhase(Phase.Combat, combatDuration)
-	task.wait(combatDuration)
+	pause(combatDuration)
+	if stopRequested then
+		return
+	end
 	PlayerService.endCombat()
 
 	local summary = Match.applyResults(match, results)
@@ -190,19 +185,10 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	end
 
 	setPhase(Phase.Results, MatchConfig.resultsDuration)
-	task.wait(MatchConfig.resultsDuration)
+	pause(MatchConfig.resultsDuration)
 end
 
-local function playMatch()
-	local participants = {}
-	local names = {}
-	for _, player in Players:GetPlayers() do
-		if #participants < MatchConfig.maxPlayers then
-			table.insert(participants, player.UserId)
-			names[player.UserId] = player.Name
-		end
-	end
-
+local function playMatch(participants: { number }, names: { [number]: string })
 	local match = Match.new(participants, seedRandom:NextInteger(1, 2 ^ 31 - 2))
 	currentMatch = match
 	playersFolder:ClearAllChildren()
@@ -225,22 +211,111 @@ local function playMatch()
 	PlayerService.startMatch(participants)
 	print(string.format("[RoundService] Match started with %d player(s)", #participants))
 
-	while not match.finished do
+	-- The intro: starting units are already on the boards; round 1 starts when it ends.
+	setPhase(Phase.Intro, MatchConfig.introDuration)
+	pause(MatchConfig.introDuration)
+
+	while not match.finished and not stopRequested do
 		playRound(match, names)
 	end
 	PlayerService.closeRequests()
 
-	local winner = if match.winner then names[match.winner] else ""
-	matchState:SetAttribute("Winner", winner)
-	print(string.format("[RoundService] Match over after %d rounds; winner %s", match.round, winner))
-	setPhase(Phase.MatchOver, MatchConfig.finalPlacementsDuration)
-	task.wait(MatchConfig.finalPlacementsDuration)
+	if stopRequested then
+		-- The practice player left: no final placements, straight back to waiting.
+		print(string.format("[RoundService] Practice match left after %d rounds", match.round))
+	else
+		local winner = if match.winner then names[match.winner] else ""
+		matchState:SetAttribute("Winner", winner)
+		print(string.format("[RoundService] Match over after %d rounds; winner %s", match.round, winner))
+		setPhase(Phase.MatchOver, MatchConfig.finalPlacementsDuration)
+		task.wait(MatchConfig.finalPlacementsDuration)
+	end
 
 	currentMatch = nil
 	PlayerService.endMatch()
 	playersFolder:ClearAllChildren()
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Winner", "")
+	setPhase(Phase.Waiting)
+end
+
+-- True from RoundService.startMatch until the match's onMatchEnded callbacks have run.
+function RoundService.isRunning(): boolean
+	return running
+end
+
+-- True if `userId` is in the running match and has been knocked out, or the match is decided
+-- (final placements are showing): they may leave for the hub.
+function RoundService.canLeave(userId: number): boolean
+	local match = currentMatch
+	if not match or not match.players[userId] then
+		return false
+	end
+	return match.finished or match.players[userId].eliminated
+end
+
+-- True if `userId` is the player of the running practice match, which they may leave at any time.
+-- Never true in a player match.
+function RoundService.canLeavePractice(userId: number): boolean
+	local match = currentMatch
+	return practice and match ~= nil and match.players[userId] ~= nil and not stopRequested
+end
+
+-- Ends the running practice match at once if `userId` is its player (RoundService.canLeavePractice);
+-- refused (false) otherwise, including from any player match. The match's onMatchEnded callbacks
+-- run as usual right after.
+function RoundService.leavePractice(userId: number): boolean
+	if not RoundService.canLeavePractice(userId) then
+		return false
+	end
+	stopRequested = true
+	return true
+end
+
+-- Starts a match with these players (at most MatchConfig.maxPlayers; extra ones are left out).
+-- `isPractice` marks a solo practice match from the Practice pad, which its player may leave at
+-- any time (MatchState attribute Practice). Returns the participants' UserIds, or nil if a match
+-- is already running or nobody is given.
+function RoundService.startMatch(players: { Player }, isPractice: boolean?): { number }?
+	if running or #players == 0 then
+		return nil
+	end
+	practice = isPractice == true
+	stopRequested = false
+	matchState:SetAttribute("Practice", practice)
+	local participants = {}
+	local names = {}
+	for _, player in players do
+		if #participants < MatchConfig.maxPlayers and not names[player.UserId] then
+			table.insert(participants, player.UserId)
+			names[player.UserId] = player.Name
+		end
+	end
+	running = true
+	task.spawn(function()
+		local ok, err = pcall(playMatch, participants, names)
+		if not ok then
+			-- Never leave players stuck out of the hub if the match loop fails.
+			warn("[RoundService] Match ended with an error: " .. tostring(err))
+			currentMatch = nil
+			PlayerService.endMatch()
+			playersFolder:ClearAllChildren()
+			setPhase(Phase.Waiting)
+		end
+		practice = false
+		stopRequested = false
+		matchState:SetAttribute("Practice", false)
+		running = false
+		for _, callback in endedCallbacks do
+			task.spawn(callback, participants)
+		end
+	end)
+	return participants
+end
+
+-- Calls `callback(participantUserIds)` after each match, once the final placements are over.
+function RoundService.onMatchEnded(callback: ({ number }) -> ())
+	table.insert(endedCallbacks, callback)
 end
 
 -- Tracks participants leaving and rejoining; the match keeps their state for the grace period.
@@ -264,6 +339,7 @@ function RoundService.start()
 	matchState:SetAttribute("Phase", Phase.Waiting)
 	matchState:SetAttribute("PhaseEndsAt", 0)
 	matchState:SetAttribute("Winner", "")
+	matchState:SetAttribute("Practice", false)
 	playersFolder = Instance.new("Folder")
 	playersFolder.Name = "Players"
 	playersFolder.Parent = matchState
@@ -274,13 +350,6 @@ function RoundService.start()
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		onConnectionChanged(player, false)
-	end)
-
-	task.spawn(function()
-		while true do
-			runLobby()
-			playMatch()
-		end
 	end)
 end
 
