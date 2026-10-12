@@ -9,6 +9,7 @@ local Arena = require(script.Arena)
 local BoardController = require(script.BoardController)
 local Celebrate = require(script.Celebrate)
 local CombatPlayback = require(script.CombatPlayback)
+local DevLineup = require(script.DevLineup)
 local HubAudio = require(script.HubAudio)
 local HubExhibits = require(script.HubExhibits)
 local HubHud = require(script.HubHud)
@@ -51,6 +52,7 @@ HubHud.start()
 HubScenery.start()
 HubExhibits.start()
 HubAudio.start()
+DevLineup.start() -- Studio only
 
 -- In a match (the server's InMatch attribute, HubService): the board camera and the match HUD.
 -- Otherwise the player walks around the hub with the normal camera.

@@ -4,8 +4,8 @@
 --   * small floating islets that bob, placed away from every walkable area
 --   * gentle motion on tagged hub parts: banners sway, lantern flames flicker, the portal pulses
 --   * two figures looping a sparring bout in the training yard's ring
---   * a statue on every roster gallery plinth (the unit's placeholder figure and character look,
---     from Figure and CharacterLook) and the item pictogram over every shrine pedestal (ItemIcon)
+--   * a statue on every roster gallery plinth (the unit's figure and character look, from Figure
+--     and CharacterLook, at low detail) and the item pictogram over every shrine pedestal (ItemIcon)
 -- The plinths and pedestals are built by the server (HubBuilder) and carry UnitType / ItemId
 -- attributes. The clouds, rocks and icons exist only while the player is in the hub
 -- (HubScenery.setActive), and only animate then; statues stay put far from the arena.
@@ -158,7 +158,10 @@ local function addStatue(plinth: Instance)
 	hitbox.Transparency = 1
 	hitbox.Size = Vector3.new(2, height, 2)
 	hitbox.Parent = statues
-	local figure = Figure.new(look.figure, look.color, height, hitbox)
+	-- Statues leave out a hand-built look's fine details: 42 of them stand in the hub at once.
+	local figureLook = table.clone(look.figure)
+	figureLook.detail = "low"
+	local figure = Figure.new(figureLook, look.color, height, hitbox)
 	Figure.place(figure, root * CFrame.new(0, height / 2, 0), root, {
 		bob = 0,
 		lean = 0,

@@ -66,6 +66,9 @@ return table.freeze({
 	bossEyeColor = Color3.fromRGB(255, 70, 50),
 
 	visorColor = Color3.fromRGB(30, 30, 40),
+	-- Units with a hand-built look (UnitLookConfig) keep their own colors in a tinted form
+	-- (RenderConfig.formLooks `tint`): each part is blended this far toward the tint.
+	lookTintBlend = 0.5,
 	-- Cost ring: a flat disc under roster units, in RenderConfig.costColors.
 	ring = table.freeze({ diameter = 0.62, thickness = 0.05, material = "Neon" }),
 
@@ -207,6 +210,12 @@ return table.freeze({
 		tailWidth = 0.05,
 		tailAngle = 35, -- down from level
 		accentColor = Color3.fromRGB(55, 38, 25), -- tail
+		-- Tack and details. A rider's UnitLookConfig `horse` can recolor the mane, blanket and saddle.
+		maneColor = Color3.fromRGB(55, 38, 25),
+		blanketColor = Color3.fromRGB(150, 45, 45),
+		saddleColor = Color3.fromRGB(72, 46, 28),
+		reinColor = Color3.fromRGB(40, 28, 20),
+		muzzleColor = Color3.fromRGB(80, 58, 42),
 		riderLegs = 70, -- rider's legs, raised forward
 		riderLegSplay = 22, -- and spread to straddle the body
 	}),

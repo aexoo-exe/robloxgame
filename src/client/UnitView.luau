@@ -455,6 +455,7 @@ function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFo
 	local mount = if look and not view.dyingSince then look.mount else nil
 	rescale(view, if look and look.scale then look.scale else 1)
 	view.figure.color = if look and look.tint then look.tint else view.color
+	view.figure.formTint = if look then look.tint else nil
 	Figure.setTint(view.figure, nil)
 	view.shownColor, view.shownMaterial = nil, nil
 	Figure.setMount(view.figure, mount)

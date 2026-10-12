@@ -1,6 +1,6 @@
--- A unit's figure: a placeholder humanoid built from parts (FigureConfig), or a finished model when
--- its SkinConfig entry names one, plus the cost ring and, for a mounted rider, a placeholder horse.
--- Presentation only.
+-- A unit's figure: a hand-built look when the unit has one (UnitLookConfig, built by LookKit), else
+-- a placeholder humanoid built from parts (FigureConfig), or a finished model when its SkinConfig
+-- entry names one, plus the cost ring and, for a mounted rider, a horse. Presentation only.
 --
 -- Every piece is an anchored part that cannot be clicked (the unit's invisible hitbox takes clicks
 -- and carries the info board) and casts no shadow. A piece hangs from a named anchor (root, hips,
@@ -12,16 +12,20 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FigureConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FigureConfig"))
 
+local LookKit = require(script.Parent.LookKit)
+
 local Figure = {}
 
 -- What to build. Roster units have a class look and a ring; creeps, bosses and summons have neither.
 export type Look = {
 	style: string, -- "roster", "summon", "creep" or "boss"
-	classLook: any?, -- a FigureConfig.classes entry
+	classLook: any?, -- a FigureConfig.classes entry (its hand and arm angles; its prop unless unitLook)
 	ringColor: Color3?, -- cost ring under the unit
 	model: string?, -- SkinConfig `model`: a Model in ReplicatedStorage.CharacterModels
 	bulk: number?, -- extra width (FigureConfig.characters)
 	attackPose: string?, -- "recoil" or "point" for ranged attacks (FigureConfig.characters)
+	unitLook: any?, -- a UnitLookConfig entry: drawn with LookKit instead of the placeholder
+	detail: string?, -- "low" leaves out a look's fine details (hub statues)
 }
 
 -- One frame's posture. Angles are in radians; arms and legs are raised forward from hanging.
@@ -54,6 +58,12 @@ export type Figure = {
 	parts: { BasePart }, -- the pieces' parts, in order, for BulkMoveTo
 	cframes: { CFrame },
 	tinted: { BasePart }, -- body parts recolored by hit flashes, cast glows and selection
+	-- A look's tinted parts keep their own colors and materials to return to. Parts not listed
+	-- return to `color` (placeholders: one body color).
+	baseColors: { [BasePart]: Color3 },
+	baseMaterials: { [BasePart]: Enum.Material },
+	formTint: Color3?, -- a form's tint (RenderConfig.formLooks), blended into a look's own colors
+	unitLook: any?,
 	color: Color3,
 	transparency: number,
 	isModel: boolean,
@@ -67,14 +77,22 @@ local FLAT = CFrame.Angles(0, 0, math.pi / 2) -- stands a cylinder's axis (X) up
 local HORSE_LEG_PHASES = { 1, -1, -1, 1 }
 local HORSE_LEG_ANCHORS = { "horseLeg1", "horseLeg2", "horseLeg3", "horseLeg4" }
 
-local function newPart(parent: Instance, shape: string, size: Vector3, color: Color3, material: string?): Part
-	local part = Instance.new("Part")
+local function newPart(parent: Instance, shape: string, size: Vector3, color: Color3, material: string?): BasePart
+	local part: BasePart
+	if shape == "Wedge" then
+		part = Instance.new("WedgePart")
+	elseif shape == "CornerWedge" then
+		part = Instance.new("CornerWedgePart")
+	else
+		local block = Instance.new("Part")
+		block.Shape = (Enum.PartType :: any)[shape]
+		part = block
+	end
 	part.Anchored = true
 	part.CanCollide = false
 	part.CanQuery = false
 	part.CanTouch = false
 	part.CastShadow = false
-	part.Shape = (Enum.PartType :: any)[shape]
 	part.Size = size
 	part.Color = color
 	part.Material = (Enum.Material :: any)[material or "SmoothPlastic"]
@@ -203,6 +221,21 @@ local function buildBody(figure: Figure, look: Look, parent: Instance)
 	end
 end
 
+-- A hand-built look (UnitLookConfig): every part LookKit lists, on its anchor. No visor (the face
+-- marks the front) and no class prop (the look carries its own weapons).
+local function buildLook(figure: Figure, look: Look, parent: Instance)
+	local specs = LookKit.specs(look.unitLook, figure.body, figure.height, look.detail == "low")
+	for _, spec in specs do
+		local part = newPart(parent, spec.shape, spec.size, spec.color, spec.material)
+		addPiece(figure, part, spec.anchor, spec.offset)
+		if spec.tinted then
+			table.insert(figure.tinted, part)
+			figure.baseColors[part] = spec.color
+			figure.baseMaterials[part] = part.Material
+		end
+	end
+end
+
 -- Builds the figure for `look` with body color `color`, `height` studs tall, under `hitbox` (the
 -- unit's invisible click target, moved along with it as the first piece).
 function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart, transparency: number?): Figure
@@ -232,6 +265,10 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		parts = {},
 		cframes = {},
 		tinted = {},
+		baseColors = {},
+		baseMaterials = {},
+		formTint = nil,
+		unitLook = look.unitLook,
 		color = color,
 		transparency = transparency or 0,
 		isModel = false,
@@ -244,6 +281,8 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	if template then
 		figure.isModel = true
 		buildModel(figure, template, hitbox)
+	elseif look.unitLook then
+		buildLook(figure, look, hitbox)
 	else
 		buildBody(figure, look, hitbox)
 	end
@@ -309,14 +348,11 @@ function Figure.setMount(figure: Figure, color: Color3?)
 		* CFrame.Angles(-rad(c.neckAngle), 0, 0)
 	piece(Vector3.new(neckWidth, neckLength, neckWidth), "horse", neckBase * CFrame.new(0, neckLength / 2, 0))
 	local headLength, headSize = c.headLength * h, c.headSize * h
-	piece(
-		Vector3.new(headSize, headSize, headLength),
-		"horse",
-		neckBase
-			* CFrame.new(0, neckLength, 0)
-			* CFrame.Angles(rad(c.neckAngle - 30), 0, 0)
-			* CFrame.new(0, 0, -headLength / 2 + headSize * 0.3)
-	)
+	local head = neckBase
+		* CFrame.new(0, neckLength, 0)
+		* CFrame.Angles(rad(c.neckAngle - 30), 0, 0)
+		* CFrame.new(0, 0, -headLength / 2 + headSize * 0.3)
+	piece(Vector3.new(headSize, headSize, headLength), "horse", head)
 	local tailLength, tailWidth = c.tailLength * h, c.tailWidth * h
 	piece(
 		Vector3.new(tailWidth, tailLength, tailWidth),
@@ -326,14 +362,64 @@ function Figure.setMount(figure: Figure, color: Color3?)
 			* CFrame.new(0, -tailLength / 2, 0),
 		c.accentColor
 	)
+
+	-- Mane, blanket, saddle, reins, a darker muzzle and ears, in the rider's colors (UnitLookConfig
+	-- `horse`) or FigureConfig.horse's.
+	local tack = (figure.unitLook and figure.unitLook.horse) or {}
+	piece(
+		Vector3.new(neckWidth * 0.45, neckLength * 0.95, neckWidth * 0.5),
+		"horse",
+		neckBase * CFrame.new(0, neckLength / 2, neckWidth * 0.4),
+		tack.mane or c.maneColor
+	)
+	piece(
+		Vector3.new(bodyWidth * 1.08, bodyHeight * 0.62, h * 0.28),
+		"horse",
+		CFrame.new(0, bodyHeight * 0.2, 0),
+		tack.blanket or c.blanketColor
+	)
+	piece(
+		Vector3.new(bodyWidth * 0.92, h * 0.045, h * 0.2),
+		"horse",
+		CFrame.new(0, bodyHeight / 2 + h * 0.02, 0),
+		tack.saddle or c.saddleColor
+	)
+	piece(
+		Vector3.new(headSize * 1.06, headSize * 0.8, headLength * 0.26),
+		"horse",
+		head * CFrame.new(0, -headSize * 0.08, -headLength * 0.38),
+		c.muzzleColor
+	)
+	for _, x in { -1, 1 } do
+		local bit = (head * CFrame.new(x * headSize * 0.52, -headSize * 0.1, -headLength * 0.2)).Position
+		local hold = Vector3.new(x * bodyWidth * 0.3, bodyHeight / 2 + h * 0.08, -h * 0.12)
+		piece(
+			Vector3.new(h * 0.012, h * 0.012, (hold - bit).Magnitude),
+			"horse",
+			CFrame.lookAt((bit + hold) / 2, hold),
+			c.reinColor
+		)
+		local ear = newPart(parent, "Wedge", Vector3.new(headSize * 0.15, headSize * 0.4, headSize * 0.25), color)
+		addPiece(figure, ear, "horse", head * CFrame.new(x * headSize * 0.3, headSize * 0.6, headLength * 0.35), true)
+	end
 	figure.horse = { seat = seat, bodyY = seat - bodyHeight / 2, joints = joints }
 end
 
--- Recolors the body (not the props, ring, visor or horse). nil restores the body color.
+-- Recolors the body (not the props, weapons, face, ring, visor or horse). nil restores the body
+-- color: a placeholder's one body color, or each part of a look its own color, blended toward the
+-- form tint while a tinted form is on (FigureConfig.lookTintBlend).
 function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?)
+	local formTint = figure.formTint
 	for _, part in figure.tinted do
-		part.Color = color or figure.color
-		part.Material = material or Enum.Material.SmoothPlastic
+		local base = figure.baseColors[part]
+		if color then
+			part.Color = color
+		elseif base then
+			part.Color = if formTint then base:Lerp(formTint, FigureConfig.lookTintBlend) else base
+		else
+			part.Color = figure.color
+		end
+		part.Material = material or figure.baseMaterials[part] or Enum.Material.SmoothPlastic
 	end
 end
 
