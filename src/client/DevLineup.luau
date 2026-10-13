@@ -5,8 +5,12 @@
 -- same code as a fight (UnitView, CombatFx), so combat motion and effects can be triggered on
 -- demand (AnimationConfig; `preview` sets the dummy distance, interval and amounts):
 --   L        open or close the lineup
---   . / ,    close-up of the next / previous unit
+--   . / ,    close-up of the next / previous unit; also ] / [ and the Right / Left arrows, and
+--            the Next / Prev buttons at the bottom of the screen
 --   M        back to the whole lineup
+-- Roblox's emotes menu binds "." and swallows it (the input arrives already processed), so while
+-- the lineup is open the emotes menu is turned off and the step keys are taken even when processed
+-- (never while typing in a text box). A key-help label shows while the lineup is open.
 --   In a close-up:
 --   1        attack the dummy (the unit's attack style; melee or ranged by its range)
 --   2        a critical attack
@@ -25,8 +29,10 @@
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TextChatService = game:GetService("TextChatService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -87,6 +93,107 @@ local focus: number? = nil
 local stage: Stage? = nil
 local heartbeat: RBXScriptConnection? = nil
 local savedCamera: { cameraType: Enum.CameraType, cframe: CFrame }? = nil
+local hud: ScreenGui? = nil
+local hudTitle: TextLabel? = nil
+local hudHelp: TextLabel? = nil
+local emotesWereEnabled: boolean? = nil
+local step: (number) -> () -- next / previous close-up (defined below)
+
+-- Step keys: next and previous close-up.
+local NEXT_KEYS = { [Enum.KeyCode.Period] = true, [Enum.KeyCode.RightBracket] = true, [Enum.KeyCode.Right] = true }
+local PREVIOUS_KEYS = { [Enum.KeyCode.Comma] = true, [Enum.KeyCode.LeftBracket] = true, [Enum.KeyCode.Left] = true }
+
+local OVERVIEW_HELP = "L close   . / ] / Right: next   , / [ / Left: previous"
+local CLOSE_UP_HELP = table.concat({
+	"L close   M lineup   . ] Right: next   , [ Left: previous",
+	"1 attack   2 crit   3 cast   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
+	"9 auto loop   F form   X star level   Q quality",
+}, "\n")
+
+-- Shows the key help and the title (the unit in a close-up) on the lineup's on-screen panel.
+local function setHud(title: string, help: string)
+	if hudTitle and hudHelp then
+		hudTitle.Text = title
+		hudHelp.Text = help
+	end
+end
+
+local function hudButton(parent: Instance, text: string, x: number, by: number)
+	local button = Instance.new("TextButton")
+	button.AnchorPoint = Vector2.new(0.5, 1)
+	button.Position = UDim2.new(0.5, x, 1, -16)
+	button.Size = UDim2.fromOffset(96, 40)
+	button.BackgroundColor3 = Color3.fromRGB(40, 44, 54)
+	button.BackgroundTransparency = 0.15
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 16
+	button.Text = text
+	button.AutoButtonColor = true
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = button
+	button.Activated:Connect(function()
+		step(by)
+	end)
+	button.Parent = parent
+end
+
+-- The on-screen panel while the lineup is open: Prev / Next buttons, the shown unit, key help.
+local function openHud()
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "DevLineupHud"
+	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 50
+	hudButton(gui, "< Prev", -110, -1)
+	hudButton(gui, "Next >", 110, 1)
+	local title = Instance.new("TextLabel")
+	title.AnchorPoint = Vector2.new(0.5, 1)
+	title.Position = UDim2.new(0.5, 0, 1, -22)
+	title.Size = UDim2.fromOffset(120, 28)
+	title.BackgroundTransparency = 1
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.TextStrokeTransparency = 0.3
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 14
+	title.TextScaled = true
+	title.Parent = gui
+	local help = Instance.new("TextLabel")
+	help.AnchorPoint = Vector2.new(0, 1)
+	help.Position = UDim2.new(0, 12, 1, -66)
+	help.Size = UDim2.fromOffset(560, 60)
+	help.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+	help.BackgroundTransparency = 0.35
+	help.TextColor3 = Color3.fromRGB(230, 232, 240)
+	help.Font = Enum.Font.Gotham
+	help.TextSize = 13
+	help.TextXAlignment = Enum.TextXAlignment.Left
+	help.TextYAlignment = Enum.TextYAlignment.Top
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 8)
+	padding.PaddingTop = UDim.new(0, 6)
+	padding.Parent = help
+	help.Parent = gui
+	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	hud, hudTitle, hudHelp = gui, title, help
+	-- The emotes menu takes "."; off while the lineup is open.
+	local ok, enabled = pcall(StarterGui.GetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.EmotesMenu)
+	if ok then
+		emotesWereEnabled = enabled
+		pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.EmotesMenu, false)
+	end
+end
+
+local function closeHud()
+	if hud then
+		hud:Destroy()
+	end
+	hud, hudTitle, hudHelp = nil, nil, nil
+	if emotesWereEnabled ~= nil then
+		pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.EmotesMenu, emotesWereEnabled)
+		emotesWereEnabled = nil
+	end
+end
 
 -- Roster unit ids in rows: one row per origin (in ORIGIN_ORDER, then any others), by cost then id.
 local function rows(): { { string } }
@@ -430,6 +537,7 @@ local function overview()
 	local count = #rows()
 	local middle = BASE + Vector3.new(0, 0, (count - 1) * ROW_GAP / 2)
 	setCamera(CFrame.lookAt(middle + Vector3.new(0, 48, -52), middle))
+	setHud(string.format("Lineup (%d)", #entries), OVERVIEW_HELP)
 end
 
 local function closeUp(index: number)
@@ -437,6 +545,7 @@ local function closeUp(index: number)
 	local entry = entries[index]
 	print(string.format("[DevLineup] %s (%d/%d)", entry.unitType, index, #entries))
 	openStage(entry.unitType)
+	setHud(string.format("%s (%d/%d)", entry.unitType, index, #entries), CLOSE_UP_HELP)
 end
 
 local function report()
@@ -580,12 +689,14 @@ local function open()
 			updateStage(stage, now, dt)
 		end
 	end)
+	openHud()
 	overview()
 	report()
 end
 
 local function close()
 	closeStage()
+	closeHud()
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil
@@ -612,7 +723,7 @@ local function toggle()
 	end
 end
 
-local function step(by: number)
+step = function(by: number)
 	if not folder then
 		open()
 	end
@@ -682,15 +793,27 @@ function DevLineup.start()
 		return
 	end
 	UserInputService.InputBegan:Connect(function(input, processed)
+		if UserInputService:GetFocusedTextBox() then
+			return -- typing (chat, a text box)
+		end
+		local key = input.KeyCode
+		-- Roblox's emotes menu (and the default camera, for the arrows) mark these keys processed:
+		-- while the lineup is open they still step.
+		if folder and NEXT_KEYS[key] then
+			step(1)
+			return
+		elseif folder and PREVIOUS_KEYS[key] then
+			step(-1)
+			return
+		end
 		if processed then
 			return
 		end
-		local key = input.KeyCode
 		if key == Enum.KeyCode.L then
 			toggle()
-		elseif key == Enum.KeyCode.Period then
+		elseif key == Enum.KeyCode.Period or key == Enum.KeyCode.RightBracket then
 			step(1)
-		elseif key == Enum.KeyCode.Comma then
+		elseif key == Enum.KeyCode.Comma or key == Enum.KeyCode.LeftBracket then
 			step(-1)
 		elseif key == Enum.KeyCode.M and folder then
 			overview()
@@ -707,7 +830,9 @@ function DevLineup.start()
 			showUnit(unitType)
 		end
 	end)
-	print("[DevLineup] Studio only: L opens the unit lineup, . and , step through close-ups, M shows them all.")
+	print(
+		"[DevLineup] Studio only: L opens the unit lineup; . ] Right / , [ Left (or the on-screen buttons) step through close-ups; M shows them all."
+	)
 end
 
 return DevLineup
