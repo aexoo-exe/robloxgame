@@ -1,12 +1,26 @@
 -- Studio-only: every roster unit's figure lined up far above the hub, one row per origin, with its
 -- unit id over its head, to check looks (UnitLookConfig, CharacterLook) without playing a match.
--- Riders sit on their horses. A close-up shows one unit looping idle, walk, attack and cast, so held
--- weapons can be seen following the hands.
+-- Riders sit on their horses.
+-- A close-up puts one unit on a preview stage in front of a target dummy, drawn and animated by the
+-- same code as a fight (UnitView, CombatFx), so combat motion and effects can be triggered on
+-- demand (AnimationConfig; `preview` sets the dummy distance, interval and amounts):
 --   L        open or close the lineup
 --   . / ,    close-up of the next / previous unit
 --   M        back to the whole lineup
---   F        in a close-up: the unit's next form (its own look from FormLookConfig, or the base
---            figure with the form's tint), with the form's size; cycles back to the first form
+--   In a close-up:
+--   1        attack the dummy (the unit's attack style; melee or ranged by its range)
+--   2        a critical attack
+--   3        cast: wind-up, release burst, ability hit on the dummy
+--   4        get hit (the dummy attacks the unit)
+--   5        stunned
+--   6        death (the unit comes back after a moment)
+--   7        victory cheer
+--   8        healed and shielded (the shield ends after a moment)
+--   9        auto: attack on the preview interval, with a crit every 4th and a cast every 6th
+--   F        the unit's next form (its own look from FormLookConfig, or the base figure with the
+--            form's tint), with the form's size; cycles back to the first form
+--   X        next star level (effects grow with it)
+--   Q        next effects quality (low, medium, high)
 -- Chat commands: /lineup (open or close), /look <unit_id> (close-up of that unit).
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
@@ -17,13 +31,19 @@ local TextChatService = game:GetService("TextChatService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
+local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
+local Forms = require(Shared:WaitForChild("Forms"))
 local HubConfig = require(Shared:WaitForChild("HubConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local CharacterLook = require(script.Parent.CharacterLook)
+local CombatEffects = require(script.Parent.CombatEffects)
+local CombatFx = require(script.Parent.CombatFx)
 local Figure = require(script.Parent.Figure)
+local ImpactEffects = require(script.Parent.ImpactEffects)
+local UnitMotion = require(script.Parent.UnitMotion)
+local UnitView = require(script.Parent.UnitView)
 
 local DevLineup = {}
 
@@ -32,25 +52,39 @@ local BASE = HubConfig.center + Vector3.new(0, 260, 0) -- clear sky above the hu
 local SPACING = 5.5 -- between units in a row
 local ROW_GAP = 9
 local HEIGHT = RenderConfig.unitSize.Y
-local ANIMATION = FigureConfig.animation
-local rad = math.rad
+local STAGE = BASE + Vector3.new(0, 0, -40) -- the preview stage, in front of the lineup
+local PREVIEW = AnimationConfig.preview
+local QUALITIES = { "low", "medium", "high" }
+local DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
 
 type Entry = {
 	unitType: string,
 	figure: Figure.Figure,
 	root: CFrame,
 	height: number,
-	hand: string,
 	mounted: boolean,
-	look: Figure.Look, -- the unit's base figure look
-	color: Color3,
-	baseHeight: number, -- before any form's size
+}
+
+-- The close-up's preview stage: the unit and a target dummy as fight views.
+type Stage = {
+	unitType: string,
+	folder: Folder,
+	actor: UnitView.UnitView,
+	dummy: UnitView.UnitView,
+	starLevel: number,
 	formIndex: number, -- the form shown (UnitConfig forms), 1 for the first
+	pending: { { at: number, run: () -> () } },
+	dying: { UnitView.UnitView },
+	auto: boolean,
+	autoCount: number,
+	nextAuto: number,
+	camera: CFrame,
 }
 
 local folder: Folder? = nil
 local entries: { Entry } = {}
 local focus: number? = nil
+local stage: Stage? = nil
 local heartbeat: RBXScriptConnection? = nil
 local savedCamera: { cameraType: Enum.CameraType, cframe: CFrame }? = nil
 
@@ -103,48 +137,295 @@ local function place(entry: Entry, p: Figure.Pose)
 	Figure.place(entry.figure, entry.root * CFrame.new(0, entry.height / 2, 0), entry.root, p)
 end
 
--- The close-up loop: idle, walk, attack (each attacking hand in turn) and cast, a second each.
-local function animate(entry: Entry, now: number)
-	local p = pose(entry.figure)
-	local h = entry.height
-	local phase = now % 4
-	if phase < 1 then
-		p.bob = math.sin(phase * 2 * math.pi) * ANIMATION.idleBob * h
-	elseif phase < 2 then
-		local step = math.sin((now / ANIMATION.walkCycle) * 2 * math.pi)
-		p.leftLeg, p.rightLeg = rad(ANIMATION.walkLegSwing) * step, -rad(ANIMATION.walkLegSwing) * step
-		p.leftArm -= rad(ANIMATION.walkArmSwing) * step
-		p.rightArm += rad(ANIMATION.walkArmSwing) * step
-		p.stride = rad(ANIMATION.horseLegSwing) * step
-		p.bob = math.abs(step) * ANIMATION.walkBob * h
-	elseif phase < 3 then
-		local swing = math.sin(math.pi * ((phase - 2) * 2 % 1))
-		local left = entry.hand == "left" or (entry.hand == "both" and phase >= 2.5)
-		if left then
-			p.leftArm += rad(ANIMATION.attackArm) * swing
-		else
-			p.rightArm += rad(ANIMATION.attackArm) * swing
-		end
-		p.lean = rad(ANIMATION.attackLean) * swing
-	else
-		local lift = math.sin(math.pi * (phase - 3))
-		local up = rad(ANIMATION.castArms)
-		p.leftArm += (up - p.leftArm) * lift
-		p.rightArm += (up - p.rightArm) * lift
-	end
-	place(entry, p)
-end
-
 local function setCamera(cframe: CFrame)
 	local camera = workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
 	camera.CFrame = cframe
 end
 
-local function overview()
-	if focus then
-		place(entries[focus], pose(entries[focus].figure))
+-- Preview stage ----------------------------------------------------------------------------------
+
+-- The unit's current form, its range in that form, and its attack style.
+local function formOf(s: Stage): any?
+	local forms = UnitConfig[s.unitType].forms
+	return if forms then forms[s.formIndex] else nil
+end
+local function rangeOf(s: Stage): number
+	return Forms.range(UnitConfig[s.unitType], formOf(s))
+end
+local function styleOf(s: Stage): string
+	return UnitMotion.styleFor(s.unitType, rangeOf(s), CharacterLook.of(s.unitType).figure)
+end
+
+local function later(s: Stage, at: number, run: () -> ())
+	table.insert(s.pending, { at = at, run = run })
+end
+
+-- Places the unit and the dummy (the dummy in front at melee or ranged distance) and frames them.
+local function spawnActors(s: Stage)
+	local look = CharacterLook.of(s.unitType)
+	local ranged = rangeOf(s) > 1
+	local distance = if ranged then PREVIEW.rangedDistance else PREVIEW.meleeDistance
+	local form = formOf(s)
+	-- The unit faces -X toward the dummy; the camera looks at both from the front (-Z).
+	local actor = UnitView.new(look.name, s.starLevel, look.color, STAGE, s.folder, {
+		sizeScale = look.scale,
+		look = look.figure,
+		maxHealth = PREVIEW.health,
+		mana = 0,
+		maxMana = 100,
+		yaw = math.pi / 2,
+		formLook = if form then RenderConfig.formLooks[form.name] else nil,
+		formName = if form then form.name else nil,
+	})
+	if not s.dummy or not s.dummy.part.Parent then
+		s.dummy = UnitView.new("dummy", 1, DUMMY_COLOR, STAGE - Vector3.new(distance, 0, 0), s.folder, {
+			look = { style = "creep" } :: any,
+			maxHealth = PREVIEW.health,
+			yaw = -math.pi / 2,
+			starPips = false,
+		})
+	else
+		UnitView.moveTo(s.dummy, STAGE - Vector3.new(distance, 0, 0))
 	end
+	actor.part:SetAttribute("UnitType", s.unitType)
+	UnitView.face(actor, s.dummy)
+	UnitView.face(s.dummy, actor)
+	s.actor = actor
+	local middle = STAGE - Vector3.new(distance / 2, -HEIGHT * 0.45, 0)
+	s.camera = CFrame.lookAt(middle + Vector3.new(0, 2.5 + distance * 0.1, -(7 + distance * 0.75)), middle)
+	print(
+		string.format(
+			"[DevLineup] %s %d-star, style %s (%s), form %s",
+			s.unitType,
+			s.starLevel,
+			styleOf(s),
+			if ranged then "ranged" else "melee",
+			if form then form.name else "none"
+		)
+	)
+end
+
+local function closeStage()
+	local s = stage
+	if not s then
+		return
+	end
+	stage = nil
+	CombatEffects.clear()
+	ImpactEffects.clear()
+	s.folder:Destroy() -- every view of the stage is inside it
+end
+
+local function openStage(unitType: string)
+	closeStage()
+	local stageFolder = Instance.new("Folder")
+	stageFolder.Name = "DevLineupStage"
+	local floor = Instance.new("Part")
+	floor.Anchored = true
+	floor.CanCollide = false
+	floor.CanQuery = false
+	floor.Size = Vector3.new(36, 1, 14)
+	floor.CFrame = CFrame.new(STAGE + Vector3.new(-5, -0.5, 0))
+	floor.Color = Color3.fromRGB(70, 74, 82)
+	floor.Material = Enum.Material.SmoothPlastic
+	floor.Parent = stageFolder
+	stageFolder.Parent = workspace
+	local s: Stage = {
+		unitType = unitType,
+		folder = stageFolder,
+		actor = nil :: any,
+		dummy = nil :: any,
+		starLevel = 1,
+		formIndex = 1,
+		pending = {},
+		dying = {},
+		auto = false,
+		autoCount = 0,
+		nextAuto = 0,
+		camera = CFrame.identity,
+	}
+	stage = s
+	spawnActors(s)
+	print("[DevLineup] keys: 1 attack, 2 crit, 3 cast, 4 get hit, 5 stun, 6 death, 7 victory, 8 heal + shield,")
+	print("[DevLineup]       9 auto loop, F form, X star level, Q quality (now " .. ImpactEffects.quality() .. ")")
+end
+
+-- The unit attacks the dummy; the hit lands as the motion strikes (or the projectile arrives).
+local function attack(s: Stage, crit: boolean)
+	local actor, dummy = s.actor, s.dummy
+	if not UnitView.isAlive(actor) then
+		return
+	end
+	local style = styleOf(s)
+	local ranged = rangeOf(s) > 1
+	local plan = CombatFx.plan(style, PREVIEW.interval, ranged)
+	local landsAt = os.clock() + CombatFx.leadTime(plan)
+	local tongue = RenderConfig.tongueAttacks[s.unitType] == true
+	CombatFx.attack(actor, dummy, landsAt, plan, {
+		color = if tongue then RenderConfig.tongueColor else AnimationConfig.projectiles.ownColor,
+		tongue = tongue,
+	})
+	later(s, landsAt, function()
+		CombatFx.hit(dummy, actor, {
+			damage = if crit then PREVIEW.critDamage else PREVIEW.damage,
+			crit = crit,
+			slam = UnitMotion.style(style).slam == true,
+		})
+	end)
+end
+
+-- The unit casts: wind-up, release, and an ability hit on the dummy.
+local function cast(s: Stage)
+	local actor, dummy = s.actor, s.dummy
+	if not UnitView.isAlive(actor) then
+		return
+	end
+	local color = CombatFx.factionColor(s.unitType)
+	local now = os.clock()
+	local release = now + AnimationConfig.cast.windup
+	CombatFx.castWindup(actor, now, release, color)
+	later(s, release, function()
+		CombatFx.castRelease(actor, color)
+	end)
+	later(s, release + 0.05, function()
+		CombatFx.hit(dummy, actor, {
+			damage = PREVIEW.abilityDamage,
+			damageType = "MAGIC",
+			ability = true,
+			abilityColor = color,
+		})
+	end)
+end
+
+-- The dummy attacks the unit.
+local function getHit(s: Stage)
+	local actor, dummy = s.actor, s.dummy
+	if not UnitView.isAlive(actor) then
+		return
+	end
+	local plan = CombatFx.plan("brawler", PREVIEW.interval, false)
+	local landsAt = os.clock() + CombatFx.leadTime(plan)
+	CombatFx.attack(dummy, actor, landsAt, plan)
+	later(s, landsAt, function()
+		CombatFx.hit(actor, dummy, { damage = PREVIEW.damage })
+	end)
+end
+
+local function die(s: Stage)
+	local actor = s.actor
+	if not UnitView.isAlive(actor) then
+		return
+	end
+	CombatFx.death(actor, s.dummy)
+	table.insert(s.dying, actor)
+	later(s, os.clock() + AnimationConfig.death.duration + 0.8, function()
+		spawnActors(s)
+	end)
+end
+
+local function healAndShield(s: Stage)
+	local actor = s.actor
+	if not UnitView.isAlive(actor) then
+		return
+	end
+	CombatFx.heal(actor, PREVIEW.heal)
+	UnitView.setShield(actor, PREVIEW.shield)
+	CombatFx.shield(actor)
+	later(s, os.clock() + 2.5, function()
+		if UnitView.isAlive(actor) then
+			UnitView.setShield(actor, 0)
+		end
+	end)
+end
+
+-- Rebuilds the unit (same form) at its next star level.
+local function nextStar(s: Stage)
+	if not UnitView.isAlive(s.actor) then
+		return
+	end
+	UnitView.destroy(s.actor)
+	s.starLevel = s.starLevel % 3 + 1
+	spawnActors(s)
+end
+
+-- The unit's next form, shown as a fight shows a form change.
+local function nextForm(s: Stage)
+	local forms = UnitConfig[s.unitType].forms
+	if not forms or #forms < 2 then
+		print("[DevLineup] " .. s.unitType .. " has no forms")
+		return
+	end
+	if not UnitView.isAlive(s.actor) then
+		return
+	end
+	s.formIndex = s.formIndex % #forms + 1
+	local form = forms[s.formIndex]
+	local formLook = RenderConfig.formLooks[form.name]
+	UnitView.setForm(s.actor, formLook, nil, nil, form.name)
+	local _, own = CharacterLook.formFigure(CharacterLook.of(s.unitType).figure, form.name)
+	print(
+		string.format(
+			"[DevLineup] %s: form %d/%d %q, %s, %d parts, style %s",
+			s.unitType,
+			s.formIndex,
+			#forms,
+			form.name,
+			if own then "own look" elseif formLook and formLook.tint then "base figure, tinted" else "base figure",
+			#s.actor.figure.parts - 1,
+			styleOf(s)
+		)
+	)
+	-- A form can change the range: move the dummy to match.
+	local distance = if rangeOf(s) > 1 then PREVIEW.rangedDistance else PREVIEW.meleeDistance
+	UnitView.moveTo(s.dummy, STAGE - Vector3.new(distance, 0, 0))
+end
+
+local function nextQuality()
+	local index = table.find(QUALITIES, ImpactEffects.quality()) or 0
+	local name = QUALITIES[index % #QUALITIES + 1]
+	ImpactEffects.setQuality(name)
+	print("[DevLineup] effects quality: " .. name .. " (charge sparkles apply to units built after this)")
+end
+
+local function updateStage(s: Stage, now: number, dt: number)
+	for i = #s.pending, 1, -1 do
+		local job = s.pending[i]
+		if now >= job.at then
+			table.remove(s.pending, i)
+			job.run()
+		end
+	end
+	if stage ~= s then
+		return -- a job closed the stage
+	end
+	if s.auto and now >= s.nextAuto then
+		s.nextAuto = now + PREVIEW.interval
+		s.autoCount += 1
+		if s.autoCount % 6 == 0 then
+			cast(s)
+		else
+			attack(s, s.autoCount % 4 == 0)
+		end
+	end
+	if s.actor.part.Parent and UnitView.isAlive(s.actor) then
+		UnitView.update(s.actor, now, dt)
+	end
+	UnitView.update(s.dummy, now, dt)
+	for i = #s.dying, 1, -1 do
+		if not UnitView.update(s.dying[i], now, dt) then
+			UnitView.destroy(s.dying[i])
+			table.remove(s.dying, i)
+		end
+	end
+	CombatEffects.update(now)
+	setCamera(s.camera * ImpactEffects.shakeOffset())
+end
+
+-- Lineup -------------------------------------------------------------------------------------------
+
+local function overview()
+	closeStage()
 	focus = nil
 	local count = #rows()
 	local middle = BASE + Vector3.new(0, 0, (count - 1) * ROW_GAP / 2)
@@ -152,58 +433,10 @@ local function overview()
 end
 
 local function closeUp(index: number)
-	if focus and focus ~= index then
-		place(entries[focus], pose(entries[focus].figure))
-	end
 	focus = index
 	local entry = entries[index]
-	local target = entry.root.Position + Vector3.new(0, entry.height * 0.55, 0)
-	setCamera(CFrame.lookAt(target + Vector3.new(2.6, 1.6, -6.2), target))
 	print(string.format("[DevLineup] %s (%d/%d)", entry.unitType, index, #entries))
-end
-
--- Redraws a close-up unit in its next form, as a fight would show it: the form's own look
--- (FormLookConfig) or the base figure with the form's tint, at the form's size, on its horse.
-local function nextForm(entry: Entry)
-	local forms = UnitConfig[entry.unitType].forms
-	if not forms or #forms < 2 then
-		print("[DevLineup] " .. entry.unitType .. " has no forms")
-		return
-	end
-	local index = entry.formIndex % #forms + 1
-	local form = forms[index]
-	local formLook = RenderConfig.formLooks[form.name]
-	local figureLook, own, extraScale = CharacterLook.formFigure(entry.look, form.name)
-	local height = entry.baseHeight * (if formLook and formLook.scale then formLook.scale else 1) * extraScale
-	local old = entry.figure
-	local hitbox = old.parts[1]
-	for i = #old.pieces, 2, -1 do -- piece 1 is the hitbox
-		old.pieces[i].part:Destroy()
-	end
-	if old.avatar then
-		old.avatar:Destroy()
-	end
-	hitbox.Size = Vector3.new(2, height, 2)
-	local figure = Figure.new(figureLook, entry.color, height, hitbox)
-	if formLook and formLook.mount then
-		Figure.setMount(figure, formLook.mount)
-	end
-	local tint = if formLook and not own then formLook.tint else nil
-	figure.color = tint or entry.color
-	figure.formTint = tint
-	Figure.setTint(figure, nil)
-	entry.figure, entry.height, entry.formIndex = figure, height, index
-	print(
-		string.format(
-			"[DevLineup] %s: form %d/%d %q, %s, %d parts",
-			entry.unitType,
-			index,
-			#forms,
-			form.name,
-			if own then "own look" elseif tint then "base figure, tinted" else "base figure",
-			#figure.parts - 1
-		)
-	)
+	openStage(entry.unitType)
 end
 
 local function report()
@@ -328,12 +561,7 @@ local function open()
 				figure = figure,
 				root = root,
 				height = height,
-				hand = if look.figure.classLook then look.figure.classLook.hand else "right",
 				mounted = mounted,
-				look = look.figure,
-				color = look.color,
-				baseHeight = height,
-				formIndex = 1,
 			}
 			place(entry, pose(figure))
 			table.insert(entries, entry)
@@ -343,9 +571,13 @@ local function open()
 
 	local camera = workspace.CurrentCamera
 	savedCamera = { cameraType = camera.CameraType, cframe = camera.CFrame }
+	local last = os.clock()
 	heartbeat = RunService.Heartbeat:Connect(function()
-		if focus then
-			animate(entries[focus], os.clock())
+		local now = os.clock()
+		local dt = now - last
+		last = now
+		if stage then
+			updateStage(stage, now, dt)
 		end
 	end)
 	overview()
@@ -353,6 +585,7 @@ local function open()
 end
 
 local function close()
+	closeStage()
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil
@@ -410,6 +643,40 @@ local function command(alias: string, run: (string) -> ())
 	chatCommand.Parent = TextChatService
 end
 
+-- Preview keys, in a close-up.
+local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
+	[Enum.KeyCode.One] = function(s)
+		attack(s, false)
+	end,
+	[Enum.KeyCode.Two] = function(s)
+		attack(s, true)
+	end,
+	[Enum.KeyCode.Three] = cast,
+	[Enum.KeyCode.Four] = getHit,
+	[Enum.KeyCode.Five] = function(s)
+		if UnitView.isAlive(s.actor) then
+			CombatFx.stun(s.actor, PREVIEW.stun, true)
+		end
+	end,
+	[Enum.KeyCode.Six] = die,
+	[Enum.KeyCode.Seven] = function(s)
+		if UnitView.isAlive(s.actor) then
+			CombatFx.victory({ s.actor }, os.clock())
+		end
+	end,
+	[Enum.KeyCode.Eight] = healAndShield,
+	[Enum.KeyCode.Nine] = function(s)
+		s.auto = not s.auto
+		s.nextAuto = os.clock()
+		print("[DevLineup] auto " .. (if s.auto then "on" else "off"))
+	end,
+	[Enum.KeyCode.F] = nextForm,
+	[Enum.KeyCode.X] = nextStar,
+	[Enum.KeyCode.Q] = function()
+		nextQuality()
+	end,
+}
+
 function DevLineup.start()
 	if not RunService:IsStudio() then
 		return
@@ -427,8 +694,8 @@ function DevLineup.start()
 			step(-1)
 		elseif key == Enum.KeyCode.M and folder then
 			overview()
-		elseif key == Enum.KeyCode.F and focus then
-			nextForm(entries[focus])
+		elseif stage and PREVIEW_KEYS[key] then
+			PREVIEW_KEYS[key](stage)
 		end
 	end)
 	-- Chat commands work with the new chat (TextChatService) only.

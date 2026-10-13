@@ -51,27 +51,16 @@ return table.freeze({
 	enemyHealthBarColor = Color3.fromRGB(235, 70, 70),
 	shieldColor = Color3.fromRGB(235, 235, 235),
 	manaBarColor = Color3.fromRGB(70, 150, 255),
-	critFlashColor = Color3.fromRGB(255, 150, 40),
 	stunMarkerColor = Color3.fromRGB(255, 230, 60), -- the halo over a stunned unit
 	healTextColor = Color3.fromRGB(110, 255, 140),
-	hitFlashColor = Color3.fromRGB(255, 255, 255),
-	hitFlashDuration = 0.08, -- seconds
 
 	-- Combat playback. Durations are in seconds; none of them change fight timing, which comes
-	-- from the server's event list.
+	-- from the server's event list. Attack, hit, cast, death and victory motion, projectiles and
+	-- impact effects are in AnimationConfig.
 	turnRate = 14, -- how quickly units turn to face their target (higher is snappier)
 	dashDuration = 0.15, -- dashes are instant in the sim; a short slide keeps them readable
 	dashTrailColor = Color3.fromRGB(255, 255, 255),
 	dashTrailLifetime = 0.2,
-	lungeDistance = 0.9, -- melee attacks lunge this far toward the target and back
-	lungeDuration = 0.22, -- the lunge peaks halfway, as the hit lands
-	projectileFlightTime = 0.25, -- ranged attacks launch this long before the hit lands
-	projectileSize = 0.6,
-	projectileArcHeight = 1.5,
-	ownProjectileColor = Color3.fromRGB(150, 200, 255),
-	enemyProjectileColor = Color3.fromRGB(255, 160, 140),
-	castGlowColor = Color3.fromRGB(190, 170, 255),
-	castGlowDuration = 0.35,
 	areaPulseColor = Color3.fromRGB(200, 120, 255),
 	areaPulseDuration = 0.45,
 	areaPulseTransparency = 0.35, -- starting transparency of each affected hex
@@ -148,8 +137,6 @@ return table.freeze({
 	tongueColor = Color3.fromRGB(230, 90, 120),
 	-- PvE creep and boss bodies, names and sizes come from their theme's looks (PveThemeConfig); the
 	-- top bar's round tracker colors come from UITheme.roundKinds.
-	deathFadeDuration = 0.5,
-	deathSinkDistance = 1.2,
 
 	-- Floating numbers and callouts. Sizes are in pixels, so they stay readable on small screens.
 	-- Numbers start beside the unit's body, rise and fade quickly.

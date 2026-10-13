@@ -55,6 +55,10 @@ export type Pose = {
 	leftLeg: number,
 	rightLeg: number,
 	stride: number, -- horse legs
+	-- Optional (nil: 0), for combat motion (UnitMotion):
+	twist: number?, -- upper body turned about the vertical (positive: the right shoulder forward)
+	crouch: number?, -- hips dropped by this fraction of leg length, legs splayed to match (a squash)
+	tilt: number?, -- sideways, about the feet (positive: toward the figure's right)
 }
 
 type Piece = {
@@ -807,15 +811,28 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 	local anchors = figure.anchors
 	local horse = figure.horse
 	anchors.root = root
-	local feet = if pose.fall ~= 0 then root * CFrame.Angles(pose.fall, 0, 0) else root
+	local tilt = pose.tilt or 0
+	local feet = if pose.fall ~= 0 or tilt ~= 0 then root * CFrame.Angles(pose.fall, 0, -tilt) else root
+	local twist = pose.twist or 0
+	-- Riders stay seated: no crouch on a horse.
+	local crouch = if horse then 0 else math.clamp(pose.crouch or 0, 0, 0.9)
 
 	local lean = figure.lean + pose.lean
 	if figure.isModel then
+		-- A model cannot bend its legs: a crouch is a smaller dip of the whole model.
 		local lift = if horse then horse.seat * 0.75 else 0
-		anchors.model = feet * CFrame.new(0, pose.bob + lift, 0) * CFrame.Angles(-lean, 0, 0)
+		local dip = crouch * figure.height * 0.12
+		anchors.model = feet
+			* CFrame.new(0, pose.bob + lift - dip, 0)
+			* CFrame.Angles(0, twist, 0)
+			* CFrame.Angles(-lean, 0, 0)
 	else
-		local seat = if horse then horse.seat else b.legLength
-		local hips = feet * CFrame.new(0, seat + pose.bob, 0) * CFrame.Angles(-lean, 0, 0)
+		local seat = if horse then horse.seat else b.legLength * (1 - crouch)
+		-- The legs hang from the pelvis; the upper body (torso, head, arms) also turns with `twist`.
+		local pelvis = feet * CFrame.new(0, seat + pose.bob, 0) * CFrame.Angles(-lean, 0, 0)
+		local hips = if twist ~= 0
+			then feet * CFrame.new(0, seat + pose.bob, 0) * CFrame.Angles(0, twist, 0) * CFrame.Angles(-lean, 0, 0)
+			else pelvis
 		anchors.hips = hips
 		anchors.head = hips * figure.headOffset
 		local shoulderX = (b.torsoWidth + b.armWidth) / 2
@@ -830,11 +847,13 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 		if horse then
 			-- Astride: legs raised forward and spread.
 			local raise, splay = rad(FigureConfig.horse.riderLegs), rad(FigureConfig.horse.riderLegSplay)
-			anchors.leftLeg = hips * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, -splay)
-			anchors.rightLeg = hips * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, splay)
+			anchors.leftLeg = pelvis * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, -splay)
+			anchors.rightLeg = pelvis * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, splay)
 		else
-			anchors.leftLeg = hips * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(pose.leftLeg, 0, 0)
-			anchors.rightLeg = hips * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(pose.rightLeg, 0, 0)
+			-- A crouch splays the legs so the feet stay on the ground under the lowered hips.
+			local splay = if crouch > 0 then math.acos(1 - crouch) else 0
+			anchors.leftLeg = pelvis * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(pose.leftLeg, 0, -splay)
+			anchors.rightLeg = pelvis * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(pose.rightLeg, 0, splay)
 		end
 	end
 	if horse then

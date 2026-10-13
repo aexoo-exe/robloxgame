@@ -17,16 +17,21 @@
 -- destroying a view removes everything it shows.
 -- Times come from the view's clock (os.clock by default). Combat playback passes a clock that runs
 -- in fight time, so every animation follows the playback speed.
+-- Combat motion (attack styles, hit reactions, cast wind-up and release, stun, death, victory) is
+-- UnitMotion's pose math with AnimationConfig's numbers; CombatFx decides when each one plays.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
 local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local CharacterLook = require(script.Parent.CharacterLook)
 local Figure = require(script.Parent.Figure)
+local ImpactEffects = require(script.Parent.ImpactEffects)
 local ItemIcon = require(script.Parent.ItemIcon)
+local UnitMotion = require(script.Parent.UnitMotion)
 
 local UnitView = {}
 
@@ -53,6 +58,8 @@ type Floater = {
 	duration: number,
 	startY: number,
 	rise: number,
+	size: number, -- text size once settled
+	pop: number, -- starting size multiplier (AnimationConfig.numbers)
 }
 
 export type UnitView = {
@@ -86,20 +93,35 @@ export type UnitView = {
 	moveIsDash: boolean,
 	yaw: number,
 	faceTarget: UnitView?,
-	lungeDirection: Vector3,
-	lungeStart: number?,
-	shootStart: number?,
+	starLevel: number,
+	lungeDirection: Vector3, -- toward the current attack's target
+	attackStart: number?, -- the current attack motion (UnitMotion.attack)
+	attackDuration: number,
+	attackStyle: UnitMotion.Style?,
 	attackArm: number, -- 1 left, 2 right
 	alternateArms: boolean, -- attacks switch arms (classes with a prop in each hand)
 	attackPose: string, -- ranged attacks: "recoil" or "point" (FigureConfig.characters)
-	castStart: number?,
+	windupStart: number?, -- cast wind-up, from windupStart to castStart
+	castStart: number?, -- the release
+	castColor: Color3, -- the caster's faction color (glow, charge orb)
+	chargeOrb: Part?, -- gathers between the hands in a wind-up (made on first use)
+	chargeField: ParticleEmitter?, -- sparkles drawn in toward the orb (high quality)
 	hitStart: number?,
+	knockDirection: Vector3, -- away from the last attacker
+	knockStrength: number, -- studs at normal size
+	stopAt: number, -- hit-stop: the pose holds at stopAt until stopUntil
+	stopUntil: number,
+	stopShake: boolean, -- the held unit jitters (the one hit)
 	flashUntil: number,
 	flashColor: Color3,
 	glowUntil: number,
 	stunUntil: number,
+	stunStars: { Part }?, -- circle the head while stunned (made on first stun)
 	trailUntil: number,
+	cheerStart: number?, -- victory cheer
+	bubblePop: number?, -- the shield bubble popping in
 	dyingSince: number?,
+	puffed: boolean, -- the death puff has been shown
 	selected: boolean,
 	phase: number, -- 0-1 offset so neighbors do not idle in step
 	floaters: { Floater },
@@ -375,20 +397,35 @@ function UnitView.new(
 		moveIsDash = false,
 		yaw = yaw,
 		faceTarget = nil,
+		starLevel = starLevel,
 		lungeDirection = Vector3.zero,
-		lungeStart = nil,
-		shootStart = nil,
+		attackStart = nil,
+		attackDuration = 0,
+		attackStyle = nil,
 		attackArm = if hand == "left" then 1 else 2,
 		alternateArms = hand == "both",
 		attackPose = look.attackPose or "recoil",
+		windupStart = nil,
 		castStart = nil,
+		castColor = AnimationConfig.factionColors.summon,
+		chargeOrb = nil,
+		chargeField = nil,
 		hitStart = nil,
+		knockDirection = Vector3.zero,
+		knockStrength = 0,
+		stopAt = 0,
+		stopUntil = 0,
+		stopShake = false,
 		flashUntil = 0,
 		flashColor = color,
 		glowUntil = 0,
 		stunUntil = 0,
+		stunStars = nil,
 		trailUntil = 0,
+		cheerStart = nil,
+		bubblePop = nil,
 		dyingSince = nil,
+		puffed = false,
 		selected = false,
 		phase = math.random(),
 		floaters = {},
@@ -558,50 +595,54 @@ function UnitView.face(view: UnitView, target: UnitView?)
 	view.faceTarget = target
 end
 
-local function nextAttackArm(view: UnitView)
-	if view.alternateArms then
-		view.attackArm = 3 - view.attackArm
-	end
+-- How much larger than a normal 1-star this unit is drawn (star level, form, summon and PvE sizes):
+-- motion distances in AnimationConfig are for a normal 1-star and scale with this.
+function UnitView.sizeFactor(view: UnitView): number
+	return view.part.Size.Y / RenderConfig.unitSize.Y
 end
 
--- A melee attack: a small lunge toward `target` and back with a swing of the attacking arm,
--- starting at `startAt` (view.clock(); now if omitted). It peaks halfway through
--- RenderConfig.lungeDuration.
-function UnitView.lunge(view: UnitView, target: UnitView, startAt: number?)
+-- How large this unit's effects are drawn (AnimationConfig.starScale).
+function UnitView.effectScale(view: UnitView): number
+	return AnimationConfig.starScale[view.starLevel] or 1
+end
+
+-- An attack motion in `style` (AnimationConfig.styles) toward `target`, lasting `duration` and
+-- starting at `startAt` (view.clock()). The strike lands at the style's `strike` share of it. Units
+-- holding a prop in each hand, and brawlers, switch arms each attack.
+function UnitView.attack(view: UnitView, target: UnitView, startAt: number, duration: number, styleName: string)
+	local style = UnitMotion.style(styleName)
 	local direction = target.part.Position - view.part.Position
 	direction = Vector3.new(direction.X, 0, direction.Z)
-	if direction.Magnitude < 1e-3 then
-		return
+	if direction.Magnitude > 1e-3 then
+		view.lungeDirection = direction.Unit
 	end
-	nextAttackArm(view)
-	view.lungeDirection = direction.Unit
-	view.lungeStart = startAt or view.clock()
+	if view.alternateArms or style.alternate then
+		view.attackArm = 3 - view.attackArm
+	end
+	view.attackStyle = style
+	view.attackStart = startAt
+	view.attackDuration = duration
 	view.faceTarget = target
 end
 
--- A ranged attack: faces `target` and recoils (or points, with attack pose "point"), starting at
--- `startAt` (view.clock(); now if omitted).
-function UnitView.shoot(view: UnitView, target: UnitView, startAt: number?)
-	nextAttackArm(view)
-	view.shootStart = startAt or view.clock()
-	view.faceTarget = target
-end
-
--- Where a ranged attack's projectile starts: the pointing fingertip for attack pose "point", else
--- the middle of the unit.
+-- Where a ranged attack's projectile leaves right now: the pointing fingertip (attack pose
+-- "point"), else the attacking hand, else (a store model) the chest.
 function UnitView.launchPoint(view: UnitView): Vector3
+	local figure = view.figure
 	if view.attackPose == "point" then
-		local tip = Figure.armTip(
-			view.figure,
-			view.attackArm,
-			rad(ANIMATION.pointArm),
-			ANIMATION.fingertip * view.figure.height
-		)
+		local angle = if view.attackArm == 1 then view.pose.leftArm else view.pose.rightArm
+		local tip = Figure.armTip(figure, view.attackArm, angle, ANIMATION.fingertip * figure.height)
 		if tip then
 			return tip
 		end
 	end
+	local hand = figure.anchors[if view.attackArm == 1 then "leftHand" else "rightHand"]
+	if hand and not figure.isModel then
+		return hand.Position
+	end
 	return view.part.Position
+		+ Vector3.new(0, view.part.Size.Y * 0.15, 0)
+		+ view.lungeDirection * view.part.Size.X * 0.4
 end
 
 local function redrawHealth(view: UnitView)
@@ -664,6 +705,18 @@ function UnitView.stun(view: UnitView, seconds: number)
 		ring.Transparency = 1
 		ring.Parent = view.part
 		view.stunRing = ring
+		-- Small stars circling over the halo (AnimationConfig.stun).
+		local config = AnimationConfig.stun
+		local stars = {}
+		for _ = 1, config.stars do
+			local star = ring:Clone()
+			star.Shape = Enum.PartType.Ball
+			star.Size = Vector3.one * config.starSize * UnitView.sizeFactor(view)
+			star.Color = Color3.new(1, 1, 1)
+			star.Parent = view.part
+			table.insert(stars, star)
+		end
+		view.stunStars = stars
 	end
 	view.stunUntil = view.clock() + seconds
 end
@@ -676,7 +729,8 @@ local function addFloater(
 	x: number,
 	startY: number,
 	duration: number,
-	rise: number
+	rise: number,
+	pop: number?
 )
 	if not view.part.Parent then
 		return
@@ -694,7 +748,7 @@ local function addFloater(
 	label.TextStrokeTransparency = 0
 	label.TextStrokeColor3 = Color3.new(0, 0, 0)
 	label.Font = RenderConfig.floatingTextFont
-	label.TextSize = size
+	label.TextSize = math.floor(size * (pop or 1) + 0.5)
 	label.Parent = view.floatBoard
 	table.insert(view.floaters, {
 		label = label,
@@ -702,12 +756,15 @@ local function addFloater(
 		duration = duration,
 		startY = startY,
 		rise = rise,
+		size = size,
+		pop = pop or 1,
 	})
 end
 
 -- A number that starts beside the body, rises and fades quickly. Successive numbers on one unit
--- take turns in lanes on alternating sides, with a little jitter, so they do not stack.
-local function floatNumber(view: UnitView, text: string, color: Color3, size: number)
+-- take turns in lanes on alternating sides, with a little jitter, so they do not stack. It pops in
+-- `pop` times its size (AnimationConfig.numbers).
+local function floatNumber(view: UnitView, text: string, color: Color3, size: number, pop: number?)
 	local lanes = RenderConfig.damageNumberLanes
 	local lane = view.floaterCount % #lanes + 1
 	view.floaterCount += 1
@@ -720,7 +777,8 @@ local function floatNumber(view: UnitView, text: string, color: Color3, size: nu
 		lanes[lane] + math.random(-jitter, jitter),
 		NUMBER_START_Y + math.random(-jitter, jitter),
 		RenderConfig.damageNumberDuration,
-		RenderConfig.damageNumberRise
+		RenderConfig.damageNumberRise,
+		pop
 	)
 end
 
@@ -730,18 +788,27 @@ local DAMAGE_COLORS = {
 	TRUE = "trueDamageColor",
 }
 
--- `damageType` is a CombatMath.DamageType value; crits are a little larger, in their own color.
-function UnitView.damageNumber(view: UnitView, amount: number, damageType: string?, crit: boolean?)
+-- `damageType` is a CombatMath.DamageType value; crits are larger, in their own color, and pop
+-- harder; ability hits are a little larger (AnimationConfig.numbers).
+function UnitView.damageNumber(view: UnitView, amount: number, damageType: string?, crit: boolean?, ability: boolean?)
+	local numbers = AnimationConfig.numbers
 	local color = RenderConfig[DAMAGE_COLORS[damageType or "PHYSICAL"] or "physicalDamageColor"]
 	if crit then
-		floatNumber(view, amount .. "!", RenderConfig.critNumberColor, RenderConfig.critNumberSize)
+		floatNumber(view, amount .. "!", RenderConfig.critNumberColor, RenderConfig.critNumberSize, numbers.critPop)
 	else
-		floatNumber(view, tostring(amount), color, RenderConfig.damageNumberSize)
+		local size = if ability then numbers.abilitySize else RenderConfig.damageNumberSize
+		floatNumber(view, tostring(amount), color, size, numbers.pop)
 	end
 end
 
 function UnitView.healNumber(view: UnitView, amount: number)
-	floatNumber(view, "+" .. amount, RenderConfig.healTextColor, RenderConfig.damageNumberSize)
+	floatNumber(
+		view,
+		"+" .. amount,
+		RenderConfig.healTextColor,
+		RenderConfig.damageNumberSize,
+		AnimationConfig.numbers.pop
+	)
 end
 
 -- A damage-over-time tick: a small number in the damage type's color, with no hit flash.
@@ -781,24 +848,82 @@ function UnitView.callout(view: UnitView, text: string, color: Color3)
 	)
 end
 
--- A cast: the unit glows briefly and throws its arms up. Ability names are not announced.
-function UnitView.cast(view: UnitView)
+-- A cast wind-up from `startAt` to the release at `releaseAt` (both view.clock()): the arms rise, an
+-- orb of `color` (the caster's faction) gathers between the hands, and the body glows in the last
+-- part (AnimationConfig.cast). UnitView.cast shows the release.
+function UnitView.castWindup(view: UnitView, startAt: number, releaseAt: number, color: Color3)
+	view.windupStart = startAt
+	view.castStart = releaseAt
+	view.castColor = color
+end
+
+-- The release of a cast, now: arms thrust up and the body flashes in `color` (default: the color of
+-- its wind-up). Ability names are not announced.
+function UnitView.cast(view: UnitView, color: Color3?)
 	local now = view.clock()
-	view.glowUntil = now + RenderConfig.castGlowDuration
+	if color then
+		view.castColor = color
+	end
 	view.castStart = now
+	view.glowUntil = now + AnimationConfig.cast.release * 0.5
 end
 
--- Briefly flashes the unit and knocks it back to show it was hit; crits flash in a different color.
-function UnitView.flash(view: UnitView, crit: boolean?)
+-- Shows a hit: a flash (crits: orange), a small knock along `direction` (away from the attacker;
+-- nil: the last direction) of `strength` studs at normal size (default AnimationConfig.hit), and a
+-- squash that recovers.
+function UnitView.flash(view: UnitView, crit: boolean?, direction: Vector3?, strength: number?)
+	local config = AnimationConfig.hit
 	local now = view.clock()
-	view.flashUntil = now + RenderConfig.hitFlashDuration
-	view.flashColor = if crit then RenderConfig.critFlashColor else RenderConfig.hitFlashColor
+	view.flashUntil = now + config.flashDuration
+	view.flashColor = if crit then config.critFlashColor else config.flashColor
 	view.hitStart = now
+	if direction then
+		local flat = Vector3.new(direction.X, 0, direction.Z)
+		if flat.Magnitude > 1e-3 then
+			view.knockDirection = flat.Unit
+		end
+	end
+	view.knockStrength = strength or (if crit then config.critKnock else config.knock)
 end
 
--- Starts the defeat: the unit falls backward, sinks and fades. Keep updating the view until
+-- Hit-stop: the unit holds its pose for `seconds`; `shake` jitters it (the one that was hit). Not
+-- again within AnimationConfig.hitStop.cooldown of the last one. Returns whether it holds.
+function UnitView.hitStop(view: UnitView, seconds: number, shake: boolean?): boolean
+	local now = view.clock()
+	if view.stopUntil > 0 and now < view.stopUntil + AnimationConfig.hitStop.cooldown then
+		return false
+	end
+	view.stopAt = now
+	view.stopUntil = now + seconds
+	view.stopShake = shake == true
+	return true
+end
+
+-- The shield bubble pops in (a new shield).
+function UnitView.shieldPop(view: UnitView)
+	view.bubblePop = view.clock()
+end
+
+-- A victory cheer from `startAt` (view.clock(); now if omitted): hops with arms up.
+function UnitView.cheer(view: UnitView, startAt: number?)
+	if not view.dyingSince then
+		view.cheerStart = startAt or view.clock()
+	end
+end
+
+local function hideCharge(view: UnitView)
+	if view.chargeOrb then
+		view.chargeOrb.Transparency = 1
+	end
+	if view.chargeField then
+		view.chargeField.Enabled = false
+	end
+end
+
+-- Starts the defeat: a stagger back (along `direction`, away from the killer, if given), a crumple
+-- to the ground, a fade and a small puff (AnimationConfig.death). Keep updating the view until
 -- UnitView.update returns false, then destroy it.
-function UnitView.kill(view: UnitView)
+function UnitView.kill(view: UnitView, direction: Vector3?)
 	if view.dyingSince then
 		return
 	end
@@ -806,9 +931,16 @@ function UnitView.kill(view: UnitView)
 	view.infoBoard.Enabled = false
 	view.trail.Enabled = false
 	view.faceTarget = nil
+	if direction then
+		local flat = Vector3.new(direction.X, 0, direction.Z)
+		if flat.Magnitude > 1e-3 then
+			view.knockDirection = flat.Unit
+		end
+	end
 	if view.bubble then
 		view.bubble.Transparency = 1
 	end
+	hideCharge(view)
 end
 
 function UnitView.isAlive(view: UnitView): boolean
@@ -818,16 +950,26 @@ end
 -- Progress (0-1) of a one-shot animation that started at `start` and lasts `duration`, or nil when
 -- it is not playing.
 local function progressOf(start: number?, duration: number, now: number): number?
-	if not start or now < start then
+	if not start or now < start or duration <= 0 then
 		return nil
 	end
 	local progress = (now - start) / duration
 	return if progress < 1 then progress else nil
 end
 
--- Works out this frame's pose from the animation state. Later layers add to earlier ones: idle or
--- walking, then an attack, a cast, a hit recoil, a stun and the defeat fall.
-local function updatePose(view: UnitView, now: number, moving: boolean)
+-- Progress (0-1) of the cast wind-up, or nil outside it.
+local function windupOf(view: UnitView, now: number): number?
+	local start, release = view.windupStart, view.castStart
+	if not start or not release or now < start or now >= release then
+		return nil
+	end
+	return (now - start) / (release - start)
+end
+
+-- Works out this frame's pose from the animation state, and returns the body's offset from its
+-- place (studs). Later layers add to earlier ones: idle or walking, then an attack, a cast wind-up
+-- or release, a hit, a stun, a victory cheer and the defeat.
+local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 	local pose = view.pose
 	local figure = view.figure
 	local height = figure.height
@@ -835,6 +977,7 @@ local function updatePose(view: UnitView, now: number, moving: boolean)
 	local idle = math.sin((now / ANIMATION.idlePeriod + view.phase) * TAU)
 	pose.bob = idle * ANIMATION.idleBob * height
 	pose.lean, pose.fall, pose.stride = 0, 0, 0
+	pose.twist, pose.crouch, pose.tilt = 0, 0, 0
 	pose.leftArm = rest[1] + rad(ANIMATION.idleArmSway) * idle
 	pose.rightArm = rest[2] - rad(ANIMATION.idleArmSway) * idle
 	pose.leftLeg, pose.rightLeg = 0, 0
@@ -849,57 +992,91 @@ local function updatePose(view: UnitView, now: number, moving: boolean)
 		pose.stride = rad(ANIMATION.horseLegSwing) * step
 	end
 
-	-- Attacks: the attacking arm swings with a melee lunge, or kicks up with a ranged shot, or (attack
-	-- pose "point") snaps up to point at the target, holds, and drops back.
-	local armRaise, attackLean = 0, 0
-	local lunge = progressOf(view.lungeStart, RenderConfig.lungeDuration, now)
-	local pointing = view.attackPose == "point"
-	local shot = progressOf(view.shootStart, if pointing then ANIMATION.pointDuration else ANIMATION.shootDuration, now)
-	if lunge then
-		local swing = math.sin(math.pi * lunge)
-		armRaise, attackLean = rad(ANIMATION.attackArm) * swing, rad(ANIMATION.attackLean) * swing
-	elseif shot and pointing then
-		local reach = math.min(1, shot * 6, (1 - shot) * 3)
-		local current = if view.attackArm == 1 then pose.leftArm else pose.rightArm
-		armRaise = (rad(ANIMATION.pointArm) - current) * reach
-	elseif shot then
-		local recoil = math.sin(math.pi * shot)
-		armRaise, attackLean = rad(ANIMATION.shootArm) * recoil, rad(ANIMATION.shootLean) * recoil
+	local size = UnitView.sizeFactor(view)
+	local offset = Vector3.zero
+	local style = view.attackStyle
+	local attack = if style then progressOf(view.attackStart, view.attackDuration, now) else nil
+	if style and attack then
+		local lunge = UnitMotion.attack(pose, style, attack, view.attackArm)
+		offset += view.lungeDirection * (lunge * size)
 	end
-	if view.attackArm == 1 then
-		pose.leftArm += armRaise
+
+	local windup = windupOf(view, now)
+	if windup then
+		UnitMotion.castWindup(pose, windup)
 	else
-		pose.rightArm += armRaise
-	end
-	pose.lean += attackLean
-
-	local cast = progressOf(view.castStart, ANIMATION.castDuration, now)
-	if cast then
-		local lift = math.sin(math.pi * cast)
-		local up = rad(ANIMATION.castArms)
-		pose.leftArm += (up - pose.leftArm) * lift
-		pose.rightArm += (up - pose.rightArm) * lift
+		local release = progressOf(view.castStart, AnimationConfig.cast.release, now)
+		if release then
+			UnitMotion.castRelease(pose, release)
+		end
 	end
 
-	local hit = progressOf(view.hitStart, ANIMATION.hitDuration, now)
+	local hit = progressOf(view.hitStart, AnimationConfig.hit.duration, now)
 	if hit then
-		pose.lean += rad(ANIMATION.hitLean) * (1 - hit)
+		local knock = UnitMotion.hit(pose, hit)
+		offset += view.knockDirection * (view.knockStrength * knock * size)
 	end
 
 	if now < view.stunUntil and not view.dyingSince then
-		-- Stunned: arms drop and the idle stops.
-		pose.bob = 0
-		pose.leftArm *= 0.3
-		pose.rightArm *= 0.3
+		UnitMotion.stunned(pose, now, view.phase)
+	end
+
+	local cheer = progressOf(view.cheerStart, AnimationConfig.victory.duration, now)
+	if cheer and not view.dyingSince then
+		offset += Vector3.new(0, UnitMotion.victory(pose, cheer) * size, 0)
 	end
 
 	if view.dyingSince then
-		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
-		local eased = 1 - (1 - progress) * (1 - progress)
-		pose.fall = rad(ANIMATION.defeatFall) * eased
-		pose.leftArm *= 1 - eased
-		pose.rightArm *= 1 - eased
+		local progress = math.clamp((now - view.dyingSince) / AnimationConfig.death.duration, 0, 1)
+		local step, sink = UnitMotion.death(pose, progress)
+		local back = if view.knockDirection.Magnitude > 0
+			then view.knockDirection
+			else -CFrame.Angles(0, view.yaw, 0).LookVector
+		offset += back * (step * size) - Vector3.new(0, sink * size, 0)
 	end
+	return offset
+end
+
+-- The orb that gathers between the hands in a cast wind-up, and (high quality) a field of
+-- sparkles drawn in toward it. Made on first use.
+local function chargeOrb(view: UnitView): Part
+	local orb = view.chargeOrb
+	if orb then
+		return orb
+	end
+	local made = Instance.new("Part")
+	made.Anchored = true
+	made.CanCollide = false
+	made.CanQuery = false
+	made.CanTouch = false
+	made.CastShadow = false
+	made.Shape = Enum.PartType.Ball
+	made.Material = Enum.Material.Neon
+	made.Transparency = 1
+	made.Parent = view.part
+	view.chargeOrb = made
+	if ImpactEffects.allows("charge") then
+		local field = made:Clone()
+		field.Name = "ChargeField"
+		field.Size = Vector3.one * 2.6 * UnitView.sizeFactor(view)
+		field.Parent = view.part
+		local sparkles = Instance.new("ParticleEmitter")
+		sparkles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		sparkles.LightEmission = 1
+		sparkles.LightInfluence = 0
+		sparkles.Shape = Enum.ParticleEmitterShape.Sphere
+		sparkles.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		sparkles.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
+		sparkles.Speed = NumberRange.new(4, 5)
+		sparkles.Lifetime = NumberRange.new(0.22, 0.28)
+		sparkles.Size = NumberSequence.new(0.16 * UnitView.sizeFactor(view), 0)
+		sparkles.Transparency = NumberSequence.new(0.1, 0.6)
+		sparkles.Rate = AnimationConfig.cast.chargeRate * ImpactEffects.particleShare()
+		sparkles.Enabled = false
+		sparkles.Parent = field
+		view.chargeField = sparkles
+	end
+	return made
 end
 
 -- Advances every animation to `now` (view.clock()); `dt` is the frame time. Returns false once a
@@ -907,18 +1084,13 @@ end
 function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local part = view.part
 
-	-- Position: the walk or dash, plus any lunge, minus any death sink.
+	-- Position: the walk or dash, plus the motion's offset (lunges, knocks, hops, the death).
 	local base = currentBase(view, now)
 	local moving = view.moveDuration > 0 and now < view.moveStart + view.moveDuration
 	if view.moveDuration > 0 and not moving then
 		view.moveDuration = 0
 	end
 	view.base = base
-	local offset = Vector3.zero
-	local lunge = progressOf(view.lungeStart, RenderConfig.lungeDuration, now)
-	if lunge then
-		offset = view.lungeDirection * (RenderConfig.lungeDistance * math.sin(math.pi * lunge))
-	end
 
 	-- Facing: along the path while moving, otherwise toward the target.
 	local desiredYaw = nil
@@ -936,32 +1108,90 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	if now < view.vanishUntil then
 		transparency = math.max(transparency, RenderConfig.vanishTransparency)
 	end
-	if view.dyingSince then
-		local progress = math.clamp((now - view.dyingSince) / RenderConfig.deathFadeDuration, 0, 1)
-		transparency = view.baseTransparency + (1 - view.baseTransparency) * progress
-		offset -= Vector3.new(0, RenderConfig.deathSinkDistance * progress, 0)
+	local death = AnimationConfig.death
+	local dying = if view.dyingSince then math.clamp((now - view.dyingSince) / death.duration, 0, 1) else nil
+	if dying then
+		local fade = math.clamp((dying - death.fadeFrom) / (1 - death.fadeFrom), 0, 1)
+		transparency = view.baseTransparency + (1 - view.baseTransparency) * fade
 	end
 	if transparency ~= view.shownTransparency then
 		Figure.setTransparency(view.figure, transparency)
 		view.shownTransparency = transparency
 	end
 
-	updatePose(view, now, moving)
+	-- Hit-stop holds the pose (and its offset) where it was; the one hit jitters.
+	local held = now < view.stopUntil
+	local offset = updatePose(view, if held then view.stopAt else now, moving)
+	if held and view.stopShake then
+		local jitter = AnimationConfig.hitStop.jitter * UnitView.sizeFactor(view)
+		offset += Vector3.new((math.random() - 0.5) * 2 * jitter, 0, (math.random() - 0.5) * 2 * jitter)
+	end
 	local center = base + offset
 	local rotation = CFrame.Angles(0, view.yaw, 0)
 	local hitboxCFrame = CFrame.new(center) * rotation
 	local root = CFrame.new(center - Vector3.new(0, part.Size.Y / 2, 0)) * rotation
 	Figure.place(view.figure, hitboxCFrame, root, view.pose)
 	if view.bubble and view.bubble.Transparency < 1 then
+		local size = part.Size
+		local scale = 1
+		local pop = progressOf(view.bubblePop, AnimationConfig.shield.pop, now)
+		if pop then
+			scale = 1 + (AnimationConfig.shield.popScale - 1) * (1 - pop) * (1 - pop)
+		end
+		view.bubble.Size = Vector3.one * math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale * scale
 		view.bubble.CFrame = hitboxCFrame
 	end
 
-	-- Body tint: a hit flash wins over a cast glow, which wins over the selection glow.
+	-- The death puff, as the body reaches the ground.
+	if dying and not view.puffed and dying >= death.puffAt then
+		view.puffed = true
+		local scale = UnitView.sizeFactor(view)
+		ImpactEffects.burst("puff", root.Position + Vector3.new(0, 0.3 * scale, 0), nil, {
+			color = death.puffColor,
+			count = death.puffCount,
+			size = death.puffSize[1] * scale,
+			speed = { 2 * scale, 4 * scale },
+			lifetime = { 0.35, 0.6 },
+			transparency = 0.25,
+		})
+	end
+
+	-- The cast wind-up: the orb gathers between the hands (over the head for a figure with none).
+	local windup = if dying then nil else windupOf(view, now)
+	if windup then
+		local orb = chargeOrb(view)
+		local anchors = view.figure.anchors
+		local left, right = anchors.leftHand, anchors.rightHand
+		local scale = UnitView.sizeFactor(view)
+		local at = if left
+				and right
+				and not view.figure.isModel
+			then (left.Position + right.Position) / 2 + Vector3.new(0, 0.25 * scale, 0)
+			else center + Vector3.new(0, part.Size.Y * 0.65, 0)
+		orb.Color = view.castColor
+		orb.Size = Vector3.one
+			* math.max(0.05, AnimationConfig.cast.orbSize * scale * UnitView.effectScale(view) * windup)
+		orb.CFrame = CFrame.new(at)
+		orb.Transparency = 0.1
+		local field = view.chargeField
+		if field then
+			local fieldPart = field.Parent :: BasePart
+			fieldPart.CFrame = CFrame.new(at)
+			field.Color = ColorSequence.new(view.castColor)
+			field.Enabled = true
+		end
+	elseif view.chargeOrb and view.chargeOrb.Transparency < 1 then
+		hideCharge(view)
+	end
+
+	-- Body tint: a hit flash wins over a cast glow (the end of a wind-up, and the release), which
+	-- wins over the selection glow.
 	local color, material = nil, nil
+	local glowing = windup ~= nil and windup >= AnimationConfig.cast.glowFrom
 	if now < view.flashUntil then
 		color = view.flashColor
-	elseif now < view.glowUntil then
-		color, material = RenderConfig.castGlowColor, Enum.Material.Neon
+	elseif glowing or now < view.glowUntil then
+		color, material = view.castColor, Enum.Material.Neon
 	elseif view.selected then
 		material = Enum.Material.Neon
 	end
@@ -970,16 +1200,25 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		view.shownColor, view.shownMaterial = color, material
 	end
 
-	-- Stunned: a tilted halo wobbles just above the head.
+	-- Stunned: a tilted halo wobbles just above the head, with small stars circling it.
 	local stunned = now < view.stunUntil and not view.dyingSince
 	local ring = view.stunRing
 	if ring then
 		ring.Transparency = if stunned then 0.2 else 1
 		if stunned then
-			ring.CFrame = root
-				* CFrame.new(0, view.figure.height * 1.03, 0)
-				* CFrame.Angles(0, now * 4, 0)
-				* CFrame.Angles(0.25, 0, math.pi / 2)
+			local head = root * CFrame.new(0, view.figure.height * 1.03, 0)
+			ring.CFrame = head * CFrame.Angles(0, now * 4, 0) * CFrame.Angles(0.25, 0, math.pi / 2)
+			local stars = view.stunStars or {}
+			local radius = ring.Size.Y / 2
+			local config = AnimationConfig.stun
+			for i, star in stars do
+				local angle = now * config.starSpeed + (i - 1) / #stars * TAU
+				star.CFrame = head
+					* CFrame.new(math.cos(angle) * radius, 0.08 * math.sin(angle * 2), math.sin(angle) * radius)
+			end
+		end
+		for _, star in view.stunStars or {} do
+			star.Transparency = if stunned then 0 else 1
 		end
 	end
 	local trailing = now < view.trailUntil and not view.dyingSince
@@ -987,10 +1226,12 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		view.trail.Enabled = trailing
 	end
 
-	-- Floating text rises with an ease-out and fades over its second half.
+	-- Floating text pops in, rises with an ease-out and fades over its second half.
+	local popTime = AnimationConfig.numbers.popTime
 	for i = #view.floaters, 1, -1 do
 		local floater = view.floaters[i]
-		local progress = (now - floater.born) / floater.duration
+		local age = now - floater.born
+		local progress = age / floater.duration
 		if progress >= 1 then
 			floater.label:Destroy()
 			table.remove(view.floaters, i)
@@ -1001,11 +1242,19 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 			local fade = math.clamp(progress * 2 - 1, 0, 1)
 			floater.label.TextTransparency = fade
 			floater.label.TextStrokeTransparency = fade
+			if floater.pop ~= 1 then
+				local settle = math.clamp(age / popTime, 0, 1)
+				local size = floater.size * (floater.pop + (1 - floater.pop) * settle)
+				floater.label.TextSize = math.floor(size + 0.5)
+				if settle >= 1 then
+					floater.pop = 1
+				end
+			end
 		end
 	end
 
 	if view.dyingSince then
-		return now - view.dyingSince < RenderConfig.deathFadeDuration or #view.floaters > 0
+		return now - view.dyingSince < death.duration or #view.floaters > 0
 	end
 	return true
 end
