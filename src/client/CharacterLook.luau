@@ -67,6 +67,26 @@ local function classLookOf(character, override, unitLook, avatar): any
 	return classLook
 end
 
+-- An avatar's weapons: its UnitAvatarConfig `weapons`, else its hand-built look's (false: none).
+local function avatarWeapons(avatar, unitLook): { any }?
+	if not avatar or avatar.weapons == false then
+		return nil
+	end
+	return avatar.weapons or (if unitLook then unitLook.weapons else nil)
+end
+
+-- An avatar's block-built pieces: its UnitAvatarConfig `outfit`, else its hand-built look's
+-- tendrils if it has any.
+local function avatarOutfit(avatar, unitLook): any?
+	if not avatar then
+		return nil
+	end
+	if avatar.outfit then
+		return avatar.outfit
+	end
+	return if unitLook and unitLook.tendrils then { tendrils = unitLook.tendrils } else nil
+end
+
 function CharacterLook.of(unitType: string): CharacterLook
 	local cached = cache[unitType]
 	if cached then
@@ -103,9 +123,9 @@ function CharacterLook.of(unitType: string): CharacterLook
 				attackPose = if override then override.attackPose else nil,
 				unitLook = unitLook,
 				avatar = if avatar then unitType else nil,
-				avatarProp = not avatar or avatar.prop ~= false,
-				avatarWeapons = if avatar then avatar.weapons else nil,
-				avatarOutfit = if avatar then avatar.outfit else nil,
+				avatarProp = avatar ~= nil and avatar.prop == true,
+				avatarWeapons = avatarWeapons(avatar, unitLook),
+				avatarOutfit = avatarOutfit(avatar, unitLook),
 				unitType = unitType,
 				formLooks = FormLookConfig[unitType],
 			},

@@ -17,12 +17,16 @@ return {
 			{ slot = "Hat", id = 74036922578682 },
 			{ slot = "Hair", id = 133323844837091 },
 		},
+		shirt = 15573699630,
+		pants = 110626997222076,
 	},
 	blooming_aid = {
 		accessories = {
 			{ slot = "Hair", id = 119800366008474 },
 			{ slot = "Face", id = 16158959948 },
 		},
+		shirt = 2209839723,
+		pants = 2209844625,
 	},
 	burst_vector = {
 		accessories = {
@@ -50,6 +54,7 @@ return {
 	},
 	crimson_hunger = {
 		accessories = {
+			{ slot = "Hat", id = 108592744114329 },
 			{ slot = "Hair", id = 17038913298 },
 			{ slot = "Face", id = 14483077433 },
 		},
@@ -61,6 +66,8 @@ return {
 			{ slot = "Hair", id = 90797606741767 },
 			{ slot = "Face", id = 14985988946 },
 		},
+		shirt = 11392447959,
+		pants = 6265612775,
 	},
 	echo_legion = {
 		accessories = {
@@ -89,6 +96,7 @@ return {
 	final_argument = {
 		accessories = {
 			{ slot = "Face", id = 13755333601 },
+			{ slot = "Back", id = 15428184094 },
 		},
 		shirt = 16124480563,
 		pants = 12786564060,
@@ -147,6 +155,7 @@ return {
 			{ slot = "Hair", id = 17258083951 },
 			{ slot = "Face", id = 14579692783 },
 		},
+		shirt = 104091677652647,
 		pants = 17270896044,
 	},
 	night_parade = {
@@ -171,6 +180,8 @@ return {
 			{ slot = "Face", id = 15806533658 },
 			{ slot = "Waist", id = 72149813150371 },
 		},
+		shirt = 137373893976494,
+		pants = 93213333523955,
 	},
 	redline_cut = {
 		accessories = {
@@ -178,6 +189,8 @@ return {
 			{ slot = "Face", id = 98887973601567 },
 			{ slot = "Neck", id = 121732656833089 },
 		},
+		shirt = 335739604,
+		pants = 5741143264,
 	},
 	reelbreaker = {
 		accessories = {
@@ -237,15 +250,19 @@ return {
 	},
 	spurshot = {
 		accessories = {
-			{ slot = "Hat", id = 79620692802856 },
+			{ slot = "Hair", id = 127702918648196 },
 			{ slot = "Face", id = 79809435733502 },
 		},
+		shirt = 12026875247,
+		pants = 115272214542705,
 	},
 	starless_burst = {
 		accessories = {
 			{ slot = "Hair", id = 72934969940458 },
 			{ slot = "Face", id = 16018810165 },
 		},
+		shirt = 87953920485784,
+		pants = 100478426148806,
 	},
 	threefold_crash = {
 		accessories = {
@@ -270,6 +287,8 @@ return {
 			{ slot = "Hair", id = 17603261555 },
 			{ slot = "Face", id = 15301205964 },
 		},
+		shirt = 8631054986,
+		pants = 8631057343,
 	},
 	volt_spear = {
 		accessories = {
@@ -285,11 +304,15 @@ return {
 			{ slot = "Hair", id = 95721726526493 },
 			{ slot = "Face", id = 130749595614973 },
 		},
+		shirt = 6208124169,
+		pants = 6208124992,
 	},
 	zero_field = {
 		accessories = {
 			{ slot = "Hat", id = 117093489094285 },
 			{ slot = "Hair", id = 17464077173 },
 		},
+		shirt = 2054014120,
+		pants = 6470974133,
 	},
 }

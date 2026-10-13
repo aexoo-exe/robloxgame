@@ -35,6 +35,7 @@ type Context = {
 	low: boolean,
 	thin: number, -- overlay thickness
 	grip: CFrame?, -- the current held weapon's grip, when it rides an anchor other than a hand
+	fists: boolean?, -- held by a catalog avatar: hilts reach past its blocky 0.2-thick fists
 }
 
 local rad = math.rad
@@ -1003,7 +1004,7 @@ LookKit.WEAPONS = {
 		local h, g = ctx.h, grip(ctx)
 		local length = (w.length or 0.5) * h
 		-- `hiltLength` (height fraction): longer hilts show either side of an avatar's blocky fist.
-		local hiltLength = (w.hiltLength or 0.14) * h
+		local hiltLength = (w.hiltLength or (if ctx.fists then 0.3 else 0.14)) * h
 		local front = h * 0.01 - hiltLength / 2
 		add(ctx, anchor, "Block", V(h * 0.032, h * 0.036, hiltLength), g * CF(0, 0, h * 0.01), w.hilt, PLAIN)
 		add(
@@ -1053,9 +1054,20 @@ LookKit.WEAPONS = {
 	greatsword = function(ctx: Context, w: any, anchor: string)
 		local h, g = ctx.h, grip(ctx)
 		local length, width = (w.length or 0.62) * h, (w.width or 0.15) * h
-		local mid = -h * 0.085 - length / 2
-		add(ctx, anchor, "Block", V(h * 0.034, h * 0.04, h * 0.15), g * CF(0, 0, h * 0.02), w.hilt, PLAIN)
-		add(ctx, anchor, "Block", V(h * 0.05, width * 1.2, h * 0.035), g * CF(0, width * 0.3, -h * 0.07), w.hilt, PLAIN)
+		-- On an avatar the guard and blade start past the blocky fist, and the hilt shows behind it.
+		local out = if ctx.fists then h * 0.07 else 0
+		local mid = -h * 0.085 - out - length / 2
+		local hilt = if ctx.fists then h * 0.3 else h * 0.15
+		add(ctx, anchor, "Block", V(h * 0.034, h * 0.04, hilt), g * CF(0, 0, h * 0.02), w.hilt, PLAIN)
+		add(
+			ctx,
+			anchor,
+			"Block",
+			V(h * 0.05, width * 1.2, h * 0.035),
+			g * CF(0, width * 0.3, -h * 0.07 - out),
+			w.hilt,
+			PLAIN
+		)
 		add(ctx, anchor, "Block", V(h * 0.03, width, length), g * CF(0, width * 0.35, mid), w.blade, metal(w))
 		add(
 			ctx,
@@ -1119,13 +1131,14 @@ LookKit.WEAPONS = {
 		local h, g = ctx.h, grip(ctx)
 		local length = (w.length or 0.17) * h
 		local direction = if w.reverse then 1 else -1
-		add(ctx, anchor, "Block", V(h * 0.03, h * 0.034, h * 0.08), g, w.hilt, PLAIN)
+		local hilt = (w.hiltLength or (if ctx.fists then 0.22 else 0.08)) * h
+		add(ctx, anchor, "Block", V(h * 0.03, h * 0.034, hilt), g, w.hilt, PLAIN)
 		add(
 			ctx,
 			anchor,
 			"Block",
 			V(h * 0.014, h * 0.034, length),
-			g * CF(0, 0, direction * (h * 0.04 + length / 2)),
+			g * CF(0, 0, direction * (hilt / 2 + length / 2)),
 			w.blade,
 			metal(w)
 		)
@@ -1134,13 +1147,14 @@ LookKit.WEAPONS = {
 		local h, g = ctx.h, grip(ctx)
 		local length = (w.length or 0.42) * h
 		local direction = if w.reverse then 1 else -1
-		add(ctx, anchor, "Block", V(h * 0.045, h * 0.06, h * 0.1), g, w.handle, PLAIN)
+		local handle = if ctx.fists then h * 0.22 else h * 0.1
+		add(ctx, anchor, "Block", V(h * 0.045, h * 0.06, handle), g, w.handle, PLAIN)
 		add(
 			ctx,
 			anchor,
 			"Block",
 			V(h * 0.01, h * 0.04, length),
-			g * CF(0, 0, direction * (h * 0.05 + length / 2)),
+			g * CF(0, 0, direction * (handle / 2 + length / 2)),
 			w.blade,
 			metal(w)
 		)
@@ -1177,9 +1191,43 @@ LookKit.WEAPONS = {
 		add(ctx, anchor, "Block", V(h * 0.006, h * 0.3, h * 0.006), tip * CF(0, -h * 0.15, 0), w.line, PLAIN)
 		add(ctx, anchor, "Ball", Vector3.one * h * 0.055, tip * CF(0, -h * 0.3, 0), w.float, PLAIN)
 	end,
+	-- A big grenade-shaped gauntlet over the fist and forearm: a round shell, a band around it and a
+	-- gold pin on top.
+	gauntlet = function(ctx: Context, w: any, anchor: string)
+		local h = ctx.h
+		local size = (w.size or (if ctx.fists then 0.3 else 0.2)) * h
+		local center = CF(0, size * 0.3, -size * 0.05)
+		add(ctx, anchor, "Ball", Vector3.one * size, center, w.color, { plain = true, material = "Metal" })
+		add(
+			ctx,
+			anchor,
+			"Cylinder",
+			V(size * 0.16, size * 1.04, size * 1.04),
+			center * turn(0, 0, 90),
+			w.band or w.color,
+			PLAIN
+		)
+		add(
+			ctx,
+			anchor,
+			"Block",
+			V(size * 0.12, size * 0.2, size * 0.3),
+			center * CF(0, size * 0.52, 0),
+			w.pin or w.color,
+			{ plain = true, fine = true }
+		)
+	end,
 	ball = function(ctx: Context, w: any, anchor: string)
 		local h = ctx.h
-		add(ctx, anchor, "Ball", Vector3.one * h * (w.size or 0.085), CF(0, -h * 0.03, -h * 0.06), w.color, metal(w))
+		add(
+			ctx,
+			anchor,
+			"Ball",
+			Vector3.one * h * (w.size or 0.085),
+			CF(0, -h * 0.03, -h * (if ctx.fists then 0.15 else 0.06)),
+			w.color,
+			metal(w)
+		)
 	end,
 	vial = function(ctx: Context, w: any, anchor: string)
 		local h = ctx.h
@@ -1188,7 +1236,7 @@ LookKit.WEAPONS = {
 			anchor,
 			"Block",
 			V(h * 0.04, h * 0.075, h * 0.04),
-			CF(0, -h * 0.02, -h * 0.06),
+			CF(0, -h * 0.02, -h * (if ctx.fists then 0.13 else 0.06)),
 			w.color,
 			{ plain = true, material = "Glass" }
 		)
@@ -1197,7 +1245,7 @@ LookKit.WEAPONS = {
 			anchor,
 			"Block",
 			V(h * 0.03, h * 0.02, h * 0.03),
-			CF(0, h * 0.027, -h * 0.06),
+			CF(0, h * 0.027, -h * (if ctx.fists then 0.13 else 0.06)),
 			Color3.fromRGB(150, 110, 70),
 			FINE_PLAIN
 		)
@@ -1236,20 +1284,23 @@ local function weapons(ctx: Context)
 	end
 end
 
--- Only the clothing layers of `outfit` (UnitLookConfig fields: coat, collar, belt, sash, scarf, tie,
--- cravat, buttons, bands, emblems, gearBoxes, tendrils, extras; `torso` and `sleeve` as for a
--- look), for figures whose body comes from elsewhere: a catalog avatar with no shirt or pants
--- (UnitAvatarConfig `outfit`). The avatar's own limbs are the body, colored by its tuning.
+-- Only the block-built pieces of `outfit` (UnitLookConfig fields: coat, collar, belt, sash, scarf,
+-- tie, cravat, buttons, bands, emblems, gearBoxes, tendrils, extras, hair, headwear; `torso` and
+-- `sleeve` as for a look), for figures whose body comes from elsewhere: a catalog avatar
+-- (UnitAvatarConfig `outfit`) adding what its catalog items lack. Hair and headwear are sized to
+-- the avatar's head as drawn (`headVisual` in the body, else its head size).
 function LookKit.outfitSpecs(outfit: any, body: { [string]: number }, height: number, low: boolean?): { Spec }
 	local ctx: Context = {
 		specs = {},
 		look = outfit,
 		body = body,
 		h = height,
-		hs = body.headSize,
+		hs = body.headVisual or body.headSize,
 		low = low == true,
 		thin = height * 0.012,
 	}
+	hair(ctx)
+	headwear(ctx)
 	coat(ctx)
 	accessories(ctx)
 	return ctx.specs
@@ -1266,6 +1317,7 @@ function LookKit.weaponSpecs(weaponList: { any }, body: { [string]: number }, he
 		hs = body.headSize,
 		low = low == true,
 		thin = height * 0.012,
+		fists = true,
 	}
 	weapons(ctx)
 	return ctx.specs
