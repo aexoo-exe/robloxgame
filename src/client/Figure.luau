@@ -86,6 +86,7 @@ export type Figure = {
 	decals: { { decal: Decal, transparency: number } }, -- faded with the parts (an avatar's face)
 	emitters: { ParticleEmitter }, -- a look's steam; off while the figure is fading away
 	modelKey: string?, -- the store model drawn, if the figure is one (UnitModels)
+	modelFront: any?, -- that model's face clue { by, z, turned } (z < 0: it faces the front)
 	unitType: string?, -- the roster unit drawn (its horse's colors: HorseLookConfig)
 	color: Color3,
 	transparency: number,
@@ -479,6 +480,7 @@ local function buildModelData(figure: Figure, look: Look, data: any, parent: Ins
 	end
 	figure.avatar = model
 	figure.modelKey = data.key
+	figure.modelFront = data.front
 	model.Parent = parent
 end
 

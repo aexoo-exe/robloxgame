@@ -6,8 +6,9 @@
 -- For each job it:
 --   1. reads the model with game:GetObjects (unparented: nothing in it can run) and deletes every
 --      Script, LocalScript and ModuleScript, plus sounds, lights, effects and click/prompt objects;
---   2. puts it in our frame: facing -Z (its root part's front, turned by `turn` degrees if
---      needed), feet at y = 0, centered on its root;
+--   2. puts it in our frame: facing -Z (its root part's front, turned around when a face clue -
+--      a decal on the head or eye parts - shows the face points the other way, then turned by
+--      `turn` degrees if still needed), feet at y = 0, centered on its root;
 --   3. gives every visible part an anchor: by rig part names when the model is rigged (R15 / R6,
 --      or a horse's shoulder and thigh chains), spreading along welds to attached pieces, then by
 --      position around the torso for the rest;
@@ -152,6 +153,40 @@ local function export(job: any): (string, string)
 	local frame = CFrame.new(root.Position) * root.CFrame.Rotation * CFrame.Angles(0, math.rad(job.turn or 0), 0)
 	if frame.UpVector.Y < 0.9 then
 		table.insert(report, "WARNING: the root is not upright; check the result")
+	end
+	-- Facing: a rig's root can face away from the model's face. Check a face clue (a decal named
+	-- "face" or any decal on the head, else eye parts in front of the head) and turn the frame
+	-- around when the face points to +Z. scripts/models-build.luau checks the same on its side.
+	local headPart = findPart(holder, "Head")
+	local clueDirection, clueName = nil, nil
+	if headPart then
+		for _, child in headPart:GetChildren() do
+			if child:IsA("Decal") then
+				clueDirection = headPart.CFrame:VectorToWorldSpace(Vector3.FromNormalId(child.Face))
+				clueName = "face decal"
+				break
+			end
+		end
+	end
+	if not clueDirection then
+		local sum, count = Vector3.zero, 0
+		local center = if headPart then headPart.Position else nil
+		for _, part in parts do
+			if string.find(string.lower(part.Name), "eye") then
+				sum += part.Position
+				count += 1
+			end
+		end
+		if count > 0 and center then
+			clueDirection = sum / count - center
+			clueName = "eyes"
+		end
+	end
+	if clueDirection and frame:VectorToObjectSpace(clueDirection).Z > 0 then
+		frame *= CFrame.Angles(0, math.pi, 0)
+		table.insert(report, "turned around: its " .. clueName .. " faced away from the root's front")
+	elseif not clueDirection then
+		table.insert(report, "facing: no face clue, the root's front is used (check by eye)")
 	end
 	local minY, maxY = math.huge, -math.huge
 	local rel = {}

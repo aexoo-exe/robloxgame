@@ -8,6 +8,7 @@ return {
 	key = "iron_rush",
 	source = 432489765, -- Creator Store asset id
 	kind = "body",
+	front = { by = "none", z = 0, turned = false }, -- the face clue (z < 0: faces the front)
 	proportions = {
 		legLength = 0.5078,
 		legWidth = 0.2197,

@@ -215,8 +215,24 @@ local function report()
 		end
 		local avatar = entry.figure.avatar
 		if entry.figure.modelKey then
+			-- Facing check from the model data's face clue (z < 0: the face is at the front).
+			local front = entry.figure.modelFront
+			local facing = if not front or front.by == "none"
+				then "facing unknown (no face clue: check the close-up)"
+				elseif front.z < 0 then string.format(
+					"faces front (by %s%s)",
+					front.by,
+					if front.turned then ", turned at build" else ""
+				)
+				else string.format("FACES BACKWARDS (by %s): rebuild it with scripts/models-build", front.by)
 			print(
-				string.format("[DevLineup] %s: store model %s, %d parts", entry.unitType, entry.figure.modelKey, parts)
+				string.format(
+					"[DevLineup] %s: store model %s, %d parts, %s",
+					entry.unitType,
+					entry.figure.modelKey,
+					parts,
+					facing
+				)
 			)
 		elseif avatar then
 			print(

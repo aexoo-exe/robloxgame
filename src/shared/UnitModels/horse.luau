@@ -8,6 +8,7 @@ return {
 	key = "horse",
 	source = 5878963783, -- Creator Store asset id
 	kind = "horse",
+	front = { by = "head", z = -1, turned = false }, -- the face clue (z < 0: faces the front)
 	seat = 0.7418,
 	bodyY = 0.6047,
 	legs = { -- joints: front left, front right, back left, back right

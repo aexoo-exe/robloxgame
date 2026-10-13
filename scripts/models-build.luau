@@ -108,10 +108,93 @@ local function bodyProportions(dump: any): any
 	}
 end
 
+-- Facing overrides by key, in degrees about the vertical (180 turns a model that faces backwards
+-- and has no face clue for the automatic check below).
+local FACING_OVERRIDES: { [string]: number } = {}
+
+local SWAP = { leftArm = "rightArm", rightArm = "leftArm", leftLeg = "rightLeg", rightLeg = "leftLeg" }
+
+-- Where the model's face points, in our frame (-Z is the front): eye parts in front of or behind
+-- the head's center, else a decal on a head part (its face's normal). Returns the clue's name and
+-- its Z (negative: facing the front), or nil when the model has no clue.
+local function frontClue(dump: any): (string?, number?)
+	local head = dump.boxes.head
+	if not head then
+		return nil, nil
+	end
+	local headZ = (head.min[3] + head.max[3]) / 2
+	local eyes, sum = 0, 0
+	for _, part in dump.parts do
+		if string.find(string.lower(part.n), "eye") then
+			eyes += 1
+			sum += part.p[3] - headZ
+		end
+	end
+	if eyes > 0 then
+		return "eyes", sum / eyes
+	end
+	for _, part in dump.parts do
+		if part.a == "head" then
+			for _, decal in part.d or {} do
+				-- the decal's face normal: a column of the part's rotation (front faces are -Z)
+				local p = part.p
+				local normals =
+					{ Front = -p[12], Back = p[12], Right = p[10], Left = -p[10], Top = p[11], Bottom = -p[11] }
+				local z = normals[decal[2]]
+				if z and math.abs(z) > 0.5 then
+					return "face decal", z
+				end
+			end
+		end
+	end
+	return nil, nil
+end
+
+-- Turns the whole dump 180 degrees about the vertical through the origin: x and z flip, each
+-- part's rotation turns with it, boxes and joints mirror, and left and right anchors swap so the
+-- left arm's parts still ride the left arm (the figure's left is -X).
+local function turnAround(dump: any)
+	for _, part in dump.parts do
+		local p = part.p
+		p[1], p[3] = -p[1], -p[3]
+		-- R' = Ry(180) * R: the first and third rows change sign
+		p[4], p[5], p[6] = -p[4], -p[5], -p[6]
+		p[10], p[11], p[12] = -p[10], -p[11], -p[12]
+		part.a = SWAP[part.a] or part.a
+	end
+	local boxes = {}
+	for name, box in dump.boxes do
+		boxes[SWAP[name] or name] = {
+			min = { -box.max[1], box.min[2], -box.max[3] },
+			max = { -box.min[1], box.max[2], -box.min[3] },
+			count = box.count,
+		}
+	end
+	dump.boxes = boxes
+	local joints = {}
+	for name, joint in dump.joints do
+		if type(joint) == "table" and #joint == 3 and string.sub(name, 1, 8) ~= "headSize" then
+			joints[SWAP[name] or name] = { -joint[1], joint[2], -joint[3] }
+		else
+			joints[SWAP[name] or name] = joint
+		end
+	end
+	dump.joints = joints
+end
+
 local function build(key: string)
 	local dump = serde.decode("json", fs.readFile(DUMPS .. "/" .. key .. ".json"))
 	local H = dump.height
 	local horse = dump.kind == "horse"
+
+	-- Facing: an override, else the face clue; a model whose face points to +Z is turned around.
+	local clue, clueZ = frontClue(dump)
+	local turned = false
+	if FACING_OVERRIDES[key] == 180 or (FACING_OVERRIDES[key] == nil and clueZ and clueZ > 0) then
+		turnAround(dump)
+		turned = true
+		clue, clueZ = frontClue(dump)
+	end
 
 	-- A body with named torso parts is re-anchored by position around that torso: model authors
 	-- reuse rig names for decorations (chest plates named "RightHand"), so names alone mislead.
@@ -185,6 +268,12 @@ local function build(key: string)
 		string.format("\tkey = %s,", quote(key)),
 		string.format("\tsource = %d, -- Creator Store asset id", dump.id),
 		string.format("\tkind = %s,", quote(dump.kind)),
+		string.format(
+			"\tfront = { by = %s, z = %s, turned = %s }, -- the face clue (z < 0: faces the front)",
+			quote(clue or (if horse then "head" else "none")),
+			fmt(if clueZ then clueZ / H elseif horse then -1 else 0),
+			tostring(turned)
+		),
 	}
 	if horse then
 		local j = dump.joints
@@ -340,11 +429,16 @@ local function build(key: string)
 	table.sort(summary)
 	print(
 		string.format(
-			"%s: %d parts (%s)%s",
+			"%s: %d parts (%s)%s; facing %s%s",
 			key,
 			#dump.parts,
 			table.concat(summary, ", "),
-			if moved > 0 then string.format("; %d torso pieces moved to the hips", moved) else ""
+			if moved > 0 then string.format("; %d torso pieces moved to the hips", moved) else "",
+			if horse
+				then "by its head"
+				elseif clue then string.format("by %s (%s)", clue, if (clueZ or 0) < 0 then "front" else "BACK")
+				else "unknown (no face clue: check by eye)",
+			if turned then ", turned around" else ""
 		)
 	)
 end

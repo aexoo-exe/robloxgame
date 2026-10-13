@@ -8,6 +8,7 @@ return {
 	key = "titanheart_titan",
 	source = 4231104573, -- Creator Store asset id
 	kind = "body",
+	front = { by = "none", z = 0, turned = false }, -- the face clue (z < 0: faces the front)
 	proportions = {
 		legLength = 0.371,
 		legWidth = 0.1855,

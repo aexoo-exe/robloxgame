@@ -8,6 +8,7 @@ return {
 	key = "skyboulder",
 	source = 9877369056, -- Creator Store asset id
 	kind = "body",
+	front = { by = "face decal", z = -0.0188, turned = false }, -- the face clue (z < 0: faces the front)
 	proportions = {
 		legLength = 0.5733,
 		legWidth = 0.1861,
