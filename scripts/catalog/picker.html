@@ -62,6 +62,11 @@
   .card .meta { font-size: 11px; color: var(--dim); }
   .card a { color: var(--accent); }
   .empty { color: var(--dim); font-style: italic; }
+  .errors { margin: 12px 16px 0; padding: 10px 14px; border: 1px solid #c0392b; border-radius: 8px; background: #fdecea; color: #7a1c12; font-size: 13px; }
+  .errors ul { margin: 4px 0 0; padding-left: 18px; }
+  .errors code { font-family: ui-monospace, monospace; }
+  .unit.broken { border-color: #c0392b; }
+  @media (prefers-color-scheme: dark) { .errors { background: #3a1a17; color: #f6b3aa; } }
   @media (max-width: 600px) { .cards { grid-template-columns: repeat(2, 1fr); } .reference { width: 140px; } }
 </style>
 </head>
@@ -77,6 +82,7 @@
   <div class="help">Click a card to pick it: one shirt, one pants and one face per unit; any number of accessories. Picks stay in this browser.
     <b>Export picks</b> saves picks.json (usually to Downloads); then run the apply script, which looks in docs/references/catalog/ and then in Downloads.</div>
 </header>
+<div id="errors" class="errors" hidden></div>
 <main id="main"></main>
 <script src="data.js"></script>
 <script>
@@ -101,9 +107,42 @@
   var TYPE_SLOT = { 8: "Hat", 41: "Hair", 42: "Face", 43: "Neck", 44: "Shoulders", 45: "Front", 46: "Back", 47: "Waist", 11: "shirt", 12: "pants", 18: "face" };
 
   var main = document.getElementById("main");
+  var errorBox = document.getElementById("errors");
+  var problems = [];
+  // Shows a problem in the red banner over the page (the page keeps going).
+  function report(message) {
+    if (problems.indexOf(message) !== -1) return;
+    problems.push(message);
+    errorBox.hidden = false;
+    errorBox.innerHTML = "";
+    var title = document.createElement("b");
+    title.textContent = problems.length === 1 ? "Problem:" : problems.length + " problems:";
+    errorBox.appendChild(title);
+    var ul = document.createElement("ul");
+    problems.forEach(function (p) { var li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
+    errorBox.appendChild(ul);
+  }
+  window.addEventListener("error", function (e) {
+    report("Script error" + (e.filename ? " in " + e.filename.split("/").pop() : "") + (e.lineno ? " line " + e.lineno : "") + ": " + e.message);
+  });
+  // A list from data.js: an array, or an object of values (the shortlist script's JSON encoder
+  // writes an empty list as {}), or nothing.
+  function list(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") return Object.keys(value).map(function (k) { return value[k]; });
+    return [];
+  }
+
   var data = window.CATALOG;
-  if (!data || !data.units) {
-    main.innerHTML = "<p class='empty'>No data.js yet. Run <code>lune run scripts/catalog-shortlist</code> from the repository root first.</p>";
+  if (!data) {
+    report("data.js did not load (missing next to index.html, or it has a syntax error). Rebuild it: lune run scripts/catalog-shortlist --page");
+    main.innerHTML = "<p class='empty'>No data to show.</p>";
+    return;
+  }
+  var units = list(data.units).filter(function (u) { return u && typeof u.unit === "string"; });
+  if (units.length === 0) {
+    report("data.js has no units. Rebuild it: lune run scripts/catalog-shortlist --page");
+    main.innerHTML = "<p class='empty'>No data to show.</p>";
     return;
   }
 
@@ -111,7 +150,7 @@
   function normalize(pick) {
     pick = pick || {};
     var out = { shirt: pick.shirt || null, pants: pick.pants || null, face: pick.face || null, accessories: [] };
-    (pick.accessories || []).forEach(function (a) { out.accessories.push({ slot: a.slot, id: Number(a.id) }); });
+    list(pick.accessories).forEach(function (a) { if (a && a.slot) out.accessories.push({ slot: a.slot, id: Number(a.id) }); });
     ["shirt", "pants", "face"].forEach(function (k) { if (out[k]) out[k] = Number(out[k]); });
     return out;
   }
@@ -125,7 +164,7 @@
 
   var current = {}, picks = {}, stored = null;
   try { stored = JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { stored = null; }
-  data.units.forEach(function (u) {
+  units.forEach(function (u) {
     current[u.unit] = normalize(u.current);
     picks[u.unit] = normalize(stored && stored[u.unit] ? stored[u.unit] : u.current);
   });
@@ -152,8 +191,8 @@
   // Item info by id, from every shortlist of the unit.
   function itemIndex(u) {
     var index = {};
-    Object.keys(u.slots || {}).forEach(function (slot) { (u.slots[slot] || []).forEach(function (it) { index[it.id] = it; }); });
-    (u.gaps || []).forEach(function (g) { (g.items || []).forEach(function (it) { index[it.id] = it; }); });
+    var slots = u.slots && typeof u.slots === "object" ? u.slots : {};
+    list(u.gaps).forEach(function (g) { list(g && g.items).forEach(function (it) { if (it) index[it.id] = it; }); });
     return index;
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -230,7 +269,7 @@
 
     var anySlot = false;
     SLOTS.forEach(function (s) {
-      var items = (u.slots || {})[s.key] || [];
+      var items = list(u.slots && u.slots[s.key]);
       if (items.length === 0) return;
       anySlot = true;
       var box = el("div", "slot");
@@ -244,15 +283,16 @@
     });
     // Targeted outfit searches ("gaps"), one row per searched slot; each card picks into the slot
     // of its own type.
-    (u.gaps || []).forEach(function (g) {
-      if (!g.items || g.items.length === 0) return;
+    list(u.gaps).forEach(function (g) {
+      var gapItems = list(g && g.items);
+      if (gapItems.length === 0) return;
       anySlot = true;
       var box = el("div", "slot");
       var h = el("h3", null, g.label + " · outfit search ");
       h.appendChild(el("span", "rule", "(targeted keywords)"));
       box.appendChild(h);
       var cards = el("div", "cards");
-      g.items.forEach(function (it) { cards.appendChild(card(u, TYPE_SLOT[it.type] || g.slot, it)); });
+      gapItems.forEach(function (it) { cards.appendChild(card(u, TYPE_SLOT[it.type] || g.slot, it)); });
       box.appendChild(cards);
       section.appendChild(box);
     });
@@ -268,17 +308,26 @@
     main.innerHTML = "";
     var text = filterInput.value.trim().toLowerCase();
     var shown = 0, withPicks = 0;
-    data.units.forEach(function (u) {
+    units.forEach(function (u) {
       var has = !isEmpty(picks[u.unit]);
       if (has) withPicks++;
       if (unpickedBox.checked && has) return;
       if (noClothesBox.checked && picks[u.unit].shirt && picks[u.unit].pants) return;
       if (text && u.unit.indexOf(text) === -1) return;
-      main.appendChild(renderUnit(u));
+      // One broken unit shows as an error card and in the banner; the others still render.
+      try {
+        main.appendChild(renderUnit(u));
+      } catch (e) {
+        report("Unit " + u.unit + " failed to render: " + (e && e.message ? e.message : e));
+        var broken = el("section", "unit broken");
+        broken.appendChild(el("h2", null, u.unit));
+        broken.appendChild(el("p", "empty", "Could not render this unit (see the problem banner above). Rebuild the data: lune run scripts/catalog-shortlist --page"));
+        main.appendChild(broken);
+      }
       shown++;
     });
     if (shown === 0) main.appendChild(el("p", "empty", "No units match."));
-    document.getElementById("counts").textContent = withPicks + " of " + data.units.length + " units have picks · data from " + (data.generated || "?");
+    document.getElementById("counts").textContent = withPicks + " of " + units.length + " units have picks · data from " + (data.generated || "?");
     window.scrollTo(0, scroll);
   }
   filterInput.oninput = render;
@@ -289,7 +338,7 @@
     // Every unit with picks, plus units cleared here that are still in the config (so the apply
     // script removes them).
     var out = {};
-    data.units.forEach(function (u) {
+    units.forEach(function (u) {
       var p = picks[u.unit];
       if (!isEmpty(p) || !isEmpty(current[u.unit])) {
         var entry = { accessories: p.accessories.slice() };
@@ -308,7 +357,7 @@
   document.getElementById("reset").onclick = function () {
     if (!confirm("Forget the picks made in this browser and go back to the current config?")) return;
     try { localStorage.removeItem(STORE); } catch (e) { /* ignore */ }
-    data.units.forEach(function (u) { picks[u.unit] = normalize(u.current); });
+    units.forEach(function (u) { picks[u.unit] = normalize(u.current); });
     render();
   };
   render();

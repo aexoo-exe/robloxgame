@@ -393,7 +393,9 @@ local function writePage(searches: { any }, picks: { [string]: any })
 				else nil,
 			fetched = cache ~= nil and (cache.slots ~= nil or cache.gaps ~= nil),
 			slots = if cache and cache.slots then cache.slots else {},
-			gaps = if cache and cache.gaps then cache.gaps else {},
+			-- Left out when empty: Lune's JSON encoder writes an empty table as {}, not [] (the page
+			-- copes with either, but an absent field is clearer).
+			gaps = if cache and cache.gaps and #cache.gaps > 0 then cache.gaps else nil,
 			current = picks[search.unit],
 		})
 	end
