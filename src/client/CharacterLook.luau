@@ -18,6 +18,7 @@ local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 local FormLookConfig = require(Shared:WaitForChild("FormLookConfig"))
 local UnitAvatarConfig = require(Shared:WaitForChild("UnitAvatarConfig"))
+local UnitModelConfig = require(Shared:WaitForChild("UnitModelConfig"))
 local UnitLookConfig = require(Shared:WaitForChild("UnitLookConfig"))
 
 local Figure = require(script.Parent.Figure)
@@ -99,6 +100,7 @@ function CharacterLook.of(unitType: string): CharacterLook
 		local override = FigureConfig.characters[unitType]
 		local unitLook = UnitLookConfig[unitType]
 		local avatar = UnitAvatarConfig.units[unitType]
+		local modelConfig = UnitModelConfig[unitType]
 		local scale = if override and override.scale then override.scale else 1
 		if unitLook and unitLook.scale then
 			scale *= unitLook.scale
@@ -128,6 +130,9 @@ function CharacterLook.of(unitType: string): CharacterLook
 				avatarOutfit = avatarOutfit(avatar, unitLook),
 				unitType = unitType,
 				formLooks = FormLookConfig[unitType],
+				modelKey = if modelConfig then modelConfig.model else nil,
+				modelOutfit = if modelConfig then modelConfig.outfit else nil,
+				formModels = if modelConfig then modelConfig.forms else nil,
 			},
 		}
 	else
@@ -143,16 +148,19 @@ function CharacterLook.of(unitType: string): CharacterLook
 	return look
 end
 
--- The figure look of a unit in form `formName`: the form's own look (FormLookConfig), drawn with
--- LookKit in place of the base figure (catalog avatar, hand-built look or placeholder), or the base
--- figure itself when the form has no look of its own. Also returns whether the form has its own
--- look, and that look's extra size multiplier (on top of RenderConfig.formLooks `scale`).
+-- The figure look of a unit in form `formName`: the form's store model (UnitModelConfig `forms`,
+-- falling back to its LookKit look if the model data is missing) or its own look
+-- (FormLookConfig), drawn in place of the base figure (catalog avatar, hand-built look or
+-- placeholder), or the base figure itself when the form has neither. Also returns whether the form
+-- has a look of its own, and its extra size multiplier (on top of RenderConfig.formLooks `scale`).
 local formFigures: { [any]: { [string]: Figure.Look } } = {}
 function CharacterLook.formFigure(base: Figure.Look, formName: string?): (Figure.Look, boolean, number)
+	local formModel = if formName and base.formModels then base.formModels[formName] else nil
 	local formLook = if formName and base.formLooks then base.formLooks[formName] else nil
-	if not formLook then
+	if not formModel and not formLook then
 		return base, false, 1
 	end
+	local extraScale = if formModel then formModel.scale or 1 else formLook.scale or 1
 	local byForm = formFigures[base]
 	if not byForm then
 		byForm = {}
@@ -165,10 +173,12 @@ function CharacterLook.formFigure(base: Figure.Look, formName: string?): (Figure
 		figure.avatarWeapons = nil
 		figure.avatarOutfit = nil
 		figure.unitLook = formLook
-		figure.bulk = formLook.bulk or base.bulk
+		figure.modelKey = if formModel then formModel.model else nil
+		figure.modelOutfit = if formModel then formModel.outfit else nil
+		figure.bulk = if formLook and formLook.bulk then formLook.bulk else base.bulk
 		byForm[formName :: string] = figure
 	end
-	return figure, true, formLook.scale or 1
+	return figure, true, extraScale
 end
 
 -- Summons: a plain figure in their summoner's body color, smaller and see-through (UnitView).

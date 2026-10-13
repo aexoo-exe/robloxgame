@@ -155,12 +155,26 @@ end
 local function vet(key: string, id: number, sandbox: Folder, out: { string })
 	table.insert(out, string.format("%s / %d", key, id))
 	local started = os.clock()
+	-- LoadAsset needs the model in your inventory; game:GetObjects (Studio plugin level) reads any
+	-- public free model. Both return it unparented.
 	local ok, loaded = pcall(InsertService.LoadAsset, InsertService, id)
+	local how = "LoadAsset"
 	if not ok or not loaded then
-		table.insert(out, "  LOAD FAILED: " .. tostring(loaded))
-		return
+		local fetched, objects = pcall(function()
+			return game:GetObjects("rbxassetid://" .. id)
+		end)
+		if not fetched or not objects or #objects == 0 then
+			table.insert(out, "  LOAD FAILED: " .. tostring(loaded) .. " / GetObjects: " .. tostring(objects))
+			return
+		end
+		local holder = Instance.new("Model")
+		holder.Name = tostring(id)
+		for _, object in objects do
+			object.Parent = holder -- still unparented: the holder is not in the game
+		end
+		loaded, how = holder, "GetObjects"
 	end
-	table.insert(out, string.format("  loaded in %.2f s", os.clock() - started))
+	table.insert(out, string.format("  loaded with %s in %.2f s", how, os.clock() - started))
 
 	-- Scripts go first, while nothing is parented.
 	stripScripts(loaded, out)

@@ -9,6 +9,13 @@
 --                                         stirrup irons
 --   pattern                               { kind = "stars" | "tassels", color }: a personal detail
 --                                         on the blanket (optional)
+--   model                                 a vetted Creator Store horse (src/shared/UnitModels) drawn
+--                                         instead of the block-built one; recolored by paint role:
+--                                         coat, coatShade (default: a darker coat), markings (its
+--                                         white socks; default white), muzzle, mane, hooves; its
+--                                         textured saddle pad is tinted to `blanket`. Reins and the
+--                                         pattern are added as parts. Without the data, the
+--                                         block-built horse is drawn.
 
 local function rgb(r: number, g: number, b: number): Color3
 	return Color3.fromRGB(r, g, b)
@@ -39,6 +46,7 @@ return deepFreeze({
 
 	-- Dark brown with a lighter muzzle; a pale blue blanket with navy edging and small stars.
 	spurshot = {
+		model = "horse", -- 5878963783
 		coat = rgb(78, 52, 34),
 		muzzle = rgb(152, 114, 84),
 		mane = rgb(32, 22, 16),
@@ -52,7 +60,9 @@ return deepFreeze({
 
 	-- Pale grey-white with a darker mane and tail; a purple blanket with gold edging and tassels.
 	orbit_breaker = {
+		model = "horse", -- the same model, recolored
 		coat = rgb(222, 222, 216),
+		coatShade = rgb(200, 200, 196),
 		muzzle = rgb(190, 186, 182),
 		mane = rgb(72, 72, 78),
 		hooves = rgb(70, 66, 62),

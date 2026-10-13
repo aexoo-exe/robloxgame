@@ -16,6 +16,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local FigureConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FigureConfig"))
 local HorseLookConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("HorseLookConfig"))
 
+local UnitModels = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UnitModels")
+
 local HorseKit = require(script.Parent.HorseKit)
 local LookKit = require(script.Parent.LookKit)
 local UnitAvatars = require(script.Parent.UnitAvatars)
@@ -36,6 +38,9 @@ export type Look = {
 	avatarProp: boolean?, -- false: an avatar holds no class prop (UnitAvatarConfig `prop`)
 	avatarWeapons: { any }?, -- LookKit weapons worn with an avatar (UnitAvatarConfig `weapons`)
 	avatarOutfit: any?, -- LookKit clothing layered on an avatar (UnitAvatarConfig `outfit`)
+	modelKey: string?, -- a vetted store model's data (UnitModelConfig, src/shared/UnitModels)
+	modelOutfit: any?, -- LookKit pieces added on top of that model (UnitModelConfig `outfit`)
+	formModels: { [string]: any }?, -- the unit's forms drawn as store models (UnitModelConfig `forms`)
 	unitType: string?, -- the roster unit drawn (CharacterLook), for its form looks
 	formLooks: { [string]: any }?, -- the unit's per-form looks (FormLookConfig), by form name
 }
@@ -80,6 +85,7 @@ export type Figure = {
 	highlight: Highlight?, -- an avatar's flash, glow and selection (made on first use)
 	decals: { { decal: Decal, transparency: number } }, -- faded with the parts (an avatar's face)
 	emitters: { ParticleEmitter }, -- a look's steam; off while the figure is fading away
+	modelKey: string?, -- the store model drawn, if the figure is one (UnitModels)
 	unitType: string?, -- the roster unit drawn (its horse's colors: HorseLookConfig)
 	color: Color3,
 	transparency: number,
@@ -367,21 +373,133 @@ local function buildLook(figure: Figure, look: Look, parent: Instance)
 	end
 end
 
+-- A vetted store model's data (src/shared/UnitModels/<key>), or nil if it is missing or broken.
+local modelCache: { [string]: any } = {}
+local function modelData(key: string): any?
+	local cached = modelCache[key]
+	if cached ~= nil then
+		return cached or nil
+	end
+	local module = UnitModels:FindFirstChild(key)
+	local ok, data = false, nil
+	if module and module:IsA("ModuleScript") then
+		ok, data = pcall(require, module)
+	end
+	if not ok or type(data) ~= "table" or type(data.parts) ~= "table" then
+		warn(string.format("[UnitModels] %s: model data missing or unreadable; using the usual figure", key))
+		modelCache[key] = false
+		return nil
+	end
+	modelCache[key] = data
+	return data
+end
+
+local SHAPES = { Block = "Block", Ball = "Ball", Cylinder = "Cylinder", Wedge = "Wedge", CornerWedge = "CornerWedge" }
+
+-- A part from model data, `scale` studs per model height, and its pose (standing on the origin,
+-- facing -Z). Meshes and decals become a SpecialMesh and Decals (set at runtime from the ids).
+local function dataPart(parent: Instance, item: any, scale: number): (BasePart, CFrame)
+	local material = if pcall(function()
+			return (Enum.Material :: any)[item.m]
+		end)
+		then item.m
+		else "SmoothPlastic"
+	local part = newPart(
+		parent,
+		SHAPES[item.s] or "Block",
+		Vector3.new(item.z[1], item.z[2], item.z[3]) * scale,
+		Color3.fromRGB(item.c[1], item.c[2], item.c[3]),
+		material
+	)
+	part.Transparency = item.t or 0
+	local k = item.k
+	if k then
+		local mesh = Instance.new("SpecialMesh")
+		pcall(function()
+			mesh.MeshType = (Enum.MeshType :: any)[k.type]
+		end)
+		if k.id and k.id ~= "" then
+			mesh.MeshId = k.id
+		end
+		if k.tex then
+			mesh.TextureId = k.tex
+		end
+		local meshScale = Vector3.new(k.scale[1], k.scale[2], k.scale[3])
+		mesh.Scale = if k.native then meshScale * scale else meshScale
+		if k.offset then
+			mesh.Offset = Vector3.new(k.offset[1], k.offset[2], k.offset[3]) * scale
+		end
+		if k.vertex then
+			mesh.VertexColor = Vector3.new(k.vertex[1], k.vertex[2], k.vertex[3])
+		end
+		mesh.Parent = part
+	end
+	for _, decal in item.d or {} do
+		local made = Instance.new("Decal")
+		made.Texture = decal[1]
+		pcall(function()
+			made.Face = (Enum.NormalId :: any)[decal[2]]
+		end)
+		made.Transparency = decal[3] or 0
+		made.Parent = part
+	end
+	local p = item.p
+	return part,
+		CFrame.new(p[1] * scale, p[2] * scale, p[3] * scale, p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12])
+end
+
+-- A vetted store model (UnitModelConfig): every part of its data on the anchor of its limb, at
+-- the figure's height. Its proportions (from the model's joints) put the anchors on its joints, so
+-- limbs swing from the shoulders and hips. Like an avatar it sits in a Model of its own, so a
+-- Highlight shows flashes, glows and selection over its textured meshes; its colors take form
+-- tints. LookKit pieces in `modelOutfit` (steam) are added on top.
+local function buildModelData(figure: Figure, look: Look, data: any, parent: Instance)
+	local model = Instance.new("Model")
+	model.Name = data.key or "model"
+	computeAnchors(figure, CFrame.identity, REST_POSE)
+	local rest = table.clone(figure.anchors)
+	for _, item in data.parts do
+		local part, pose = dataPart(model, item, figure.height)
+		local anchor = if rest[item.a] then item.a else "hips"
+		addPiece(figure, part, anchor, rest[anchor]:ToObjectSpace(pose))
+		table.insert(figure.tinted, part)
+		figure.baseColors[part] = part.Color
+		figure.baseMaterials[part] = part.Material
+		for _, child in part:GetChildren() do
+			if child:IsA("Decal") then
+				table.insert(figure.decals, { decal = child, transparency = child.Transparency })
+			end
+		end
+	end
+	if look.modelOutfit then
+		for _, spec in LookKit.outfitSpecs(look.modelOutfit, figure.body, figure.height, look.detail == "low") do
+			local part = specPart(model, spec, figure)
+			addPiece(figure, part, spec.anchor, spec.offset)
+		end
+	end
+	figure.avatar = model
+	figure.modelKey = data.key
+	model.Parent = parent
+end
+
 -- Builds the figure for `look` with body color `color`, `height` studs tall, under `hitbox` (the
 -- unit's invisible click target, moved along with it as the first piece).
 function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart, transparency: number?): Figure
 	local pve = look.style == "creep" or look.style == "boss"
 	-- A catalog avatar is used only once it is ready; until then (or if it failed) the unit keeps
 	-- its hand-built look or placeholder.
-	local avatar = if look.avatar and not look.model then UnitAvatars.template(look.avatar) else nil
+	-- A vetted store model comes first (its data is in the game; a missing one falls through).
+	local data = if look.modelKey and not look.model then modelData(look.modelKey) else nil
+	local avatar = if look.avatar and not look.model and not data then UnitAvatars.template(look.avatar) else nil
 	local proportions = if avatar
 		then FigureConfig.avatarBody
 		elseif pve then FigureConfig.pveBody
 		else FigureConfig.body
 	-- A hand-built look may set its own proportions (UnitLookConfig `proportions`: a giant's long
-	-- arms, a crouching creature's short legs). They are final: bulk does not widen them further.
-	local unitLook = if avatar then nil else look.unitLook
-	local custom = unitLook and unitLook.proportions
+	-- arms, a crouching creature's short legs); a store model brings the proportions of its joints.
+	-- They are final: bulk does not widen them further.
+	local unitLook = if avatar or data then nil else look.unitLook
+	local custom = if data then data.proportions else unitLook and unitLook.proportions
 	local body = {}
 	for key, value in proportions do
 		body[key] = value * height
@@ -432,6 +550,8 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	if template then
 		figure.isModel = true
 		buildModel(figure, template, hitbox)
+	elseif data then
+		buildModelData(figure, look, data, hitbox)
 	elseif avatar then
 		buildAvatar(figure, look, avatar, hitbox)
 	elseif look.unitLook then
@@ -450,6 +570,108 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		addPiece(figure, part, "root", CFrame.new(0, thickness / 2 + 0.03, 0) * FLAT)
 	end
 	return figure
+end
+
+-- The rider's resting hands in the horse body's space, its hips `hipsAbove` above the body's center
+-- (the rider sits on the top of the back), for the reins.
+local function riderHands(figure: Figure, hipsAbove: number): { Vector3 }
+	local b = figure.body
+	local hips = CFrame.new(0, hipsAbove, 0)
+	local hands = {}
+	for i, x in { -1, 1 } do
+		local shoulder = hips
+			* CFrame.new(x * (b.torsoWidth + b.armWidth) / 2, b.torsoHeight - b.armWidth / 2, 0)
+			* CFrame.Angles(figure.restArms[i], 0, 0)
+		hands[i] = (shoulder * CFrame.new(0, -(b.handReach or b.armLength), 0)).Position
+	end
+	return hands
+end
+
+-- A store horse under the rider (model data, kind "horse"): scaled so its saddle is at the seat
+-- height, its body on the "horse" anchor and each leg on its leg anchor (so it strides), recolored
+-- by paint role from the rider's HorseLookConfig look, its textured saddle pad tinted to the
+-- blanket color; reins from the bit to the rider's hands and the rider's blanket detail added.
+local function mountModel(figure: Figure, look: any, data: any)
+	local c = FigureConfig.horse
+	local h = figure.height
+	local seat = c.backHeight * h
+	local scale = seat / data.seat -- studs per model height
+	local bodyY = data.bodyY * scale
+	local body = CFrame.new(0, bodyY, 0)
+	local joints = {}
+	local rests: { [string]: CFrame } = { horse = body }
+	for i, leg in data.legs do
+		local joint = Vector3.new(leg[1], leg[2], leg[3]) * scale - Vector3.new(0, bodyY, 0)
+		joints[i] = joint
+		rests[HORSE_LEG_ANCHORS[i]] = body * CFrame.new(joint)
+	end
+	local colors = {
+		coat = look.coat,
+		coatShade = look.coatShade or look.coat:Lerp(Color3.new(0, 0, 0), 0.15),
+		socks = look.markings or Color3.fromRGB(240, 240, 236),
+		muzzle = look.muzzle,
+		mane = look.mane,
+		hoof = look.hooves,
+	}
+	local parent = figure.parts[1]
+	for _, item in data.parts do
+		local part, pose = dataPart(parent, item, scale)
+		if colors[item.r] then
+			part.Color = colors[item.r]
+		elseif item.r == "saddle" then
+			-- the pad is textured: tint it toward the blanket color
+			local mesh = part:FindFirstChildOfClass("SpecialMesh")
+			if mesh then
+				mesh.VertexColor = Vector3.new(look.blanket.R, look.blanket.G, look.blanket.B) * 1.15
+			end
+		end
+		local anchor = if rests[item.a] then item.a else "horse"
+		addPiece(figure, part, anchor, rests[anchor]:ToObjectSpace(pose), true)
+	end
+
+	local function piece(shape: string, size: Vector3, cframe: CFrame, pieceColor: Color3)
+		addPiece(figure, newPart(parent, shape, size, pieceColor), "horse", cframe, true)
+	end
+	-- Reins from each side of the bit to the rider's hands (in the body's space).
+	local hands = riderHands(figure, seat - bodyY)
+	for i, x in { -1, 1 } do
+		local bit = Vector3.new(data.bit[1] * x, data.bit[2], data.bit[3]) * scale - Vector3.new(0, bodyY, 0)
+		local hand = hands[i]
+		piece(
+			"Block",
+			Vector3.new(h * 0.01, h * 0.01, (hand - bit).Magnitude),
+			CFrame.lookAt((bit + hand) / 2, hand),
+			look.tack
+		)
+	end
+	-- The rider's detail on the saddle pad's sides.
+	local saddle, pattern = data.saddle, look.pattern
+	if saddle and pattern then
+		local center = Vector3.new(saddle.center[1], saddle.center[2], saddle.center[3]) * scale
+			- Vector3.new(0, bodyY, 0)
+		local size = Vector3.new(saddle.size[1], saddle.size[2], saddle.size[3]) * scale
+		for _, x in { -1, 1 } do
+			for _, z in { -1, 1 } do
+				if pattern.kind == "stars" then
+					piece(
+						"Block",
+						Vector3.new(h * 0.006, h * 0.03, h * 0.03),
+						CFrame.new(center + Vector3.new(x * (size.X / 2 + h * 0.004), -size.Y * 0.15, z * size.Z * 0.2))
+							* CFrame.Angles(math.rad(45), 0, 0),
+						pattern.color
+					)
+				elseif pattern.kind == "tassels" then
+					piece(
+						"Ball",
+						Vector3.one * h * 0.028,
+						CFrame.new(center + Vector3.new(x * size.X / 2, -size.Y * 0.45, z * size.Z * 0.42)),
+						pattern.color
+					)
+				end
+			end
+		end
+	end
+	figure.horse = { seat = seat, bodyY = bodyY, joints = joints }
 end
 
 -- Puts the figure on its horse (HorseKit: the rider's HorseLookConfig colors and markings, with
@@ -478,17 +700,14 @@ function Figure.setMount(figure: Figure, color: Color3?)
 	end
 	look.coat = look.coat or color
 
-	-- The rider's resting hands in the horse body's space: its hips sit on the top of the back.
-	local b = figure.body
-	local hips = CFrame.new(0, c.bodyHeight * h / 2, 0)
-	local hands = {}
-	for i, x in { -1, 1 } do
-		local shoulder = hips
-			* CFrame.new(x * (b.torsoWidth + b.armWidth) / 2, b.torsoHeight - b.armWidth / 2, 0)
-			* CFrame.Angles(figure.restArms[i], 0, 0)
-		hands[i] = (shoulder * CFrame.new(0, -(b.handReach or b.armLength), 0)).Position
+	-- A vetted store horse (HorseLookConfig `model`), if its data is in the game.
+	local data = if look.model then modelData(look.model) else nil
+	if data and data.kind == "horse" then
+		mountModel(figure, look, data)
+		return
 	end
 
+	local hands = riderHands(figure, c.bodyHeight * h / 2)
 	local horse = HorseKit.build(look, c, h, hands)
 	local parent = figure.parts[1]
 	for _, spec in horse.specs do

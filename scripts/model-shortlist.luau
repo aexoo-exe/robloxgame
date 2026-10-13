@@ -42,7 +42,17 @@ local USER_AGENT = "robloxgame model shortlist (local dev tool)"
 local SPACING = { search = 3, thumbnails = 1, cdn = 0.2 } -- seconds between requests
 local MAX_ATTEMPTS = 6
 -- Search words that say nothing about the subject, ignored when ranking by name.
-local GENERIC = { model = true, rigged = true, rideable = true, heavy = true, point = true, boss = true }
+local GENERIC = {
+	model = true,
+	rigged = true,
+	rideable = true,
+	heavy = true,
+	point = true,
+	boss = true,
+	giant = true,
+	monster = true,
+	warrior = true,
+}
 
 local function now(): number
 	return DateTime.now().unixTimestampMillis / 1000

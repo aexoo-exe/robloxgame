@@ -214,7 +214,11 @@ local function report()
 			print(string.format("[DevLineup] %s: %d parts with its horse", entry.unitType, parts))
 		end
 		local avatar = entry.figure.avatar
-		if avatar then
+		if entry.figure.modelKey then
+			print(
+				string.format("[DevLineup] %s: store model %s, %d parts", entry.unitType, entry.figure.modelKey, parts)
+			)
+		elseif avatar then
 			print(
 				string.format(
 					"[DevLineup] %s: catalog avatar, %d parts (with ring and prop), %d instances in the rig",
