@@ -19,12 +19,68 @@
 --                  (height fractions) and `turn` (degrees) setting its grip
 --     hand, arms   attack hand ("left", "right", "both") and resting arm angles { left, right }
 --                  in degrees, replacing the class's (presentation only)
+--     outfit       block-built clothing layered on the avatar for a unit with no catalog shirt
+--                  or pants (LookKit, UnitLookConfig fields: coat, collar, belt, sash, scarf, tie,
+--                  cravat, buttons, bands, emblems, gearBoxes, extras; `torso` is the shirt seen
+--                  inside an open coat). The bare limbs under it take `colors`.
+-- A unit may have no shirt and/or no pants: Roblox adds no clothing then; its limbs show `colors`.
+-- Outfit sizes and positions are fractions of the figure's height on the R6 body: torso 0.4 wide,
+-- 0.4 tall and 0.2 deep (front at -0.1), limbs 0.2 thick, legs and arms 0.4 long.
 -- R6 renders classic clothing and rigid accessories, not layered clothing.
 
 local UnitAvatarPicks = require(script.Parent.UnitAvatarPicks)
 
 local v = Vector3.new
-local STEEL = Color3.fromRGB(205, 210, 220)
+local function rgb(r: number, g: number, b: number): Color3
+	return Color3.fromRGB(r, g, b)
+end
+local STEEL = rgb(205, 210, 220)
+local SKIN = rgb(234, 190, 150)
+local WHITE = rgb(238, 238, 236)
+local BLACK = rgb(24, 24, 28)
+local GOLD = rgb(225, 178, 62)
+local BROWN = rgb(100, 58, 36)
+
+-- Body colors for a draft: the shirt color on the torso, sleeves on the arms, trousers on the legs.
+local function limbs(torso: Color3, arms: Color3, legs: Color3): { [string]: Color3 }
+	return {
+		head = SKIN,
+		torso = torso,
+		leftArm = arms,
+		rightArm = arms,
+		leftLeg = legs,
+		rightLeg = legs,
+	}
+end
+-- Bare hands over a sleeved arm, and footwear over a trouser leg (bands from the top of the limb).
+local function hands(from: number?)
+	return { limb = "arms", from = from or 0.82, to = 1, color = SKIN }
+end
+local function boots(color: Color3, from: number)
+	return { limb = "legs", from = from, to = 1, color = color }
+end
+
+-- The Corps uniform (redline_cut, cyclone_edge): jacket, white trousers or dark ones, harness straps
+-- on the thighs, boots, gear boxes on the hips and twin thin blades.
+local function corps(jacket: Color3, inner: Color3, legs: Color3, boxes: Color3, reverse: boolean)
+	return {
+		colors = limbs(jacket, jacket, legs),
+		outfit = {
+			coat = { color = jacket, length = 0, inner = inner, gap = 0.34 },
+			belt = { color = BROWN },
+			gearBoxes = { color = boxes },
+			bands = {
+				hands(),
+				{ limb = "legs", from = 0.12, to = 0.17, color = BROWN },
+				{ limb = "legs", from = 0.36, to = 0.41, color = BROWN },
+				boots(rgb(60, 36, 30), 0.68),
+			},
+		},
+		weapons = { { kind = "thinBlade", hand = "both", reverse = reverse, blade = STEEL, handle = rgb(60, 62, 66) } },
+		hand = "both",
+		arms = { 25, 25 },
+	}
+end
 
 local tuning = {
 	threefold_crash = {
@@ -64,6 +120,265 @@ local tuning = {
 				guard = Color3.fromRGB(225, 180, 60),
 				length = 0.42,
 				hiltLength = 0.2,
+			},
+		},
+	},
+
+	-- DRAFTS: block-built clothing for units with no catalog shirt and/or pants yet (from
+	-- docs/references/<unit_id>.png and index.md). Replace a draft's `colors` and `outfit` once a real
+	-- shirt or pants is picked (the catalog item then covers the limbs; keep only what still shows).
+
+	-- DRAFT (shirt): long open black coat over a white shirt; twin daggers, pale blue and dark red.
+	night_command = {
+		colors = limbs(BLACK, BLACK, BLACK),
+		outfit = {
+			torso = WHITE,
+			coat = { color = BLACK, length = 0.7, flare = 6 },
+			bands = { hands() },
+		},
+		weapons = {
+			{
+				kind = "dagger",
+				hand = "left",
+				length = 0.22,
+				blade = rgb(150, 205, 245),
+				hilt = rgb(40, 50, 70),
+				material = "Neon",
+			},
+			{
+				kind = "dagger",
+				hand = "right",
+				length = 0.22,
+				blade = rgb(150, 20, 34),
+				hilt = rgb(50, 30, 30),
+				material = "Neon",
+			},
+		},
+		hand = "both",
+		arms = { 25, 25 },
+	},
+
+	-- DRAFT (shirt, pants): olive-tan tunic with dark sleeves and a dark patterned hem, dark belt,
+	-- two daggers.
+	wolfstep = {
+		colors = limbs(rgb(192, 162, 98), rgb(48, 42, 36), rgb(60, 50, 40)),
+		outfit = {
+			coat = {
+				color = rgb(192, 162, 98),
+				length = 0.45,
+				open = false,
+				band = { color = rgb(66, 50, 34), fraction = 0.32 },
+			},
+			belt = { color = rgb(66, 50, 34), buckle = rgb(150, 130, 90) },
+			bands = {
+				{ limb = "arms", from = 0, to = 0.38, color = rgb(192, 162, 98) }, -- tunic over the shoulders
+				hands(),
+				boots(rgb(50, 40, 32), 0.84),
+			},
+		},
+		weapons = {
+			{ kind = "dagger", hand = "both", length = 0.2, blade = rgb(175, 180, 190), hilt = rgb(30, 30, 30) },
+		},
+		hand = "both",
+		arms = { 20, 20 },
+	},
+
+	-- DRAFT (shirt, pants): olive jacket over a white shirt, red scarf, white trousers with harness
+	-- straps, boots, gear boxes, twin blades.
+	redline_cut = (function()
+		local entry = corps(rgb(92, 96, 58), WHITE, rgb(236, 233, 222), rgb(150, 155, 160), false)
+		entry.outfit.scarf = { color = rgb(205, 30, 38) }
+		entry.outfit.extras = {
+			{ anchor = "hips", shape = "Block", size = v(0.405, 0.08, 0.205), at = v(0, 0.04, 0), color = WHITE },
+		}
+		return entry
+	end)(),
+
+	-- DRAFT (shirt, pants): brown jacket over a white shirt and cravat, dark trousers with harness
+	-- straps, boots, gear boxes, twin blades held reverse-grip.
+	cyclone_edge = (function()
+		local entry = corps(rgb(120, 86, 56), WHITE, rgb(35, 35, 42), rgb(92, 106, 86), true)
+		entry.outfit.cravat = WHITE
+		return entry
+	end)(),
+
+	-- DRAFT (shirt, pants): pale blue outfit with dark blue boots, navy chest straps and a few small
+	-- stars.
+	spurshot = {
+		colors = limbs(rgb(150, 200, 236), rgb(150, 200, 236), rgb(150, 200, 236)),
+		outfit = {
+			bands = { hands(), boots(rgb(30, 42, 92), 0.68) },
+			extras = {
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.035, 0.38, 0.01),
+					at = v(-0.07, 0.2, -0.104),
+					color = rgb(30, 42, 92),
+				},
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.035, 0.38, 0.01),
+					at = v(0.07, 0.2, -0.104),
+					color = rgb(30, 42, 92),
+				},
+			},
+			emblems = {
+				{
+					shape = "diamond",
+					anchor = "hips",
+					at = v(-0.13, 0.1, -0.104),
+					size = 0.045,
+					color = rgb(160, 100, 200),
+					fine = true,
+				},
+				{
+					shape = "diamond",
+					anchor = "leftLeg",
+					at = v(0, -0.1, -0.104),
+					size = 0.045,
+					color = rgb(230, 120, 180),
+					fine = true,
+				},
+				{
+					shape = "diamond",
+					anchor = "rightLeg",
+					at = v(0, -0.16, -0.104),
+					size = 0.045,
+					color = rgb(160, 100, 200),
+					fine = true,
+				},
+			},
+		},
+	},
+
+	-- DRAFT (shirt, pants): dark purple coat with gold studs over tan trousers, dark boots; steel
+	-- balls in both hands.
+	orbit_breaker = {
+		colors = limbs(rgb(72, 46, 110), rgb(72, 46, 110), rgb(205, 172, 110)),
+		outfit = {
+			coat = { color = rgb(72, 46, 110), length = 0.25, open = false },
+			buttons = { color = GOLD, count = 4 },
+			bands = { hands(), boots(rgb(70, 45, 32), 0.8) },
+		},
+		weapons = { { kind = "ball", hand = "both", color = STEEL } },
+	},
+
+	-- DRAFT (shirt, pants): pale green top over maroon trousers; a vial and a basket of herbs.
+	bitter_vapor = {
+		colors = limbs(rgb(170, 210, 165), rgb(170, 210, 165), rgb(128, 40, 70)),
+		outfit = {
+			coat = { color = rgb(170, 210, 165), length = 0.28, open = false },
+			bands = { hands(0.9), boots(rgb(60, 45, 40), 0.88) },
+		},
+		weapons = {
+			{ kind = "vial", hand = "left", color = rgb(110, 220, 130) },
+			{ kind = "basket", color = rgb(150, 110, 65) },
+		},
+	},
+
+	-- DRAFT (shirt, pants): white robe with gold trim over a black-and-white striped top, dark
+	-- trousers and boots; the staff with the gold crescent and red orb.
+	starless_burst = {
+		colors = limbs(WHITE, WHITE, rgb(58, 52, 62)),
+		outfit = {
+			torso = WHITE,
+			coat = { color = rgb(242, 242, 244), length = 0.55, flare = 5, trim = rgb(222, 182, 72), stripes = BLACK },
+			belt = { color = rgb(40, 35, 35), buckle = GOLD },
+			bands = {
+				{ limb = "arms", from = 0.76, to = 0.82, color = rgb(222, 182, 72) },
+				hands(0.85),
+				boots(rgb(40, 36, 42), 0.7),
+			},
+		},
+		weapons = {
+			{
+				kind = "staff",
+				hand = "right",
+				shaft = rgb(95, 58, 40),
+				head = rgb(222, 182, 72),
+				orb = rgb(210, 35, 45),
+			},
+		},
+	},
+
+	-- DRAFT (shirt, pants): long open black coat to the ankles over an olive-tan wrapped shirt,
+	-- dark trousers.
+	titanheart = {
+		colors = limbs(BLACK, BLACK, rgb(40, 38, 40)),
+		outfit = {
+			torso = rgb(150, 135, 95),
+			coat = { color = BLACK, length = 0.95, flare = 4, sides = true },
+			bands = { hands(), boots(rgb(45, 34, 28), 0.86) },
+		},
+	},
+
+	-- DRAFT (shirt, pants): green flak vest with chest pockets over a navy outfit.
+	blooming_aid = {
+		colors = limbs(rgb(85, 105, 60), rgb(35, 40, 70), rgb(35, 40, 70)),
+		outfit = {
+			collar = rgb(85, 105, 60),
+			bands = { hands(0.85), boots(rgb(30, 32, 50), 0.86) },
+			extras = {
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.11, 0.09, 0.02),
+					at = v(-0.09, 0.24, -0.105),
+					color = rgb(70, 88, 50),
+				},
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.11, 0.09, 0.02),
+					at = v(0.09, 0.24, -0.105),
+					color = rgb(70, 88, 50),
+				},
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.405, 0.04, 0.205),
+					at = v(0, 0.02, 0),
+					color = rgb(35, 40, 70),
+				},
+			},
+		},
+	},
+
+	-- DRAFT (shirt, pants): black suit with pink panels, round pink wrist pads, white boots.
+	zero_field = {
+		colors = limbs(rgb(30, 30, 36), rgb(30, 30, 36), rgb(30, 30, 36)),
+		outfit = {
+			belt = { color = rgb(240, 120, 170) },
+			bands = {
+				{ limb = "arms", from = 0.68, to = 0.84, color = rgb(240, 120, 170) }, -- wrist pads
+				hands(0.84),
+				boots(WHITE, 0.7),
+				{ limb = "legs", from = 0.66, to = 0.7, color = rgb(240, 120, 170) },
+			},
+			extras = {
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.3, 0.1, 0.01),
+					at = v(0, 0.3, -0.104),
+					color = rgb(240, 120, 170),
+				},
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.03, 0.26, 0.01),
+					at = v(-0.15, 0.15, -0.104),
+					color = WHITE,
+				},
+				{
+					anchor = "hips",
+					shape = "Block",
+					size = v(0.03, 0.26, 0.01),
+					at = v(0.15, 0.15, -0.104),
+					color = WHITE,
+				},
 			},
 		},
 	},

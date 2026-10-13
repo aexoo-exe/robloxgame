@@ -84,6 +84,7 @@ return table.freeze({
 		armLength = 0.4,
 		armWidth = 0.2,
 		handReach = 0.3,
+		armTop = 0.1, -- the top of the arm, above the shoulder pivot (LookKit outfits place bands from it)
 	}),
 	-- An avatar's textured clothing cannot be recolored, so flashes, glows and selection are a
 	-- Highlight: flashes fill in their color; selection is a soft white fill with an outline.

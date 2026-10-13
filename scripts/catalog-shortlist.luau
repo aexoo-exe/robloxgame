@@ -3,7 +3,15 @@
 --   lune run scripts/catalog-shortlist                 every unit in searches.json
 --   lune run scripts/catalog-shortlist <unit_id> ...   only these units
 --   lune run scripts/catalog-shortlist --refresh ...   search again even where results are cached
+--   lune run scripts/catalog-shortlist --gaps          only the targeted outfit searches ("gaps" in
+--                                                      searches.json), for every unit that has them
+--   lune run scripts/catalog-shortlist --gaps <unit_id> ...   the same, for these units
 --   lune run scripts/catalog-shortlist --page          only rebuild the page from the cache
+--
+-- Gap searches fill outfit holes: each query in a unit's "gaps" is searched as written and only
+-- the slot's items are kept (shirt: classic shirts; pants: classic pants; hair: hair and hats;
+-- face: face accessories and classic faces), up to GAP_PER_SLOT, shown on the page as their own
+-- "outfit search" rows. A full run includes them too.
 --
 -- Reads docs/references/catalog/searches.json (local only, gitignored): for each unit id, the
 -- character's name and extra keywords. For each unit it runs a few searches on the public catalog
@@ -36,8 +44,9 @@ local PICKER_TEMPLATE = "scripts/catalog/picker.html"
 local PER_SLOT = 6 -- items kept per slot per unit
 local THUMB_SIZE = "250x250"
 local USER_AGENT = "robloxgame catalog shortlist (local dev tool)"
+local GAP_PER_SLOT = 10 -- items kept per gap search slot
 -- Seconds between requests, per service.
-local GAPS = { catalog = 3, thumbnails = 1, cdn = 0.2 }
+local SPACING = { catalog = 3, thumbnails = 1, cdn = 0.2 }
 local MAX_ATTEMPTS = 6
 
 -- R6-usable asset types and the slot each goes in (UnitAvatarPicks): classic clothing and faces,
@@ -61,11 +70,27 @@ local SLOT_OF_TYPE = {
 local PLAN = {
 	{ suffix = " hair", category = 1 },
 	{ suffix = " accessory", category = 11 },
-	{ suffix = " shirt", category = 3 },
-	{ suffix = " pants", category = 3 },
+	{ suffix = " shirt", category = 3, subcategory = 56 }, -- classic shirts only
+	{ suffix = " pants", category = 3, subcategory = 57 }, -- classic pants only
 	{ suffix = " face", category = 1 },
 	{ suffix = "", category = 1 },
 }
+
+-- Gap search slots: the catalog category searched and the asset types kept.
+local GAP_SLOTS = {
+	shirt = { category = 3, subcategory = 56, types = { [11] = true }, label = "Shirt" },
+	pants = { category = 3, subcategory = 57, types = { [12] = true }, label = "Pants" },
+	hair = { category = 1, types = { [41] = true, [8] = true }, label = "Hair" },
+	face = { category = 1, types = { [42] = true, [18] = true }, label = "Face" },
+}
+
+-- One catalog search. Subcategories: 56 classic shirts, 57 classic pants.
+type Query = { keyword: string, category: number, subcategory: number? }
+
+-- A search's key in the cache.
+local function queryKey(query: Query): string
+	return query.keyword .. "|" .. query.category .. (if query.subcategory then "|" .. query.subcategory else "")
+end
 
 local function now(): number
 	return DateTime.now().unixTimestampMillis / 1000
@@ -87,7 +112,7 @@ end
 local lastCall: { [string]: number } = {}
 local function get(url: string, service: string): (string?, string?)
 	for attempt = 1, MAX_ATTEMPTS do
-		local waitFor = (lastCall[service] or 0) + GAPS[service] - now()
+		local waitFor = (lastCall[service] or 0) + SPACING[service] - now()
 		if waitFor > 0 then
 			task.wait(waitFor)
 		end
@@ -211,7 +236,7 @@ local function downloadThumbnails(dir: string, ids: { number })
 	end
 end
 
-local function shortlistUnit(search: any, refresh: boolean, picks: { [string]: any })
+local function shortlistUnit(search: any, refresh: boolean, gapsOnly: boolean, picks: { [string]: any })
 	local dir = ROOT .. "/" .. search.unit
 	if not fs.isDir(dir) then
 		fs.writeDir(dir)
@@ -222,81 +247,131 @@ local function shortlistUnit(search: any, refresh: boolean, picks: { [string]: a
 
 	local queries = {}
 	for _, plan in PLAN do
-		table.insert(queries, { keyword = search.name .. plan.suffix, category = plan.category })
+		table.insert(
+			queries,
+			{ keyword = search.name .. plan.suffix, category = plan.category, subcategory = plan.subcategory }
+		)
 	end
 	for _, extra in search.extra or {} do
 		table.insert(queries, { keyword = search.name .. " " .. extra, category = 1 })
 	end
 
-	for _, query in queries do
-		local key = query.keyword .. "|" .. query.category
-		if refresh or not cache.searches[key] then
-			print(string.format("  searching %q", query.keyword))
-			local body, problem = get(
-				string.format(
-					"https://catalog.roblox.com/v1/search/items/details?Keyword=%s&Category=%d&Limit=30",
-					net.urlEncode(query.keyword),
-					query.category
-				),
-				"catalog"
-			)
-			local decoded = if body then serde.decode("json", body) else nil
-			if decoded and decoded.data then
-				local items = {}
-				for _, item in decoded.data do
-					if item.itemType == "Asset" and SLOT_OF_TYPE[item.assetType] then
-						table.insert(items, {
-							id = item.id,
-							name = item.name,
-							creator = item.creatorName,
-							type = item.assetType,
-							price = item.price,
-							favorites = item.favoriteCount,
-						})
-					end
+	-- Runs (or reuses) one search; its R6-usable items are cached under keyword|category.
+	local function run(query: Query)
+		local key = queryKey(query)
+		if not refresh and cache.searches[key] then
+			return
+		end
+		print(string.format("  searching %q", query.keyword))
+		local body, problem = get(
+			string.format(
+				"https://catalog.roblox.com/v1/search/items/details?Keyword=%s&Category=%d%s&Limit=30",
+				net.urlEncode(query.keyword),
+				query.category,
+				if query.subcategory then "&Subcategory=" .. query.subcategory else ""
+			),
+			"catalog"
+		)
+		local decoded = if body then serde.decode("json", body) else nil
+		if decoded and decoded.data then
+			local items = {}
+			for _, item in decoded.data do
+				if item.itemType == "Asset" and SLOT_OF_TYPE[item.assetType] then
+					table.insert(items, {
+						id = item.id,
+						name = item.name,
+						creator = item.creatorName,
+						type = item.assetType,
+						price = item.price,
+						favorites = item.favoriteCount,
+					})
 				end
-				cache.searches[key] = items
-				writeJson(cachePath, cache) -- keep progress if the run stops
-			else
-				print(string.format("  search %q failed (%s); a re-run tries again", query.keyword, tostring(problem)))
 			end
+			cache.searches[key] = items
+			writeJson(cachePath, cache) -- keep progress if the run stops
+		else
+			print(string.format("  search %q failed (%s); a re-run tries again", query.keyword, tostring(problem)))
 		end
 	end
 
-	-- Merge every search, best first per slot: name matches, then favorites, then search order.
-	local seen, ranked = {}, {}
-	local order = 0
-	for _, query in queries do
-		for _, item in cache.searches[query.keyword .. "|" .. query.category] or {} do
-			order += 1
-			if not seen[item.id] then
-				seen[item.id] = true
-				item.match = mentions(item.name, search.name)
-				item.order = order
-				table.insert(ranked, item)
+	-- Every item of these searches once, best first: name matches, then favorites, then search
+	-- order. `keep` filters by asset type.
+	local function ranked(list: { Query }, keep: ((number) -> boolean)?): { any }
+		local seen, result = {}, {}
+		local order = 0
+		for _, query in list do
+			for _, item in cache.searches[queryKey(query)] or {} do
+				order += 1
+				if not seen[item.id] and (not keep or keep(item.type)) then
+					seen[item.id] = true
+					item.match = mentions(item.name, search.name)
+					item.order = order
+					table.insert(result, item)
+				end
 			end
 		end
+		table.sort(result, function(a, b)
+			if a.match ~= b.match then
+				return a.match
+			end
+			if (a.favorites or 0) ~= (b.favorites or 0) then
+				return (a.favorites or 0) > (b.favorites or 0)
+			end
+			return a.order < b.order
+		end)
+		return result
 	end
-	table.sort(ranked, function(a, b)
-		if a.match ~= b.match then
-			return a.match
-		end
-		if (a.favorites or 0) ~= (b.favorites or 0) then
-			return (a.favorites or 0) > (b.favorites or 0)
-		end
-		return a.order < b.order
-	end)
-	local slots = {}
+
 	local thumbs = {}
-	for _, item in ranked do
-		local slot = SLOT_OF_TYPE[item.type]
-		slots[slot] = slots[slot] or {}
-		if #slots[slot] < PER_SLOT then
-			table.insert(slots[slot], item)
+	if not gapsOnly then
+		for _, query in queries do
+			run(query)
+		end
+		local slots = {}
+		for _, item in ranked(queries) do
+			local slot = SLOT_OF_TYPE[item.type]
+			slots[slot] = slots[slot] or {}
+			if #slots[slot] < PER_SLOT then
+				table.insert(slots[slot], item)
+			end
+		end
+		cache.slots = slots
+	end
+	for _, list in cache.slots or {} do
+		for _, item in list do
 			table.insert(thumbs, item.id)
 		end
 	end
-	cache.slots = slots
+
+	-- Targeted outfit searches: one row per gap slot.
+	local gaps = {}
+	for _, gap in search.gaps or {} do
+		local slot = GAP_SLOTS[gap.slot]
+		if not slot then
+			print("  unknown gap slot " .. tostring(gap.slot) .. " (use shirt, pants, hair or face)")
+			continue
+		end
+		local list = {}
+		for _, keyword in gap.queries or {} do
+			table.insert(list, { keyword = keyword, category = slot.category, subcategory = slot.subcategory })
+		end
+		for _, query in list do
+			run(query)
+		end
+		local items = {}
+		for _, item in
+			ranked(list, function(assetType)
+				return slot.types[assetType] == true
+			end)
+		do
+			if #items < GAP_PER_SLOT then
+				table.insert(items, item)
+				table.insert(thumbs, item.id)
+			end
+		end
+		table.insert(gaps, { slot = gap.slot, label = slot.label, items = items })
+	end
+	cache.gaps = gaps
 	writeJson(cachePath, cache)
 
 	for _, id in pickedIds(picks[search.unit]) do
@@ -316,8 +391,9 @@ local function writePage(searches: { any }, picks: { [string]: any })
 			reference = if fs.isFile("docs/references/" .. search.unit .. ".png")
 				then "../" .. search.unit .. ".png"
 				else nil,
-			fetched = cache ~= nil and cache.slots ~= nil,
+			fetched = cache ~= nil and (cache.slots ~= nil or cache.gaps ~= nil),
 			slots = if cache and cache.slots then cache.slots else {},
+			gaps = if cache and cache.gaps then cache.gaps else {},
 			current = picks[search.unit],
 		})
 	end
@@ -335,7 +411,7 @@ if not config or not config.units then
 	process.exit(1)
 end
 
-local refresh, pageOnly = false, false
+local refresh, pageOnly, gapsOnly = false, false, false
 local wanted: { [string]: boolean } = {}
 local anyWanted = false
 for _, arg in process.args do
@@ -343,6 +419,8 @@ for _, arg in process.args do
 		refresh = true
 	elseif arg == "--page" then
 		pageOnly = true
+	elseif arg == "--gaps" then
+		gapsOnly = true
 	else
 		wanted[arg] = true
 		anyWanted = true
@@ -364,13 +442,19 @@ if not pageOnly then
 	local started = now()
 	local todo = {}
 	for _, search in config.units do
-		if not anyWanted or wanted[search.unit] then
+		local chosen = if anyWanted then wanted[search.unit] == true else true
+		if chosen and (not gapsOnly or search.gaps) then
 			table.insert(todo, search)
 		end
 	end
+	if #todo == 0 then
+		print(
+			"Nothing to search" .. (if gapsOnly then " (no gaps for these units in " .. SEARCHES .. ")" else "") .. "."
+		)
+	end
 	for index, search in todo do
-		print(string.format("[%d/%d] %s", index, #todo, search.unit))
-		shortlistUnit(search, refresh, picks)
+		print(string.format("[%d/%d] %s%s", index, #todo, search.unit, if gapsOnly then " (gaps)" else ""))
+		shortlistUnit(search, refresh, gapsOnly, picks)
 		writePage(config.units, picks) -- the page is usable while a long run goes on
 	end
 	print(string.format("Done in %d s.", now() - started))

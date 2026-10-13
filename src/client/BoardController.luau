@@ -254,6 +254,7 @@ local function render()
 			look = look.figure,
 			sizeScale = look.scale,
 			formLook = if form then RenderConfig.formLooks[form.name] else nil,
+			formName = if form then form.name else nil,
 			formHealth = formPool,
 			maxFormHealth = formPool,
 			items = unit.items,

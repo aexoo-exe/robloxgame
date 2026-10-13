@@ -228,6 +228,22 @@ local function build(unitType: string, entry: any)
 		)
 		return
 	end
+	-- A unit may go without a shirt or pants (its bare limbs take its tuned colors, and a
+	-- block-built outfit can cover them): drop any clothing it did not ask for.
+	if not entry.shirt then
+		for _, shirt in model:GetChildren() do
+			if shirt:IsA("Shirt") then
+				shirt:Destroy()
+			end
+		end
+	end
+	if not entry.pants then
+		for _, pants in model:GetChildren() do
+			if pants:IsA("Pants") then
+				pants:Destroy()
+			end
+		end
+	end
 	toTemplate(model)
 	model.Name = unitType
 	model.Parent = folder

@@ -16,6 +16,7 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
+local FormLookConfig = require(Shared:WaitForChild("FormLookConfig"))
 local UnitAvatarConfig = require(Shared:WaitForChild("UnitAvatarConfig"))
 local UnitLookConfig = require(Shared:WaitForChild("UnitLookConfig"))
 
@@ -104,6 +105,9 @@ function CharacterLook.of(unitType: string): CharacterLook
 				avatar = if avatar then unitType else nil,
 				avatarProp = not avatar or avatar.prop ~= false,
 				avatarWeapons = if avatar then avatar.weapons else nil,
+				avatarOutfit = if avatar then avatar.outfit else nil,
+				unitType = unitType,
+				formLooks = FormLookConfig[unitType],
 			},
 		}
 	else
@@ -117,6 +121,34 @@ function CharacterLook.of(unitType: string): CharacterLook
 	end
 	cache[unitType] = look
 	return look
+end
+
+-- The figure look of a unit in form `formName`: the form's own look (FormLookConfig), drawn with
+-- LookKit in place of the base figure (catalog avatar, hand-built look or placeholder), or the base
+-- figure itself when the form has no look of its own. Also returns whether the form has its own
+-- look, and that look's extra size multiplier (on top of RenderConfig.formLooks `scale`).
+local formFigures: { [any]: { [string]: Figure.Look } } = {}
+function CharacterLook.formFigure(base: Figure.Look, formName: string?): (Figure.Look, boolean, number)
+	local formLook = if formName and base.formLooks then base.formLooks[formName] else nil
+	if not formLook then
+		return base, false, 1
+	end
+	local byForm = formFigures[base]
+	if not byForm then
+		byForm = {}
+		formFigures[base] = byForm
+	end
+	local figure = byForm[formName :: string]
+	if not figure then
+		figure = table.clone(base)
+		figure.avatar = nil
+		figure.avatarWeapons = nil
+		figure.avatarOutfit = nil
+		figure.unitLook = formLook
+		figure.bulk = formLook.bulk or base.bulk
+		byForm[formName :: string] = figure
+	end
+	return figure, true, formLook.scale or 1
 end
 
 -- Summons: a plain figure in their summoner's body color, smaller and see-through (UnitView).

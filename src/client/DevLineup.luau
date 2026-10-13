@@ -5,6 +5,8 @@
 --   L        open or close the lineup
 --   . / ,    close-up of the next / previous unit
 --   M        back to the whole lineup
+--   F        in a close-up: the unit's next form (its own look from FormLookConfig, or the base
+--            figure with the form's tint), with the form's size; cycles back to the first form
 -- Chat commands: /lineup (open or close), /look <unit_id> (close-up of that unit).
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
@@ -40,6 +42,10 @@ type Entry = {
 	height: number,
 	hand: string,
 	mounted: boolean,
+	look: Figure.Look, -- the unit's base figure look
+	color: Color3,
+	baseHeight: number, -- before any form's size
+	formIndex: number, -- the form shown (UnitConfig forms), 1 for the first
 }
 
 local folder: Folder? = nil
@@ -156,6 +162,50 @@ local function closeUp(index: number)
 	print(string.format("[DevLineup] %s (%d/%d)", entry.unitType, index, #entries))
 end
 
+-- Redraws a close-up unit in its next form, as a fight would show it: the form's own look
+-- (FormLookConfig) or the base figure with the form's tint, at the form's size, on its horse.
+local function nextForm(entry: Entry)
+	local forms = UnitConfig[entry.unitType].forms
+	if not forms or #forms < 2 then
+		print("[DevLineup] " .. entry.unitType .. " has no forms")
+		return
+	end
+	local index = entry.formIndex % #forms + 1
+	local form = forms[index]
+	local formLook = RenderConfig.formLooks[form.name]
+	local figureLook, own, extraScale = CharacterLook.formFigure(entry.look, form.name)
+	local height = entry.baseHeight * (if formLook and formLook.scale then formLook.scale else 1) * extraScale
+	local old = entry.figure
+	local hitbox = old.parts[1]
+	for i = #old.pieces, 2, -1 do -- piece 1 is the hitbox
+		old.pieces[i].part:Destroy()
+	end
+	if old.avatar then
+		old.avatar:Destroy()
+	end
+	hitbox.Size = Vector3.new(2, height, 2)
+	local figure = Figure.new(figureLook, entry.color, height, hitbox)
+	if formLook and formLook.mount then
+		Figure.setMount(figure, formLook.mount)
+	end
+	local tint = if formLook and not own then formLook.tint else nil
+	figure.color = tint or entry.color
+	figure.formTint = tint
+	Figure.setTint(figure, nil)
+	entry.figure, entry.height, entry.formIndex = figure, height, index
+	print(
+		string.format(
+			"[DevLineup] %s: form %d/%d %q, %s, %d parts",
+			entry.unitType,
+			index,
+			#forms,
+			form.name,
+			if own then "own look" elseif tint then "base figure, tinted" else "base figure",
+			#figure.parts - 1
+		)
+	)
+end
+
 local function report()
 	local total, most, mostId, looks, lookParts = 0, 0, "", 0, 0
 	for _, entry in entries do
@@ -260,6 +310,10 @@ local function open()
 				height = height,
 				hand = if look.figure.classLook then look.figure.classLook.hand else "right",
 				mounted = mounted,
+				look = look.figure,
+				color = look.color,
+				baseHeight = height,
+				formIndex = 1,
 			}
 			place(entry, pose(figure))
 			table.insert(entries, entry)
@@ -353,6 +407,8 @@ function DevLineup.start()
 			step(-1)
 		elseif key == Enum.KeyCode.M and folder then
 			overview()
+		elseif key == Enum.KeyCode.F and focus then
+			nextForm(entries[focus])
 		end
 	end)
 	-- Chat commands work with the new chat (TextChatService) only.

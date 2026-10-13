@@ -33,6 +33,9 @@ export type Look = {
 	avatar: string?, -- unit id of a catalog avatar (UnitAvatarConfig); used once it is ready
 	avatarProp: boolean?, -- false: an avatar holds no class prop (UnitAvatarConfig `prop`)
 	avatarWeapons: { any }?, -- LookKit weapons worn with an avatar (UnitAvatarConfig `weapons`)
+	avatarOutfit: any?, -- LookKit clothing layered on an avatar (UnitAvatarConfig `outfit`)
+	unitType: string?, -- the roster unit drawn (CharacterLook), for its form looks
+	formLooks: { [string]: any }?, -- the unit's per-form looks (FormLookConfig), by form name
 }
 
 -- One frame's posture. Angles are in radians; arms and legs are raised forward from hanging.
@@ -109,6 +112,13 @@ local function newPart(parent: Instance, shape: string, size: Vector3, color: Co
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
+	return part
+end
+
+-- A part from a LookKit spec, with the spec's own transparency (recorded by addPiece for fades).
+local function specPart(parent: Instance, spec: LookKit.Spec): BasePart
+	local part = newPart(parent, spec.shape, spec.size, spec.color, spec.material)
+	part.Transparency = spec.transparency
 	return part
 end
 
@@ -290,18 +300,27 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	end
 	figure.avatar = model
 	model.Parent = parent
+	-- Block-built clothing layered on the avatar (UnitAvatarConfig `outfit`, for a unit with no
+	-- catalog shirt or pants). Its parts go inside the avatar's model so its Highlight (flashes,
+	-- glows, selection) covers them too, and they take form tints like the body.
+	if look.avatarOutfit then
+		for _, spec in LookKit.outfitSpecs(look.avatarOutfit, figure.body, figure.height, look.detail == "low") do
+			local part = specPart(model, spec)
+			addPiece(figure, part, spec.anchor, spec.offset)
+			if spec.tinted then
+				table.insert(figure.tinted, part)
+				figure.baseColors[part] = spec.color
+				figure.baseMaterials[part] = part.Material
+			end
+		end
+	end
 	if look.avatarProp ~= false then
 		buildProps(figure, look, parent)
 	end
 	-- LookKit weapons worn with the avatar (UnitAvatarConfig `weapons`), on the same anchors.
 	if look.avatarWeapons then
 		for _, spec in LookKit.weaponSpecs(look.avatarWeapons, figure.body, figure.height, look.detail == "low") do
-			addPiece(
-				figure,
-				newPart(parent, spec.shape, spec.size, spec.color, spec.material),
-				spec.anchor,
-				spec.offset
-			)
+			addPiece(figure, specPart(parent, spec), spec.anchor, spec.offset)
 		end
 	end
 end
@@ -311,7 +330,7 @@ end
 local function buildLook(figure: Figure, look: Look, parent: Instance)
 	local specs = LookKit.specs(look.unitLook, figure.body, figure.height, look.detail == "low")
 	for _, spec in specs do
-		local part = newPart(parent, spec.shape, spec.size, spec.color, spec.material)
+		local part = specPart(parent, spec)
 		addPiece(figure, part, spec.anchor, spec.offset)
 		if spec.tinted then
 			table.insert(figure.tinted, part)

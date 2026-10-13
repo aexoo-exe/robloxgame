@@ -21,9 +21,10 @@ export type Spec = {
 	color: Color3,
 	material: string,
 	tinted: boolean,
+	transparency: number, -- 0 for most parts (auras and steam are see-through)
 }
 
-type Options = { material: string?, fine: boolean?, plain: boolean? }
+type Options = { material: string?, fine: boolean?, plain: boolean?, transparency: number? }
 
 type Context = {
 	specs: { Spec },
@@ -72,6 +73,7 @@ local function add(
 		color = color,
 		material = o.material or "SmoothPlastic",
 		tinted = not o.plain,
+		transparency = o.transparency or 0,
 	})
 end
 
@@ -759,7 +761,7 @@ local function coat(ctx: Context)
 						side .. "Arm",
 						"Block",
 						V(b.armWidth * 1.06, segment, b.armWidth * 1.06),
-						CF(0, -segment * (row - 0.5), 0),
+						CF(0, (b.armTop or 0) - segment * (row - 0.5), 0),
 						pattern.color
 					)
 				end
@@ -785,7 +787,14 @@ local function coat(ctx: Context)
 		end
 		for _, side in SIDES do
 			local x = SIGN[side] * (b.armWidth / 2 + thin * 0.5)
-			add(ctx, side .. "Arm", "Wedge", V(thin * 1.4, size, size), CF(x, -sleeveLength * 0.55, 0), pattern.color)
+			add(
+				ctx,
+				side .. "Arm",
+				"Wedge",
+				V(thin * 1.4, size, size),
+				CF(x, (b.armTop or 0) - sleeveLength * 0.55, 0),
+				pattern.color
+			)
 		end
 	end
 end
@@ -886,7 +895,7 @@ local function accessories(ctx: Context)
 				limb,
 				"Block",
 				V(width, size, width),
-				CF(0, -length * (band.from + band.to) / 2, 0),
+				CF(0, (if arm then b.armTop or 0 else 0) - length * (band.from + band.to) / 2, 0),
 				band.color,
 				if band.fine then FINE else nil
 			)
@@ -968,6 +977,8 @@ local function accessories(ctx: Context)
 			{
 				material = extra.material,
 				fine = extra.fine,
+				plain = extra.plain,
+				transparency = extra.transparency,
 			}
 		)
 	end
@@ -1223,6 +1234,25 @@ local function weapons(ctx: Context)
 			build(ctx, w, (w.hand or "right") .. "Hand")
 		end
 	end
+end
+
+-- Only the clothing layers of `outfit` (UnitLookConfig fields: coat, collar, belt, sash, scarf, tie,
+-- cravat, buttons, bands, emblems, gearBoxes, tendrils, extras; `torso` and `sleeve` as for a
+-- look), for figures whose body comes from elsewhere: a catalog avatar with no shirt or pants
+-- (UnitAvatarConfig `outfit`). The avatar's own limbs are the body, colored by its tuning.
+function LookKit.outfitSpecs(outfit: any, body: { [string]: number }, height: number, low: boolean?): { Spec }
+	local ctx: Context = {
+		specs = {},
+		look = outfit,
+		body = body,
+		h = height,
+		hs = body.headSize,
+		low = low == true,
+		thin = height * 0.012,
+	}
+	coat(ctx)
+	accessories(ctx)
+	return ctx.specs
 end
 
 -- Only the weapons of `weapons` (UnitLookConfig `weapons` format), for figures whose body comes

@@ -71,6 +71,7 @@
   <span class="counts" id="counts"></span>
   <input type="search" id="filter" placeholder="Filter by unit id">
   <label><input type="checkbox" id="unpicked"> Only units with no picks</label>
+  <label><input type="checkbox" id="noclothes"> Only units missing shirt or pants</label>
   <button class="primary" id="export">Export picks</button>
   <button id="reset" title="Forget the picks made in this browser and show the current config again">Reset to current config</button>
   <div class="help">Click a card to pick it: one shirt, one pants and one face per unit; any number of accessories. Picks stay in this browser.
@@ -96,6 +97,8 @@
     { key: "Waist", label: "Waist", accessory: true }
   ];
   var TYPE_NAMES = { 8: "Hat", 41: "Hair", 42: "Face accessory", 43: "Neck", 44: "Shoulder", 45: "Front", 46: "Back", 47: "Waist", 11: "Classic shirt", 12: "Classic pants", 18: "Classic face" };
+  // The pick slot of each asset type (outfit-search rows mix types, e.g. hair and hats).
+  var TYPE_SLOT = { 8: "Hat", 41: "Hair", 42: "Face", 43: "Neck", 44: "Shoulders", 45: "Front", 46: "Back", 47: "Waist", 11: "shirt", 12: "pants", 18: "face" };
 
   var main = document.getElementById("main");
   var data = window.CATALOG;
@@ -150,6 +153,7 @@
   function itemIndex(u) {
     var index = {};
     Object.keys(u.slots || {}).forEach(function (slot) { (u.slots[slot] || []).forEach(function (it) { index[it.id] = it; }); });
+    (u.gaps || []).forEach(function (g) { (g.items || []).forEach(function (it) { index[it.id] = it; }); });
     return index;
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -159,6 +163,20 @@
     return img;
   }
   function catalogLink(id) { var a = el("a", null, String(id)); a.href = "https://www.roblox.com/catalog/" + id; a.target = "_blank"; a.rel = "noopener"; a.onclick = function (e) { e.stopPropagation(); }; return a; }
+
+  function card(u, slot, it) {
+    var c = el("div", "card" + (isPicked(u.unit, slot, it.id) ? " on" : ""));
+    c.title = "Click to pick or unpick";
+    c.appendChild(thumb(u.unit, it.id));
+    c.appendChild(el("div", "title", it.name));
+    var meta = el("div", "meta");
+    meta.appendChild(catalogLink(it.id));
+    meta.appendChild(document.createTextNode(" · " + (TYPE_NAMES[it.type] || it.type)));
+    c.appendChild(meta);
+    c.appendChild(el("div", "meta", "by " + (it.creator || "?") + (it.price != null ? " · " + it.price + " R$" : "") + (it.favorites ? " · " + it.favorites + " fav" : "")));
+    c.onclick = function () { toggle(u.unit, slot, it.id); };
+    return c;
+  }
 
   function renderUnit(u) {
     var p = picks[u.unit];
@@ -220,19 +238,21 @@
       h.appendChild(el("span", "rule", s.single ? "(pick one)" : "(pick any)"));
       box.appendChild(h);
       var cards = el("div", "cards");
-      items.forEach(function (it) {
-        var card = el("div", "card" + (isPicked(u.unit, s.key, it.id) ? " on" : ""));
-        card.title = "Click to pick or unpick";
-        card.appendChild(thumb(u.unit, it.id));
-        card.appendChild(el("div", "title", it.name));
-        var meta = el("div", "meta");
-        meta.appendChild(catalogLink(it.id));
-        meta.appendChild(document.createTextNode(" · " + (TYPE_NAMES[it.type] || it.type)));
-        card.appendChild(meta);
-        card.appendChild(el("div", "meta", "by " + (it.creator || "?") + (it.price != null ? " · " + it.price + " R$" : "") + (it.favorites ? " · " + it.favorites + " fav" : "")));
-        card.onclick = function () { toggle(u.unit, s.key, it.id); };
-        cards.appendChild(card);
-      });
+      items.forEach(function (it) { cards.appendChild(card(u, s.key, it)); });
+      box.appendChild(cards);
+      section.appendChild(box);
+    });
+    // Targeted outfit searches ("gaps"), one row per searched slot; each card picks into the slot
+    // of its own type.
+    (u.gaps || []).forEach(function (g) {
+      if (!g.items || g.items.length === 0) return;
+      anySlot = true;
+      var box = el("div", "slot");
+      var h = el("h3", null, g.label + " · outfit search ");
+      h.appendChild(el("span", "rule", "(targeted keywords)"));
+      box.appendChild(h);
+      var cards = el("div", "cards");
+      g.items.forEach(function (it) { cards.appendChild(card(u, TYPE_SLOT[it.type] || g.slot, it)); });
       box.appendChild(cards);
       section.appendChild(box);
     });
@@ -242,6 +262,7 @@
 
   var filterInput = document.getElementById("filter");
   var unpickedBox = document.getElementById("unpicked");
+  var noClothesBox = document.getElementById("noclothes");
   function render() {
     var scroll = window.scrollY;
     main.innerHTML = "";
@@ -251,6 +272,7 @@
       var has = !isEmpty(picks[u.unit]);
       if (has) withPicks++;
       if (unpickedBox.checked && has) return;
+      if (noClothesBox.checked && picks[u.unit].shirt && picks[u.unit].pants) return;
       if (text && u.unit.indexOf(text) === -1) return;
       main.appendChild(renderUnit(u));
       shown++;
@@ -261,6 +283,7 @@
   }
   filterInput.oninput = render;
   unpickedBox.onchange = render;
+  noClothesBox.onchange = render;
 
   document.getElementById("export").onclick = function () {
     // Every unit with picks, plus units cleared here that are still in the config (so the apply
