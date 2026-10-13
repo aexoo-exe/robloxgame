@@ -66,6 +66,39 @@ return table.freeze({
 	bossEyeColor = Color3.fromRGB(255, 70, 50),
 
 	visorColor = Color3.fromRGB(30, 30, 40),
+	-- Catalog avatars (UnitAvatarConfig): an R6 rig is 5 studs from the feet to the top of the head,
+	-- scaled to the figure's height. Its proportions as fractions of that height, so the figure's
+	-- anchors land on the rig's joints: hips at 2 studs, shoulders 1.5 above them, the head's center
+	-- at 4.5. `handReach` (from the shoulder pivot to the bottom of the hand) is shorter than the arm
+	-- because an R6 arm hangs from half a stud above its top.
+	avatarRigHeight = 5,
+	avatarBody = table.freeze({
+		legLength = 0.4,
+		legWidth = 0.2,
+		legSpacing = 0.1,
+		torsoHeight = 0.4,
+		torsoWidth = 0.4,
+		torsoDepth = 0.2,
+		neck = 0,
+		headSize = 0.2,
+		armLength = 0.4,
+		armWidth = 0.2,
+		handReach = 0.3,
+		armTop = 0.1, -- the top of the arm, above the shoulder pivot (LookKit outfits place bands from it)
+		headVisual = 0.25, -- the head as drawn (the R6 head mesh), for block-built hair on an avatar
+	}),
+	-- An avatar's textured clothing cannot be recolored, so flashes, glows and selection are a
+	-- Highlight: flashes fill in their color; selection is a soft white fill with an outline.
+	avatarHighlight = table.freeze({
+		flashFill = 0.3,
+		selectColor = Color3.fromRGB(255, 255, 255),
+		selectFill = 0.75,
+		selectOutline = 0.1,
+	}),
+
+	-- Units with a hand-built look (UnitLookConfig) keep their own colors in a tinted form
+	-- (RenderConfig.formLooks `tint`): each part is blended this far toward the tint.
+	lookTintBlend = 0.5,
 	-- Cost ring: a flat disc under roster units, in RenderConfig.costColors.
 	ring = table.freeze({ diameter = 0.62, thickness = 0.05, material = "Neon" }),
 
@@ -186,11 +219,21 @@ return table.freeze({
 		iron_rush = GIANT,
 		titanheart = GIANT,
 		skyboulder = GIANT,
-		boiling_crown = GIANT,
+		-- The largest unit: a little taller than the other giants, capped so a 3-star (x1.3 more) is
+		-- about a tile wide with its arms out (its look is gaunt: UnitLookConfig proportions).
+		boiling_crown = table.freeze({
+			prop = false,
+			arms = table.freeze({ 14, 14 }),
+			attackHand = "right",
+			scale = 1.22,
+			bulk = 1.3,
+		}),
 	}),
 
-	-- Placeholder horse under a mounted rider (RenderConfig.formLooks `mount` gives its color). It
-	-- faces the rider's front (-Z); the rider sits on its back with legs astride.
+	-- The horse under a mounted rider (built by src/client/HorseKit.luau; its colors and markings per
+	-- rider are in HorseLookConfig, with RenderConfig.formLooks `mount` as the coat of a rider with
+	-- none). It faces the rider's front (-Z); the rider sits in the saddle with legs astride. Sizes
+	-- are fractions of the rider's height; angles in degrees.
 	horse = table.freeze({
 		backHeight = 0.42, -- top of the body, where the rider sits
 		bodyLength = 0.78,
@@ -198,15 +241,15 @@ return table.freeze({
 		bodyHeight = 0.20,
 		legWidth = 0.075,
 		legInset = 0.06, -- from the body's ends to the legs
-		neckLength = 0.30,
 		neckWidth = 0.11,
-		neckAngle = 35, -- forward tilt from upright
-		headLength = 0.24,
-		headSize = 0.11,
-		tailLength = 0.26,
+		neckLower = 0.17, -- the neck rises in two segments, the upper more upright: an arch
+		neckUpper = 0.15,
+		neckAngle = 36, -- the lower segment's forward tilt from upright
+		neckArch = 22, -- how much more upright the upper segment stands
+		headLength = 0.2,
+		headWidth = 0.11,
+		headTilt = 40, -- the head's nose-down tilt from level
 		tailWidth = 0.05,
-		tailAngle = 35, -- down from level
-		accentColor = Color3.fromRGB(55, 38, 25), -- tail
 		riderLegs = 70, -- rider's legs, raised forward
 		riderLegSplay = 22, -- and spread to straddle the body
 	}),

@@ -87,6 +87,17 @@ return table.freeze({
 	-- a placeholder horse of that color (FigureConfig.horse).
 	formHealthColor = Color3.fromRGB(230, 160, 60),
 	formChangeTextColor = Color3.fromRGB(255, 210, 120),
+	-- The puff of smoke when a unit changes into a form with its own look (FormLookConfig). Sizes
+	-- are fractions of the unit's height; lifetimes in seconds.
+	formPuff = table.freeze({
+		color = Color3.fromRGB(245, 245, 245),
+		lightEmission = 0.3,
+		transparency = 0.15,
+		count = 22,
+		size = table.freeze({ 0.22, 0.5 }),
+		lifetime = table.freeze({ 0.35, 0.6 }),
+		speed = table.freeze({ 3, 7 }),
+	}),
 	-- `scale` draws the unit larger (a giant form) and `tint` recolors its body; both are placeholders
 	-- for each form's art. Form names are shared across characters, so they must be unique.
 	formLooks = table.freeze({

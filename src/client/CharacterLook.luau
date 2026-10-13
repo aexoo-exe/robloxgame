@@ -1,9 +1,12 @@
 -- What players see of a unit type: its name, body color, size multiplier and figure look (Figure).
 -- Characters: their SkinConfig name, color and optional model, their first class's prop
 -- (FigureConfig.classes) unless their FigureConfig.characters override changes the prop, size,
--- bulk or attack pose, and a ring in their cost's color (RenderConfig.costColors). Creeps and
--- bosses: their theme's look (PveThemeConfig), drawn as hunched figures with no prop or ring.
--- Presentation only.
+-- bulk or attack pose, and a ring in their cost's color (RenderConfig.costColors). A character with
+-- a hand-built look (UnitLookConfig) is drawn from it instead of the placeholder; the look can
+-- also set the attack hand, resting arms, scale and bulk. A character with a catalog avatar
+-- (UnitAvatarConfig) is drawn as that avatar once the server has it ready (Figure, UnitAvatars),
+-- falling back to its look or placeholder. Creeps and bosses: their theme's look
+-- (PveThemeConfig), drawn as hunched figures with no prop or ring. Presentation only.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -13,6 +16,10 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
+local FormLookConfig = require(Shared:WaitForChild("FormLookConfig"))
+local UnitAvatarConfig = require(Shared:WaitForChild("UnitAvatarConfig"))
+local UnitModelConfig = require(Shared:WaitForChild("UnitModelConfig"))
+local UnitLookConfig = require(Shared:WaitForChild("UnitLookConfig"))
 
 local Figure = require(script.Parent.Figure)
 
@@ -32,26 +39,53 @@ end
 local cache: { [string]: CharacterLook } = {}
 
 -- A character's prop and arm look: its first class's, changed by its FigureConfig.characters
--- override (prop, arms, attackHand) if it has one.
-local function classLookOf(character, override): any
+-- override (prop, arms, attackHand) if it has one, then by its UnitLookConfig look and its
+-- UnitAvatarConfig avatar (hand, arms).
+local function classLookOf(character, override, unitLook, avatar): any
 	local classLook = FigureConfig.classes[character.classes[1]]
-	if not override then
-		return classLook
+	if override then
+		local prop = override.prop
+		if prop == false then
+			classLook = { hand = "right", arms = { 0, 0 }, parts = {} }
+		elseif type(prop) == "string" then
+			classLook = FigureConfig.classes[prop]
+		elseif type(prop) == "table" then
+			classLook = prop
+		end
+		if override.arms or override.attackHand then
+			classLook = table.clone(classLook)
+			classLook.arms = override.arms or classLook.arms
+			classLook.hand = override.attackHand or classLook.hand
+		end
 	end
-	local prop = override.prop
-	if prop == false then
-		classLook = { hand = "right", arms = { 0, 0 }, parts = {} }
-	elseif type(prop) == "string" then
-		classLook = FigureConfig.classes[prop]
-	elseif type(prop) == "table" then
-		classLook = prop
-	end
-	if override.arms or override.attackHand then
-		classLook = table.clone(classLook)
-		classLook.arms = override.arms or classLook.arms
-		classLook.hand = override.attackHand or classLook.hand
+	for _, source in { unitLook or false, avatar or false } do
+		if source and (source.arms or source.hand) then
+			classLook = table.clone(classLook)
+			classLook.arms = source.arms or classLook.arms
+			classLook.hand = source.hand or classLook.hand
+		end
 	end
 	return classLook
+end
+
+-- An avatar's weapons: its UnitAvatarConfig `weapons`, else its hand-built look's (false: none).
+local function avatarWeapons(avatar, unitLook): { any }?
+	if not avatar or avatar.weapons == false then
+		return nil
+	end
+	return avatar.weapons or (if unitLook then unitLook.weapons else nil)
+end
+
+-- An avatar's block-built pieces: its UnitAvatarConfig `outfit`, else its hand-built look's
+-- tendrils if it has any.
+local function avatarOutfit(avatar, unitLook): any?
+	if not avatar then
+		return nil
+	end
+	if avatar.outfit then
+		return avatar.outfit
+	end
+	return if unitLook and unitLook.tendrils then { tendrils = unitLook.tendrils } else nil
 end
 
 function CharacterLook.of(unitType: string): CharacterLook
@@ -64,17 +98,41 @@ function CharacterLook.of(unitType: string): CharacterLook
 	if character then
 		local skin = SkinConfig[unitType]
 		local override = FigureConfig.characters[unitType]
+		local unitLook = UnitLookConfig[unitType]
+		local avatar = UnitAvatarConfig.units[unitType]
+		local modelConfig = UnitModelConfig[unitType]
+		local scale = if override and override.scale then override.scale else 1
+		if unitLook and unitLook.scale then
+			scale *= unitLook.scale
+		end
+		if avatar and avatar.scale then
+			scale *= avatar.scale
+		end
+		local bulk = if override then override.bulk else nil
+		if not bulk and unitLook then
+			bulk = unitLook.bulk
+		end
 		look = {
 			name = skin.name,
 			color = rgb(skin.color),
-			scale = if override and override.scale then override.scale else 1,
+			scale = scale,
 			figure = {
 				style = "roster",
-				classLook = classLookOf(character, override),
+				classLook = classLookOf(character, override, unitLook, avatar),
 				ringColor = RenderConfig.costColors[character.cost],
 				model = skin.model,
-				bulk = if override then override.bulk else nil,
+				bulk = bulk,
 				attackPose = if override then override.attackPose else nil,
+				unitLook = unitLook,
+				avatar = if avatar then unitType else nil,
+				avatarProp = avatar ~= nil and avatar.prop == true,
+				avatarWeapons = avatarWeapons(avatar, unitLook),
+				avatarOutfit = avatarOutfit(avatar, unitLook),
+				unitType = unitType,
+				formLooks = FormLookConfig[unitType],
+				modelKey = if modelConfig then modelConfig.model else nil,
+				modelOutfit = if modelConfig then modelConfig.outfit else nil,
+				formModels = if modelConfig then modelConfig.forms else nil,
 			},
 		}
 	else
@@ -88,6 +146,39 @@ function CharacterLook.of(unitType: string): CharacterLook
 	end
 	cache[unitType] = look
 	return look
+end
+
+-- The figure look of a unit in form `formName`: the form's store model (UnitModelConfig `forms`,
+-- falling back to its LookKit look if the model data is missing) or its own look
+-- (FormLookConfig), drawn in place of the base figure (catalog avatar, hand-built look or
+-- placeholder), or the base figure itself when the form has neither. Also returns whether the form
+-- has a look of its own, and its extra size multiplier (on top of RenderConfig.formLooks `scale`).
+local formFigures: { [any]: { [string]: Figure.Look } } = {}
+function CharacterLook.formFigure(base: Figure.Look, formName: string?): (Figure.Look, boolean, number)
+	local formModel = if formName and base.formModels then base.formModels[formName] else nil
+	local formLook = if formName and base.formLooks then base.formLooks[formName] else nil
+	if not formModel and not formLook then
+		return base, false, 1
+	end
+	local extraScale = if formModel then formModel.scale or 1 else formLook.scale or 1
+	local byForm = formFigures[base]
+	if not byForm then
+		byForm = {}
+		formFigures[base] = byForm
+	end
+	local figure = byForm[formName :: string]
+	if not figure then
+		figure = table.clone(base)
+		figure.avatar = nil
+		figure.avatarWeapons = nil
+		figure.avatarOutfit = nil
+		figure.unitLook = formLook
+		figure.modelKey = if formModel then formModel.model else nil
+		figure.modelOutfit = if formModel then formModel.outfit else nil
+		figure.bulk = if formLook and formLook.bulk then formLook.bulk else base.bulk
+		byForm[formName :: string] = figure
+	end
+	return figure, true, extraScale
 end
 
 -- Summons: a plain figure in their summoner's body color, smaller and see-through (UnitView).

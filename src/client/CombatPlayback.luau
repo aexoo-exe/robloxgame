@@ -129,6 +129,7 @@ local function play(playback)
 				formHealth = unit.formHealth,
 				maxFormHealth = unit.maxFormHealth,
 				formLook = formLook(form),
+				formName = if form then form.name else nil,
 				starPips = character, -- creeps and bosses have no star level to show
 				clock = fightNow,
 				items = unit.items,
@@ -358,7 +359,7 @@ local function play(playback)
 			local unit = unitsByIndex[event.unit]
 			local form = formOf(unit.unitType, event.formIndex)
 			local look = formLook(form)
-			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth)
+			UnitView.setForm(view, look, event.formHealth, event.maxFormHealth, if form then form.name else nil)
 			UnitView.setHealth(view, event.health)
 			local stats = Pve.unitType(unit.unitType)
 			info[event.unit].moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed")

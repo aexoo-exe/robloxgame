@@ -24,6 +24,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FigureConfig = require(Shared:WaitForChild("FigureConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
+local CharacterLook = require(script.Parent.CharacterLook)
 local Figure = require(script.Parent.Figure)
 local ItemIcon = require(script.Parent.ItemIcon)
 
@@ -107,7 +108,10 @@ export type UnitView = {
 	shownMaterial: Enum.Material?,
 	shownTransparency: number,
 	baseTransparency: number, -- see-through for summons
-	figureLook: any, -- the Figure look, kept to rebuild the figure at another size
+	figureLook: any, -- the unit's base Figure look, kept to rebuild the figure at another size or form
+	shownLook: any, -- the Figure look drawn now (the base, or the current form's own look)
+	formName: string?, -- the current form (UnitConfig forms), if any
+	puff: ParticleEmitter?, -- the form-change puff, made on first use
 	baseSize: Vector3, -- the hitbox size before any form scale
 	boardHeight: number, -- the overhead display's height in studs
 	formScale: number, -- the current form's size multiplier (RenderConfig.formLooks `scale`)
@@ -127,6 +131,7 @@ export type Options = {
 	formHealth: number?, -- the starting form's health pool; with maxFormHealth, adds the pool bar
 	maxFormHealth: number?,
 	formLook: any?, -- the starting form's RenderConfig.formLooks entry
+	formName: string?, -- the starting form's name (its own look, if it has one: FormLookConfig)
 	starPips: boolean?, -- show star pips (default true; creeps, bosses and summons pass false)
 	clock: (() -> number)?, -- time source for every animation (default os.clock)
 	items: { string }?, -- equipped item ids: a row of item icons over the health bar
@@ -393,6 +398,9 @@ function UnitView.new(
 		shownTransparency = baseTransparency,
 		baseTransparency = baseTransparency,
 		figureLook = look,
+		shownLook = look,
+		formName = nil,
+		puff = nil,
 		baseSize = part.Size,
 		boardHeight = boardHeight,
 		formScale = 1,
@@ -403,8 +411,8 @@ function UnitView.new(
 		withItems[view] = true
 	end
 	UnitView.setMana(view, options.mana or 0)
-	if options.formLook or options.maxFormHealth then
-		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth)
+	if options.formLook or options.maxFormHealth or options.formName then
+		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth, options.formName)
 	end
 	UnitView.update(view, view.clock(), 0)
 	return view
@@ -421,15 +429,46 @@ function UnitView.setFormHealth(view: UnitView, formHealth: number?)
 	end
 end
 
--- Rebuilds the figure `scale` times its normal size (a giant form), keeping it standing where it is.
-local function rescale(view: UnitView, scale: number)
-	if view.formScale == scale or view.dyingSince then
-		return
+-- A quick puff of smoke around the unit, as it changes into a form with its own look.
+local function puff(view: UnitView)
+	local emitter = view.puff
+	if not emitter then
+		local config = RenderConfig.formPuff
+		local made = Instance.new("ParticleEmitter")
+		made.Texture = "rbxasset://textures/particles/smoke_main.dds" -- built into Roblox
+		made.Color = ColorSequence.new(config.color)
+		made.LightEmission = config.lightEmission
+		made.Transparency = NumberSequence.new(config.transparency, 1)
+		made.Lifetime = NumberRange.new(config.lifetime[1], config.lifetime[2])
+		made.Speed = NumberRange.new(config.speed[1], config.speed[2])
+		made.SpreadAngle = Vector2.new(180, 180)
+		made.RotSpeed = NumberRange.new(-90, 90)
+		made.Rate = 0
+		made.Enabled = false
+		made.Parent = view.part
+		view.puff = made
+		emitter = made
+	end
+	local height = view.part.Size.Y
+	local config = RenderConfig.formPuff
+	emitter.Size = NumberSequence.new(height * config.size[1], height * config.size[2])
+	emitter:Emit(config.count)
+end
+
+-- Redraws the figure with `figureLook` (a form's own look, or the unit's base look) `scale` times
+-- its normal size (a giant form), keeping it standing where it is. Returns true if it redrew.
+local function redraw(view: UnitView, figureLook: any, scale: number): boolean
+	if (view.formScale == scale and view.shownLook == figureLook) or view.dyingSince then
+		return false
 	end
 	view.formScale = scale
+	view.shownLook = figureLook
 	local old = view.figure
 	for i = #old.pieces, 2, -1 do -- piece 1 is the hitbox itself
 		old.pieces[i].part:Destroy()
+	end
+	if old.avatar then
+		old.avatar:Destroy() -- its Humanoid, clothing and Highlight
 	end
 	local oldHeight = view.part.Size.Y
 	view.part.Size = view.baseSize * scale
@@ -437,7 +476,7 @@ local function rescale(view: UnitView, scale: number)
 	view.base += lift
 	view.moveFrom += lift
 	view.moveTo += lift
-	view.figure = Figure.new(view.figureLook, old.color, view.part.Size.Y, view.part, view.baseTransparency)
+	view.figure = Figure.new(figureLook, old.color, view.part.Size.Y, view.part, view.baseTransparency)
 	view.shownTransparency = -1 -- reapply on the next update
 	view.shownColor, view.shownMaterial = nil, nil
 	view.infoBoard.StudsOffset = Vector3.new(0, view.part.Size.Y / 2 + OVERHEAD.aboveHead + view.boardHeight / 2, 0)
@@ -445,16 +484,27 @@ local function rescale(view: UnitView, scale: number)
 		local size = view.part.Size
 		view.bubble.Size = Vector3.one * math.max(size.X, size.Y, size.Z) * RenderConfig.shieldBubbleScale
 	end
+	return true
 end
 
--- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for none) and its health
--- pool (nil if it has none). A look with a `mount` color puts the unit on a placeholder horse; any
--- other look removes the horse. A `scale` redraws the unit larger or smaller, and a `tint` recolors
--- its body (placeholders for each form's art).
-function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFormHealth: number?)
+-- Switches to a new form: its look (a RenderConfig.formLooks entry, or nil for none), its health
+-- pool (nil if it has none) and its name (UnitConfig forms). A look with a `mount` color puts the
+-- unit on a placeholder horse; any other look removes the horse. A `scale` redraws the unit larger
+-- or smaller. A form with its own look (FormLookConfig) is drawn as that look in place of the
+-- unit's base figure, with a puff of smoke; a form without one keeps the base figure and its `tint`
+-- recolors the body (a placeholder for the form's art).
+function UnitView.setForm(view: UnitView, look: any?, formHealth: number?, maxFormHealth: number?, formName: string?)
 	local mount = if look and not view.dyingSince then look.mount else nil
-	rescale(view, if look and look.scale then look.scale else 1)
-	view.figure.color = if look and look.tint then look.tint else view.color
+	local figureLook, ownLook, extraScale = CharacterLook.formFigure(view.figureLook, formName)
+	local lookChanged = figureLook ~= view.shownLook
+	local redrawn = redraw(view, figureLook, (if look and look.scale then look.scale else 1) * extraScale)
+	if redrawn and lookChanged and view.formName ~= nil then
+		puff(view)
+	end
+	view.formName = formName
+	local tint = if look and not ownLook then look.tint else nil
+	view.figure.color = tint or view.color
+	view.figure.formTint = tint
 	Figure.setTint(view.figure, nil)
 	view.shownColor, view.shownMaterial = nil, nil
 	Figure.setMount(view.figure, mount)

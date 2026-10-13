@@ -4,8 +4,8 @@
 --   * small floating islets that bob, placed away from every walkable area
 --   * gentle motion on tagged hub parts: banners sway, lantern flames flicker, the portal pulses
 --   * two figures looping a sparring bout in the training yard's ring
---   * a statue on every roster gallery plinth (the unit's placeholder figure and character look,
---     from Figure and CharacterLook) and the item pictogram over every shrine pedestal (ItemIcon)
+--   * a statue on every roster gallery plinth (the unit's figure and character look, from Figure
+--     and CharacterLook, at low detail) and the item pictogram over every shrine pedestal (ItemIcon)
 -- The plinths and pedestals are built by the server (HubBuilder) and carry UnitType / ItemId
 -- attributes. The clouds, rocks and icons exist only while the player is in the hub
 -- (HubScenery.setActive), and only animate then; statues stay put far from the arena.
@@ -20,6 +20,7 @@ local HubConfig = require(Shared:WaitForChild("HubConfig"))
 local CharacterLook = require(script.Parent.CharacterLook)
 local Figure = require(script.Parent.Figure)
 local ItemIcon = require(script.Parent.ItemIcon)
+local UnitAvatars = require(script.Parent.UnitAvatars)
 
 local HubScenery = {}
 
@@ -141,11 +142,7 @@ local function buildRocks()
 end
 
 -- A statue on a plinth: the unit's figure at rest, facing the way the plinth faces.
-local function addStatue(plinth: Instance)
-	local unitType = plinth:GetAttribute("UnitType")
-	if not plinth:IsA("BasePart") or type(unitType) ~= "string" then
-		return
-	end
+local function buildStatue(plinth: BasePart, unitType: string)
 	local look = CharacterLook.of(unitType)
 	local height = HubConfig.gallery.statueHeight * look.scale
 	local root = plinth.CFrame * CFrame.new(0, plinth.Size.Y / 2, 0)
@@ -158,7 +155,10 @@ local function addStatue(plinth: Instance)
 	hitbox.Transparency = 1
 	hitbox.Size = Vector3.new(2, height, 2)
 	hitbox.Parent = statues
-	local figure = Figure.new(look.figure, look.color, height, hitbox)
+	-- Statues leave out a hand-built look's fine details: 42 of them stand in the hub at once.
+	local figureLook = table.clone(look.figure)
+	figureLook.detail = "low"
+	local figure = Figure.new(figureLook, look.color, height, hitbox)
 	Figure.place(figure, root * CFrame.new(0, height / 2, 0), root, {
 		bob = 0,
 		lean = 0,
@@ -169,6 +169,24 @@ local function addStatue(plinth: Instance)
 		rightLeg = 0,
 		stride = 0,
 	})
+end
+
+-- A unit with a catalog avatar waits for it (ready or failed, at most AVATAR_WAIT seconds) so the
+-- statue is built once, as the avatar or as the fallback.
+local AVATAR_WAIT = 30
+
+local function addStatue(plinth: Instance)
+	local unitType = plinth:GetAttribute("UnitType")
+	if not plinth:IsA("BasePart") or type(unitType) ~= "string" then
+		return
+	end
+	if CharacterLook.of(unitType).figure.avatar then
+		UnitAvatars.whenSettled(unitType, AVATAR_WAIT, function()
+			buildStatue(plinth, unitType)
+		end)
+	else
+		buildStatue(plinth, unitType)
+	end
 end
 
 -- The item's pictogram floating over its pedestal.
