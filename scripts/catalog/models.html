@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Picker</title>
+<!--
+  Template for the local Creator Store models picker. scripts/model-shortlist.luau copies it to
+  docs/references/catalog/models.html next to models-data.js and the thumbnails (models/<unit>/).
+  Open that copy in a browser. Picks are kept in this browser until exported.
+-->
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d22; --dim: #6b6a70; --line: #dcd8d0;
+    --accent: #2f6fdb; --pick: #1f9d55; --pick-bg: #e6f6ec; --warn: #b5541c; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171b; --panel: #222228; --ink: #ececf0; --dim: #9a99a3; --line: #34343c;
+      --accent: #6aa0ff; --pick: #4cc483; --pick-bg: #1d3328; --warn: #f0a36b; --bad: #ff8a7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; }
+  header .counts { color: var(--dim); }
+  header a { color: var(--accent); }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .help { color: var(--dim); font-size: 12px; flex-basis: 100%; }
+  .errors { margin: 12px 16px 0; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 8px; background: #fdecea; color: #7a1c12; font-size: 13px; }
+  .errors ul { margin: 4px 0 0; padding-left: 18px; }
+  @media (prefers-color-scheme: dark) { .errors { background: #3a1a17; color: #f6b3aa; } }
+  main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+  .entry { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 18px; padding: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .entry.broken { border-color: var(--bad); }
+  .side { width: 220px; max-width: 100%; }
+  .side img { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+  .side h2 { margin: 8px 0 2px; font-size: 17px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  .side .sub { color: var(--dim); font-size: 12px; }
+  .side ol { margin: 8px 0 0; padding-left: 20px; font-size: 12px; }
+  .cards { flex: 1; min-width: 280px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; align-content: start; }
+  .card { border: 2px solid var(--line); border-radius: 8px; padding: 6px; cursor: pointer; background: var(--panel); position: relative; }
+  .card:hover { border-color: var(--accent); }
+  .card.on { border-color: var(--pick); background: var(--pick-bg); }
+  .rank { position: absolute; top: 8px; left: 8px; background: var(--pick); color: #fff; font-weight: 700; width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; }
+  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--bg); border-radius: 6px; }
+  .card .missing { width: 100%; aspect-ratio: 1; display: grid; place-items: center; color: var(--dim); background: var(--bg); border-radius: 6px; font-size: 12px; }
+  .card .title { font-size: 12px; font-weight: 600; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .meta { font-size: 11px; color: var(--dim); }
+  .card a { color: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); margin: 2px 4px 0 0; }
+  .tag.ok { color: var(--pick); border-color: var(--pick); }
+  .tag.warn { color: var(--warn); border-color: var(--warn); }
+  .empty { color: var(--dim); font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Model picker</h1>
+  <span class="counts" id="counts"></span>
+  <label><input type="checkbox" id="unpicked"> Only entries with no picks</label>
+  <button class="primary" id="export">Export picks</button>
+  <button id="reset" title="Forget the picks made in this browser">Clear picks</button>
+  <a href="index.html">Avatar picker</a>
+  <div class="help">Free Creator Store models. Click up to 3 candidates per entry; the order you click is the rank (click again to drop one).
+    Models with scripts are not run: their scripts are deleted when a pick is vetted in Studio. Prefer models split into limbs (head, torso, arms, legs; for horses body, head, legs).
+    <b>Export picks</b> saves models-picks.json (usually to Downloads).</div>
+</header>
+<div id="errors" class="errors" hidden></div>
+<main id="main"></main>
+<script src="models-data.js"></script>
+<script>
+(function () {
+  "use strict";
+  var STORE = "modelPicker.picks.v1";
+  var MAX_PICKS = 3;
+  var main = document.getElementById("main");
+  var errorBox = document.getElementById("errors");
+  var problems = [];
+  function report(message) {
+    if (problems.indexOf(message) !== -1) return;
+    problems.push(message);
+    errorBox.hidden = false;
+    errorBox.innerHTML = "";
+    var title = document.createElement("b");
+    title.textContent = problems.length === 1 ? "Problem:" : problems.length + " problems:";
+    errorBox.appendChild(title);
+    var ul = document.createElement("ul");
+    problems.forEach(function (p) { var li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
+    errorBox.appendChild(ul);
+  }
+  window.addEventListener("error", function (e) {
+    report("Script error" + (e.filename ? " in " + e.filename.split("/").pop() : "") + (e.lineno ? " line " + e.lineno : "") + ": " + e.message);
+  });
+  // A list from the data: an array, an object of values (Lune writes an empty list as {}), or nothing.
+  function list(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") return Object.keys(value).map(function (k) { return value[k]; });
+    return [];
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  var data = window.MODELS;
+  if (!data) {
+    report("models-data.js did not load (missing next to models.html, or a syntax error). Rebuild it: lune run scripts/model-shortlist --page");
+    main.appendChild(el("p", "empty", "No data to show."));
+    return;
+  }
+  var entries = list(data.entries).filter(function (e) { return e && typeof e.key === "string"; });
+  if (entries.length === 0) {
+    report("models-data.js has no entries. Rebuild it: lune run scripts/model-shortlist --page");
+    return;
+  }
+
+  var picks = {};
+  try { picks = JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch (e) { picks = {}; }
+  entries.forEach(function (e) { picks[e.key] = list(picks[e.key]).map(Number).filter(Boolean).slice(0, MAX_PICKS); });
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(picks)); } catch (e) { /* private window */ } }
+
+  function toggle(key, id) {
+    var p = picks[key];
+    var at = p.indexOf(id);
+    if (at !== -1) p.splice(at, 1);
+    else if (p.length < MAX_PICKS) p.push(id);
+    else { report("Up to " + MAX_PICKS + " picks per entry: drop one first (" + key + ")."); return; }
+    save();
+    render();
+  }
+
+  function thumb(entry, id) {
+    var img = el("img"); img.loading = "lazy"; img.alt = String(id);
+    img.src = "models/" + entry.unit + "/" + id + ".png";
+    img.onerror = function () { img.replaceWith(el("div", "missing", "no thumbnail")); };
+    return img;
+  }
+
+  function card(entry, it) {
+    var rank = picks[entry.key].indexOf(Number(it.id));
+    var c = el("div", "card" + (rank !== -1 ? " on" : ""));
+    c.title = "Click to pick (the click order is the rank) or to drop";
+    if (rank !== -1) c.appendChild(el("div", "rank", String(rank + 1)));
+    c.appendChild(thumb(entry, it.id));
+    c.appendChild(el("div", "title", it.name || "?"));
+    var meta = el("div", "meta");
+    var a = el("a", null, String(it.id)); a.href = "https://create.roblox.com/store/asset/" + it.id; a.target = "_blank"; a.rel = "noopener";
+    a.onclick = function (e) { e.stopPropagation(); };
+    meta.appendChild(a);
+    meta.appendChild(document.createTextNode(" · by " + (it.creator || "?")));
+    c.appendChild(meta);
+    var tags = el("div");
+    if (it.verified) tags.appendChild(el("span", "tag ok", "verified"));
+    tags.appendChild(el("span", "tag", "▲ " + (it.upVotes || 0) + (it.upPercent != null ? " (" + it.upPercent + "%)" : "")));
+    tags.appendChild(el("span", "tag" + (it.scripts > 0 ? " warn" : " ok"), it.scripts > 0 ? it.scripts + " scripts (deleted on vetting)" : "no scripts"));
+    if (it.meshParts) tags.appendChild(el("span", "tag", it.meshParts + " MeshParts"));
+    if (it.triangles) tags.appendChild(el("span", "tag" + (it.triangles > 20000 ? " warn" : ""), Math.round(it.triangles / 1000) + "k tris"));
+    if (it.updated) tags.appendChild(el("span", "tag", "updated " + String(it.updated).slice(0, 10)));
+    c.appendChild(tags);
+    c.onclick = function () { toggle(entry.key, Number(it.id)); };
+    return c;
+  }
+
+  function renderEntry(entry) {
+    var section = el("section", "entry"); section.id = entry.key;
+    var side = el("div", "side");
+    if (entry.reference) { var ref = el("img"); ref.src = entry.reference; ref.alt = entry.key + " reference"; side.appendChild(ref); }
+    side.appendChild(el("h2", null, entry.key));
+    side.appendChild(el("div", "sub", entry.unit + (entry.form ? " · " + entry.form : "") + (entry.kind === "horse" ? " · needs body, head and four legs" : " · needs head, torso, arms, legs")));
+    var chosen = picks[entry.key];
+    if (chosen.length) {
+      var ol = el("ol");
+      chosen.forEach(function (id) { ol.appendChild(el("li", null, String(id))); });
+      side.appendChild(ol);
+    } else {
+      side.appendChild(el("p", "empty", "No picks yet."));
+    }
+    section.appendChild(side);
+    var cards = el("div", "cards");
+    var candidates = list(entry.candidates);
+    if (candidates.length === 0) cards.appendChild(el("p", "empty", entry.fetched ? "No free models found for these terms." : "Not searched yet: lune run scripts/model-shortlist " + entry.key));
+    candidates.forEach(function (it) { if (it && it.id) cards.appendChild(card(entry, it)); });
+    section.appendChild(cards);
+    return section;
+  }
+
+  var unpickedBox = document.getElementById("unpicked");
+  function render() {
+    var scroll = window.scrollY;
+    main.innerHTML = "";
+    var withPicks = 0;
+    entries.forEach(function (entry) {
+      var has = picks[entry.key].length > 0;
+      if (has) withPicks++;
+      if (unpickedBox.checked && has) return;
+      try {
+        main.appendChild(renderEntry(entry));
+      } catch (e) {
+        report("Entry " + entry.key + " failed to render: " + (e && e.message ? e.message : e));
+        var broken = el("section", "entry broken");
+        broken.appendChild(el("h2", null, entry.key));
+        main.appendChild(broken);
+      }
+    });
+    document.getElementById("counts").textContent = withPicks + " of " + entries.length + " entries picked · data from " + (data.generated || "?");
+    window.scrollTo(0, scroll);
+  }
+  unpickedBox.onchange = render;
+
+  document.getElementById("export").onclick = function () {
+    var out = {};
+    entries.forEach(function (e) { if (picks[e.key].length) out[e.key] = picks[e.key].slice(); });
+    var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "models-picks.json";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  };
+  document.getElementById("reset").onclick = function () {
+    if (!confirm("Forget the model picks made in this browser?")) return;
+    try { localStorage.removeItem(STORE); } catch (e) { /* ignore */ }
+    entries.forEach(function (e) { picks[e.key] = []; });
+    render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>
