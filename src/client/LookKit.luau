@@ -22,9 +22,10 @@ export type Spec = {
 	material: string,
 	tinted: boolean,
 	transparency: number, -- 0 for most parts (auras and steam are see-through)
+	emitter: any?, -- a soft particle stream from this (invisible) part: { rate, color, size } (steam)
 }
 
-type Options = { material: string?, fine: boolean?, plain: boolean?, transparency: number? }
+type Options = { material: string?, fine: boolean?, plain: boolean?, transparency: number?, emitter: any? }
 
 type Context = {
 	specs: { Spec },
@@ -75,11 +76,21 @@ local function add(
 		material = o.material or "SmoothPlastic",
 		tinted = not o.plain,
 		transparency = o.transparency or 0,
+		emitter = o.emitter,
 	})
 end
 
 -- Body ------------------------------------------------------------------------------------------
 
+-- The head block's size: a cube of the head size, or `headScale` (multipliers) times it.
+local function headSize(ctx: Context): Vector3
+	local scale = ctx.look.headScale or Vector3.one
+	return scale * ctx.hs
+end
+
+-- The standard body: torso, head, two-tone arms and legs. A look can leave out the arms or legs
+-- (`customArms`, `customLegs`) and build its own on the same anchors with extras, e.g. a crouching
+-- creature's bent legs; the anchors, and so every pose, stay the same.
 local function buildBody(ctx: Context)
 	local look, b, h = ctx.look, ctx.body, ctx.h
 	local coat = look.coat
@@ -91,12 +102,12 @@ local function buildBody(ctx: Context)
 		CF(0, b.torsoHeight / 2, 0),
 		if coat then coat.color else look.torso
 	)
-	add(ctx, "head", "Block", V(ctx.hs, ctx.hs, ctx.hs), CFrame.identity, look.skin)
+	add(ctx, "head", "Block", headSize(ctx), CFrame.identity, look.skin)
 
 	local armLength, armWidth = b.armLength, b.armWidth
 	local sleeve = look.sleeve or 0.8
 	local sleeveColor = look.sleeves or (if coat then coat.color else look.torso)
-	for _, side in SIDES do
+	for _, side in if look.customArms then {} else SIDES do
 		local anchor = side .. "Arm"
 		local top = armLength * sleeve
 		if top > 0 then
@@ -124,7 +135,7 @@ local function buildBody(ctx: Context)
 	local shoe = look.shoe or 0.16
 	local trousers = math.min(look.shorts or 1, 1 - shoe)
 	local wide = look.wideLegs or 1
-	for _, side in SIDES do
+	for _, side in if look.customLegs then {} else SIDES do
 		local anchor = side .. "Leg"
 		local top = legLength * trousers
 		add(ctx, anchor, "Block", V(legWidth * wide, top, legWidth * wide), CF(0, -top / 2, 0), look.pants)
@@ -156,7 +167,7 @@ end
 local function face(ctx: Context)
 	local f = ctx.look.face or {}
 	local hs = ctx.hs
-	local front = -ctx.hs / 2
+	local front = -headSize(ctx).Z / 2
 	local depth = hs * 0.05
 	local eyes = f.eyes or "open"
 	for i, side in SIDES do
@@ -800,6 +811,41 @@ local function coat(ctx: Context)
 	end
 end
 
+-- A copy of an extra mirrored across X (the figure's left-right), on `anchor`.
+local function mirrored(extra: any, anchor: string): any
+	local copy = table.clone(extra)
+	copy.anchor = anchor
+	copy.at = V(-extra.at.X, extra.at.Y, extra.at.Z)
+	if extra.to then
+		copy.to = V(-extra.to.X, extra.to.Y, extra.to.Z)
+	end
+	if extra.turn then
+		copy.turn = V(extra.turn.X, -extra.turn.Y, -extra.turn.Z)
+	end
+	return copy
+end
+
+-- Extras with their symmetric copies: `mirror = true` adds a copy mirrored across X on the same
+-- anchor; `limbs = "Arm"` or `"Leg"` puts the extra (written for the right limb, +X outward) on
+-- both limbs, mirrored for the left.
+local function expandExtras(extras: { any }?): { any }
+	local result = {}
+	for _, extra in extras or {} do
+		if extra.limbs then
+			local right = table.clone(extra)
+			right.anchor = "right" .. extra.limbs
+			table.insert(result, right)
+			table.insert(result, mirrored(extra, "left" .. extra.limbs))
+		else
+			table.insert(result, extra)
+			if extra.mirror then
+				table.insert(result, mirrored(extra, extra.anchor))
+			end
+		end
+	end
+	return result
+end
+
 local function accessories(ctx: Context)
 	local look, b, h, thin = ctx.look, ctx.body, ctx.h, ctx.thin
 	local tW, tH, tD = b.torsoWidth, b.torsoHeight, b.torsoDepth
@@ -966,21 +1012,35 @@ local function accessories(ctx: Context)
 			end
 		end
 	end
-	for _, extra in look.extras or {} do
-		local angles = extra.turn or Vector3.zero
+	for _, extra in expandExtras(look.extras) do
+		local size, offset
+		if extra.to then
+			-- A segment from `at` to `to`: its Z size is the distance between them.
+			local from, to = extra.at * h, extra.to * h
+			size = V(extra.size.X * h, extra.size.Y * h, (to - from).Magnitude)
+			offset = CFrame.lookAt((from + to) / 2, to)
+		else
+			local angles = extra.turn or Vector3.zero
+			size = extra.size * h
+			offset = CF(extra.at * h) * turn(angles.X, angles.Y, angles.Z)
+		end
+		add(ctx, extra.anchor, extra.shape, size, offset, extra.color, {
+			material = extra.material,
+			fine = extra.fine,
+			plain = extra.plain,
+			transparency = extra.transparency,
+		})
+	end
+	-- Steam (or any soft stream): an invisible part in the chest that emits see-through puffs.
+	if look.steam then
 		add(
 			ctx,
-			extra.anchor,
-			extra.shape,
-			extra.size * h,
-			CF(extra.at * h) * turn(angles.X, angles.Y, angles.Z),
-			extra.color,
-			{
-				material = extra.material,
-				fine = extra.fine,
-				plain = extra.plain,
-				transparency = extra.transparency,
-			}
+			"hips",
+			"Block",
+			V(b.torsoWidth * 0.8, b.torsoHeight * 0.8, b.torsoDepth * 0.8),
+			CF(0, b.torsoHeight * 0.55, 0),
+			Color3.new(1, 1, 1),
+			{ plain = true, transparency = 1, emitter = look.steam }
 		)
 	end
 end

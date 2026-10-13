@@ -14,7 +14,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FigureConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FigureConfig"))
+local HorseLookConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("HorseLookConfig"))
 
+local HorseKit = require(script.Parent.HorseKit)
 local LookKit = require(script.Parent.LookKit)
 local UnitAvatars = require(script.Parent.UnitAvatars)
 
@@ -77,6 +79,8 @@ export type Figure = {
 	avatar: Model?, -- the catalog avatar's model, if the figure is one
 	highlight: Highlight?, -- an avatar's flash, glow and selection (made on first use)
 	decals: { { decal: Decal, transparency: number } }, -- faded with the parts (an avatar's face)
+	emitters: { ParticleEmitter }, -- a look's steam; off while the figure is fading away
+	unitType: string?, -- the roster unit drawn (its horse's colors: HorseLookConfig)
 	color: Color3,
 	transparency: number,
 	isModel: boolean,
@@ -115,10 +119,33 @@ local function newPart(parent: Instance, shape: string, size: Vector3, color: Co
 	return part
 end
 
--- A part from a LookKit spec, with the spec's own transparency (recorded by addPiece for fades).
-local function specPart(parent: Instance, spec: LookKit.Spec): BasePart
+-- Soft see-through puffs drifting up from a part (a look's steam): built-in smoke texture, no light.
+local function emitter(part: BasePart, config: any, height: number): ParticleEmitter
+	local made = Instance.new("ParticleEmitter")
+	made.Texture = "rbxasset://textures/particles/smoke_main.dds" -- built into Roblox
+	made.Color = ColorSequence.new(config.color or Color3.new(1, 1, 1))
+	made.Transparency = NumberSequence.new(config.transparency or 0.55, 1)
+	local size = (config.size or 0.18) * height
+	made.Size = NumberSequence.new(size * 0.6, size * 1.6)
+	made.Lifetime = NumberRange.new(1.2, 2)
+	made.Speed = NumberRange.new(height * 0.12, height * 0.25)
+	made.SpreadAngle = Vector2.new(25, 25)
+	made.Acceleration = Vector3.new(0, height * 0.05, 0)
+	made.RotSpeed = NumberRange.new(-40, 40)
+	made.Rate = config.rate or 4
+	made.LightInfluence = 1
+	made.Parent = part
+	return made
+end
+
+-- A part from a LookKit spec, with the spec's own transparency (recorded by addPiece for fades) and
+-- its emitter, if any.
+local function specPart(parent: Instance, spec: LookKit.Spec, figure: any?): BasePart
 	local part = newPart(parent, spec.shape, spec.size, spec.color, spec.material)
 	part.Transparency = spec.transparency
+	if spec.emitter and figure then
+		table.insert(figure.emitters, emitter(part, spec.emitter, figure.height))
+	end
 	return part
 end
 
@@ -305,7 +332,7 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	-- glows, selection) covers them too, and they take form tints like the body.
 	if look.avatarOutfit then
 		for _, spec in LookKit.outfitSpecs(look.avatarOutfit, figure.body, figure.height, look.detail == "low") do
-			local part = specPart(model, spec)
+			local part = specPart(model, spec, figure)
 			addPiece(figure, part, spec.anchor, spec.offset)
 			if spec.tinted then
 				table.insert(figure.tinted, part)
@@ -320,7 +347,7 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	-- LookKit weapons worn with the avatar (UnitAvatarConfig `weapons`), on the same anchors.
 	if look.avatarWeapons then
 		for _, spec in LookKit.weaponSpecs(look.avatarWeapons, figure.body, figure.height, look.detail == "low") do
-			addPiece(figure, specPart(parent, spec), spec.anchor, spec.offset)
+			addPiece(figure, specPart(parent, spec, figure), spec.anchor, spec.offset)
 		end
 	end
 end
@@ -330,7 +357,7 @@ end
 local function buildLook(figure: Figure, look: Look, parent: Instance)
 	local specs = LookKit.specs(look.unitLook, figure.body, figure.height, look.detail == "low")
 	for _, spec in specs do
-		local part = specPart(parent, spec)
+		local part = specPart(parent, spec, figure)
 		addPiece(figure, part, spec.anchor, spec.offset)
 		if spec.tinted then
 			table.insert(figure.tinted, part)
@@ -351,12 +378,21 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		then FigureConfig.avatarBody
 		elseif pve then FigureConfig.pveBody
 		else FigureConfig.body
+	-- A hand-built look may set its own proportions (UnitLookConfig `proportions`: a giant's long
+	-- arms, a crouching creature's short legs). They are final: bulk does not widen them further.
+	local unitLook = if avatar then nil else look.unitLook
+	local custom = unitLook and unitLook.proportions
 	local body = {}
 	for key, value in proportions do
 		body[key] = value * height
 	end
+	if custom then
+		for key, value in custom do
+			body[key] = value * height
+		end
+	end
 	-- Bulk widens the torso and limbs, and the head a little (not an avatar: its rig is fixed).
-	local bulk = if avatar then 1 else look.bulk or 1
+	local bulk = if avatar or custom then 1 else look.bulk or 1
 	for _, key in { "torsoWidth", "torsoDepth", "armWidth", "legWidth", "legSpacing" } do
 		body[key] *= bulk
 	end
@@ -365,7 +401,7 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	local figure: Figure = {
 		height = height,
 		body = body,
-		lean = if pve then rad(FigureConfig.pveLean) else 0,
+		lean = if pve then rad(FigureConfig.pveLean) elseif unitLook and unitLook.lean then rad(unitLook.lean) else 0,
 		restArms = {
 			rad(if classLook then classLook.arms[1] else 0),
 			rad(if classLook then classLook.arms[2] else 0),
@@ -379,9 +415,11 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		baseMaterials = {},
 		formTint = nil,
 		unitLook = look.unitLook,
+		unitType = look.unitType,
 		avatar = nil,
 		highlight = nil,
 		decals = {},
+		emitters = {},
 		color = color,
 		transparency = transparency or 0,
 		isModel = false,
@@ -414,7 +452,9 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 	return figure
 end
 
--- Adds a placeholder horse in `color` under the figure, or removes it (nil).
+-- Puts the figure on its horse (HorseKit: the rider's HorseLookConfig colors and markings, with
+-- `color` as the coat when the rider has none), or takes it off (nil). The reins run to the
+-- rider's resting hands.
 function Figure.setMount(figure: Figure, color: Color3?)
 	for i = #figure.pieces, 1, -1 do
 		local piece = figure.pieces[i]
@@ -432,93 +472,29 @@ function Figure.setMount(figure: Figure, color: Color3?)
 
 	local c = FigureConfig.horse
 	local h = figure.height
+	local look = table.clone(HorseLookConfig.default)
+	for key, value in HorseLookConfig[figure.unitType or ""] or {} do
+		look[key] = value
+	end
+	look.coat = look.coat or color
+
+	-- The rider's resting hands in the horse body's space: its hips sit on the top of the back.
+	local b = figure.body
+	local hips = CFrame.new(0, c.bodyHeight * h / 2, 0)
+	local hands = {}
+	for i, x in { -1, 1 } do
+		local shoulder = hips
+			* CFrame.new(x * (b.torsoWidth + b.armWidth) / 2, b.torsoHeight - b.armWidth / 2, 0)
+			* CFrame.Angles(figure.restArms[i], 0, 0)
+		hands[i] = (shoulder * CFrame.new(0, -(b.handReach or b.armLength), 0)).Position
+	end
+
+	local horse = HorseKit.build(look, c, h, hands)
 	local parent = figure.parts[1]
-	local bodyLength, bodyWidth, bodyHeight = c.bodyLength * h, c.bodyWidth * h, c.bodyHeight * h
-	local seat = c.backHeight * h
-	local legWidth = c.legWidth * h
-	local legLength = seat - bodyHeight + legWidth / 2
-	local function piece(size: Vector3, anchor: string, offset: CFrame, pieceColor: Color3?)
-		addPiece(figure, newPart(parent, "Block", size, pieceColor or color), anchor, offset, true)
+	for _, spec in horse.specs do
+		addPiece(figure, specPart(parent, spec), spec.anchor, spec.offset, true)
 	end
-
-	piece(Vector3.new(bodyWidth, bodyHeight, bodyLength), "horse", CFrame.identity)
-	local joints = {}
-	for _, z in { -1, 1 } do -- front (-Z), then back
-		for _, x in { -1, 1 } do
-			local joint = Vector3.new(
-				x * (bodyWidth - legWidth) / 2,
-				-bodyHeight / 2 + legWidth / 4,
-				z * (bodyLength / 2 - c.legInset * h)
-			)
-			table.insert(joints, joint)
-			piece(
-				Vector3.new(legWidth, legLength, legWidth),
-				HORSE_LEG_ANCHORS[#joints],
-				CFrame.new(0, -legLength / 2, 0)
-			)
-		end
-	end
-
-	local neckLength, neckWidth = c.neckLength * h, c.neckWidth * h
-	local neckBase = CFrame.new(0, bodyHeight / 2 - neckWidth * 0.3, -bodyLength / 2 + neckWidth * 0.4)
-		* CFrame.Angles(-rad(c.neckAngle), 0, 0)
-	piece(Vector3.new(neckWidth, neckLength, neckWidth), "horse", neckBase * CFrame.new(0, neckLength / 2, 0))
-	local headLength, headSize = c.headLength * h, c.headSize * h
-	local head = neckBase
-		* CFrame.new(0, neckLength, 0)
-		* CFrame.Angles(rad(c.neckAngle - 30), 0, 0)
-		* CFrame.new(0, 0, -headLength / 2 + headSize * 0.3)
-	piece(Vector3.new(headSize, headSize, headLength), "horse", head)
-	local tailLength, tailWidth = c.tailLength * h, c.tailWidth * h
-	piece(
-		Vector3.new(tailWidth, tailLength, tailWidth),
-		"horse",
-		CFrame.new(0, bodyHeight / 2 - tailWidth, bodyLength / 2)
-			* CFrame.Angles(-rad(90 - c.tailAngle), 0, 0)
-			* CFrame.new(0, -tailLength / 2, 0),
-		c.accentColor
-	)
-
-	-- Mane, blanket, saddle, reins, a darker muzzle and ears, in the rider's colors (UnitLookConfig
-	-- `horse`) or FigureConfig.horse's.
-	local tack = (figure.unitLook and figure.unitLook.horse) or {}
-	piece(
-		Vector3.new(neckWidth * 0.45, neckLength * 0.95, neckWidth * 0.5),
-		"horse",
-		neckBase * CFrame.new(0, neckLength / 2, neckWidth * 0.4),
-		tack.mane or c.maneColor
-	)
-	piece(
-		Vector3.new(bodyWidth * 1.08, bodyHeight * 0.62, h * 0.28),
-		"horse",
-		CFrame.new(0, bodyHeight * 0.2, 0),
-		tack.blanket or c.blanketColor
-	)
-	piece(
-		Vector3.new(bodyWidth * 0.92, h * 0.045, h * 0.2),
-		"horse",
-		CFrame.new(0, bodyHeight / 2 + h * 0.02, 0),
-		tack.saddle or c.saddleColor
-	)
-	piece(
-		Vector3.new(headSize * 1.06, headSize * 0.8, headLength * 0.26),
-		"horse",
-		head * CFrame.new(0, -headSize * 0.08, -headLength * 0.38),
-		c.muzzleColor
-	)
-	for _, x in { -1, 1 } do
-		local bit = (head * CFrame.new(x * headSize * 0.52, -headSize * 0.1, -headLength * 0.2)).Position
-		local hold = Vector3.new(x * bodyWidth * 0.3, bodyHeight / 2 + h * 0.08, -h * 0.12)
-		piece(
-			Vector3.new(h * 0.012, h * 0.012, (hold - bit).Magnitude),
-			"horse",
-			CFrame.lookAt((bit + hold) / 2, hold),
-			c.reinColor
-		)
-		local ear = newPart(parent, "Wedge", Vector3.new(headSize * 0.15, headSize * 0.4, headSize * 0.25), color)
-		addPiece(figure, ear, "horse", head * CFrame.new(x * headSize * 0.3, headSize * 0.6, headLength * 0.35), true)
-	end
-	figure.horse = { seat = seat, bodyY = seat - bodyHeight / 2, joints = joints }
+	figure.horse = { seat = horse.seat, bodyY = horse.bodyY, joints = horse.joints }
 end
 
 -- Recolors the body (not the props, weapons, face, ring, visor or horse). nil restores the body
@@ -580,6 +556,9 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 	end
 	for _, entry in figure.decals do
 		entry.decal.Transparency = 1 - (1 - entry.transparency) * (1 - transparency)
+	end
+	for _, stream in figure.emitters do
+		stream.Enabled = transparency < 0.5
 	end
 	if figure.highlight and transparency >= 1 then
 		figure.highlight.Enabled = false

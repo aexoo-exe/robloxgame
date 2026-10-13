@@ -219,11 +219,21 @@ return table.freeze({
 		iron_rush = GIANT,
 		titanheart = GIANT,
 		skyboulder = GIANT,
-		boiling_crown = GIANT,
+		-- The largest unit: a little taller than the other giants, capped so a 3-star (x1.3 more) is
+		-- about a tile wide with its arms out (its look is gaunt: UnitLookConfig proportions).
+		boiling_crown = table.freeze({
+			prop = false,
+			arms = table.freeze({ 14, 14 }),
+			attackHand = "right",
+			scale = 1.22,
+			bulk = 1.3,
+		}),
 	}),
 
-	-- Placeholder horse under a mounted rider (RenderConfig.formLooks `mount` gives its color). It
-	-- faces the rider's front (-Z); the rider sits on its back with legs astride.
+	-- The horse under a mounted rider (built by src/client/HorseKit.luau; its colors and markings per
+	-- rider are in HorseLookConfig, with RenderConfig.formLooks `mount` as the coat of a rider with
+	-- none). It faces the rider's front (-Z); the rider sits in the saddle with legs astride. Sizes
+	-- are fractions of the rider's height; angles in degrees.
 	horse = table.freeze({
 		backHeight = 0.42, -- top of the body, where the rider sits
 		bodyLength = 0.78,
@@ -231,21 +241,15 @@ return table.freeze({
 		bodyHeight = 0.20,
 		legWidth = 0.075,
 		legInset = 0.06, -- from the body's ends to the legs
-		neckLength = 0.30,
 		neckWidth = 0.11,
-		neckAngle = 35, -- forward tilt from upright
-		headLength = 0.24,
-		headSize = 0.11,
-		tailLength = 0.26,
+		neckLower = 0.17, -- the neck rises in two segments, the upper more upright: an arch
+		neckUpper = 0.15,
+		neckAngle = 36, -- the lower segment's forward tilt from upright
+		neckArch = 22, -- how much more upright the upper segment stands
+		headLength = 0.2,
+		headWidth = 0.11,
+		headTilt = 40, -- the head's nose-down tilt from level
 		tailWidth = 0.05,
-		tailAngle = 35, -- down from level
-		accentColor = Color3.fromRGB(55, 38, 25), -- tail
-		-- Tack and details. A rider's UnitLookConfig `horse` can recolor the mane, blanket and saddle.
-		maneColor = Color3.fromRGB(55, 38, 25),
-		blanketColor = Color3.fromRGB(150, 45, 45),
-		saddleColor = Color3.fromRGB(72, 46, 28),
-		reinColor = Color3.fromRGB(40, 28, 20),
-		muzzleColor = Color3.fromRGB(80, 58, 42),
 		riderLegs = 70, -- rider's legs, raised forward
 		riderLegSplay = 22, -- and spread to straddle the body
 	}),
