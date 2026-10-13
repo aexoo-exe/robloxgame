@@ -39,7 +39,6 @@ local function rgb(r: number, g: number, b: number): Color3
 	return Color3.fromRGB(r, g, b)
 end
 local STEEL = rgb(205, 210, 220)
-local INK = rgb(20, 20, 26)
 
 local tuning = {
 	threefold_crash = {
@@ -107,10 +106,6 @@ local tuning = {
 		weapons = { { kind = "thinBlade", hand = "both", reverse = true, blade = STEEL, handle = rgb(60, 62, 66) } },
 		hand = "both",
 		arms = { 30, 30 },
-	},
-	-- snapfire: no hair item, so block-built neat black hair sized to the R6 head.
-	snapfire = {
-		outfit = { hair = { style = "neat", color = INK } },
 	},
 
 	-- Spirit ---------------------------------------------------------------------------------

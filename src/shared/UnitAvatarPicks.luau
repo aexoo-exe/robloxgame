@@ -243,6 +243,7 @@ return {
 	},
 	snapfire = {
 		accessories = {
+			{ slot = "Hair", id = 119220675144666 },
 			{ slot = "Face", id = 18446445352 },
 		},
 		shirt = 12356596660,
