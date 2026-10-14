@@ -14,7 +14,8 @@
 --   In a close-up:
 --   1        attack the dummy (the unit's attack style; melee or ranged by its range)
 --   2        a critical attack
---   3        cast: wind-up, release burst, ability hit on the dummy
+--   3        the unit's real ability, as a fight plays it, on a small field of dummies (lines,
+--            cones and areas show); each press shows its next cast (see `cast`)
 --   4        get hit (the dummy attacks the unit)
 --   5        stunned
 --   6        death (the unit comes back after a moment)
@@ -38,13 +39,20 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
+local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local CombatSim = require(Shared:WaitForChild("CombatSim"))
 local Forms = require(Shared:WaitForChild("Forms"))
+local Pve = require(Shared:WaitForChild("Pve"))
 local HubConfig = require(Shared:WaitForChild("HubConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local CharacterLook = require(script.Parent.CharacterLook)
+local AbilityFx = require(script.Parent.AbilityFx)
+local Arena = require(script.Parent.Arena)
 local CombatEffects = require(script.Parent.CombatEffects)
+local CombatPlayback = require(script.Parent.CombatPlayback)
 local CombatFx = require(script.Parent.CombatFx)
 local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
@@ -62,6 +70,17 @@ local STAGE = BASE + Vector3.new(0, 0, -40) -- the preview stage, in front of th
 local PREVIEW = AnimationConfig.preview
 local QUALITIES = { "low", "medium", "high" }
 local DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
+
+-- Key 3's preview fight (cast): the unit in its side's front middle cell and dummies across from
+-- it, in the dummies' own board coordinates (row 4 = their front): one in front, two beside it,
+-- three behind and one further back, so lines, cones and areas all have targets to show on.
+local FIELD_ORIGIN = STAGE + Vector3.new(0, 0, -60)
+local FIELD_UNIT = { 4, 4 }
+local FIELD_DUMMY = "placeholder_creep" -- a PvE creep's look; its stats are replaced
+local FIELD_DUMMIES = { { 4, 4 }, { 5, 4 }, { 3, 4 }, { 4, 3 }, { 5, 3 }, { 3, 3 }, { 4, 2 } }
+local FIELD_MANA = 12 -- the unit's mana bar in the preview fight (one attack fills most of it)
+local FIELD_SECONDS = 25 -- how long the preview fight runs
+local FIELD_AFTER = 3.5 -- seconds of the fight shown after the cast
 
 type Entry = {
 	unitType: string,
@@ -85,6 +104,9 @@ type Stage = {
 	autoCount: number,
 	nextAuto: number,
 	camera: CFrame,
+	stageCamera: CFrame, -- the stage's own framing (the camera returns to it after a field preview)
+	fieldPreview: Folder?, -- key 3's preview fight, while it is shown
+	castPresses: number,
 }
 
 local folder: Folder? = nil
@@ -106,7 +128,7 @@ local PREVIOUS_KEYS = { [Enum.KeyCode.Comma] = true, [Enum.KeyCode.LeftBracket] 
 local OVERVIEW_HELP = "L close   . / ] / Right: next   , / [ / Left: previous"
 local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
-	"1 attack   2 crit   3 cast   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
+	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
 	"9 auto loop   F form   X star level   Q quality",
 }, "\n")
 
@@ -301,6 +323,7 @@ local function spawnActors(s: Stage)
 	s.actor = actor
 	local middle = STAGE - Vector3.new(distance / 2, -HEIGHT * 0.45, 0)
 	s.camera = CFrame.lookAt(middle + Vector3.new(0, 2.5 + distance * 0.1, -(7 + distance * 0.75)), middle)
+	s.stageCamera = s.camera
 	print(
 		string.format(
 			"[DevLineup] %s %d-star, style %s (%s), form %s",
@@ -319,6 +342,9 @@ local function closeStage()
 		return
 	end
 	stage = nil
+	if s.fieldPreview then
+		CombatPlayback.stop()
+	end
 	CombatEffects.clear()
 	ImpactEffects.clear()
 	s.folder:Destroy() -- every view of the stage is inside it
@@ -351,6 +377,9 @@ local function openStage(unitType: string)
 		autoCount = 0,
 		nextAuto = 0,
 		camera = CFrame.identity,
+		stageCamera = CFrame.identity,
+		fieldPreview = nil,
+		castPresses = 0,
 	}
 	stage = s
 	spawnActors(s)
@@ -382,13 +411,14 @@ local function attack(s: Stage, crit: boolean)
 	end)
 end
 
--- The unit casts: wind-up, release, and an ability hit on the dummy.
-local function cast(s: Stage)
+-- A quick generic cast on the stage (the auto loop): wind-up, release and an ability hit on the
+-- dummy, in the unit's element color.
+local function quickCast(s: Stage)
 	local actor, dummy = s.actor, s.dummy
 	if not UnitView.isAlive(actor) then
 		return
 	end
-	local color = CombatFx.factionColor(s.unitType)
+	local color = AbilityFx.styleOf(s.unitType, CombatFx.factionColor(s.unitType)).primary
 	local now = os.clock()
 	local release = now + AnimationConfig.cast.windup
 	CombatFx.castWindup(actor, now, release, color)
@@ -403,6 +433,146 @@ local function cast(s: Stage)
 			abilityColor = color,
 		})
 	end)
+end
+
+-- The real ability (key 3) ------------------------------------------------------------------------
+
+-- Leaves the field preview: the playback ends and the stage's unit and dummy come back.
+local function endFieldPreview(s: Stage)
+	if not s.fieldPreview then
+		return
+	end
+	CombatPlayback.stop()
+	s.fieldPreview:Destroy()
+	s.fieldPreview = nil
+	s.actor.part.Parent = s.folder
+	s.dummy.part.Parent = s.folder
+	s.camera = s.stageCamera
+end
+
+-- Runs a short fight between the unit and FIELD_DUMMIES with CombatSim, on private copies of the
+-- stats (the unit's mana bar shortened so it casts after one attack, then every few attacks; the
+-- dummies tough, harmless and standing still). Nothing it runs reaches the server or any real
+-- fight. Returns the result, the unit's index and its Cast events, or nil if it never casts.
+local function fieldFight(s: Stage): (any?, number?, { any })
+	local stats = table.clone(UnitConfig[s.unitType])
+	stats.maxMana = math.min(stats.maxMana or FIELD_MANA, FIELD_MANA)
+	stats.startingMana = stats.maxMana - 1
+	local dummy = table.clone(Pve.pveUnitType(FIELD_DUMMY))
+	dummy.health = 1e6
+	dummy.attackDamage = 0
+	dummy.attacksPerSecond = 0.001
+	dummy.range = 12 -- every target in reach: dummies never walk
+	local dummies = {}
+	for i, cell in FIELD_DUMMIES do
+		table.insert(dummies, { id = "dummy" .. i, unitType = FIELD_DUMMY, column = cell[1], row = cell[2] })
+	end
+	local ok, result = pcall(CombatSim.run, {
+		boards = {
+			{
+				{
+					id = "unit",
+					unitType = s.unitType,
+					starLevel = s.starLevel,
+					column = FIELD_UNIT[1],
+					row = FIELD_UNIT[2],
+				},
+			},
+			dummies,
+		},
+		columns = BoardConfig.columns,
+		rows = BoardConfig.rows,
+		unitTypes = { [s.unitType] = stats, [FIELD_DUMMY] = dummy },
+		ticksPerSecond = CombatConfig.ticksPerSecond,
+		maxTicks = CombatConfig.ticksPerSecond * FIELD_SECONDS,
+		critChance = 0,
+		seed = 7,
+	})
+	if not ok then
+		warn("[DevLineup] the preview fight failed: " .. tostring(result))
+		return nil, nil, {}
+	end
+	local actorIndex, sides = nil, {}
+	for _, unit in result.units do
+		sides[unit.index] = unit.side
+		if unit.side == 1 then
+			actorIndex = unit.index
+		end
+	end
+	-- The dummies' own attacks and steps are left out of the playback.
+	local events, casts = {}, {}
+	for _, event in result.events do
+		local dummyAct = sides[event.unit] == 2 and (event.kind == "Attack" or event.kind == "Move")
+		if not dummyAct then
+			table.insert(events, event)
+			if event.kind == "Cast" and event.unit == actorIndex then
+				table.insert(casts, event)
+			end
+		end
+	end
+	result.events = events
+	return result, actorIndex, casts
+end
+
+-- Key 3: the unit's real ability, as a fight plays it, against several dummies on a small field so
+-- its lines, cones and areas show. Each press shows its next cast (forms that change with casts
+-- step up); the playback starts just before the cast's wind-up.
+local function cast(s: Stage)
+	endFieldPreview(s)
+	local result, _, casts = fieldFight(s)
+	if not result or #casts == 0 then
+		print("[DevLineup] " .. s.unitType .. " did not cast in the preview fight")
+		return
+	end
+	s.castPresses += 1
+	local index = (s.castPresses - 1) % #casts + 1
+	local castEvent = casts[index]
+	local ticks = result.ticksPerSecond
+	local castAt = castEvent.tick / ticks
+	-- Only this cast and what follows it for a few seconds.
+	local endTick = castEvent.tick + math.floor(FIELD_AFTER * ticks)
+	local kept = {}
+	for _, event in result.events do
+		if event.tick <= endTick then
+			table.insert(kept, event)
+		end
+	end
+	result.events = kept
+	result.endTick = endTick
+	result.winner = nil
+	local from = castAt - AbilityFx.windupLength(s.unitType) - 0.5
+
+	-- The small field: a floor under the arena cells, shifted so the unit's cell is FIELD_ORIGIN.
+	local fieldFolder = Instance.new("Folder")
+	fieldFolder.Name = "FieldPreview"
+	local offset = FIELD_ORIGIN - Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2])
+	local floor = Instance.new("Part")
+	floor.Anchored = true
+	floor.CanCollide = false
+	floor.CanQuery = false
+	floor.Size = Vector3.new(44, 1, 44)
+	local middle = Arena.cellPosition(4, BoardConfig.rows + 1) + offset
+	floor.CFrame = CFrame.new(middle - Vector3.new(0, 0.5, 0))
+	floor.Color = Color3.fromRGB(64, 68, 76)
+	floor.Material = Enum.Material.SmoothPlastic
+	floor.Parent = fieldFolder
+	fieldFolder.Parent = s.folder
+	s.fieldPreview = fieldFolder
+	s.actor.part.Parent = nil
+	s.dummy.part.Parent = nil
+	-- Frame the unit and the dummies from behind the unit's side, as the board camera does.
+	local focusPoint = FIELD_ORIGIN:Lerp(middle, 0.6)
+	s.camera = CFrame.lookAt(focusPoint + Vector3.new(0, 19, 24), focusPoint)
+	CombatPlayback.preview(result, fieldFolder, offset, from)
+	print(
+		string.format(
+			"[DevLineup] %s: cast %d of %d in the preview fight (at %.1f s)",
+			s.unitType,
+			index,
+			#casts,
+			castAt
+		)
+	)
 end
 
 -- The dummy attacks the unit.
@@ -510,7 +680,7 @@ local function updateStage(s: Stage, now: number, dt: number)
 		s.nextAuto = now + PREVIEW.interval
 		s.autoCount += 1
 		if s.autoCount % 6 == 0 then
-			cast(s)
+			quickCast(s)
 		else
 			attack(s, s.autoCount % 4 == 0)
 		end
@@ -525,7 +695,9 @@ local function updateStage(s: Stage, now: number, dt: number)
 			table.remove(s.dying, i)
 		end
 	end
-	CombatEffects.update(now)
+	if not s.fieldPreview then
+		CombatEffects.update(now) -- a field preview's playback updates its own effects
+	end
 	setCamera(s.camera * ImpactEffects.shakeOffset())
 end
 
@@ -818,6 +990,9 @@ function DevLineup.start()
 		elseif key == Enum.KeyCode.M and folder then
 			overview()
 		elseif stage and PREVIEW_KEYS[key] then
+			if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
+				endFieldPreview(stage)
+			end
 			PREVIEW_KEYS[key](stage)
 		end
 	end)

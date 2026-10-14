@@ -46,6 +46,7 @@ return deepFreeze({
 		emitters = 8, -- particle hosts per particle kind (sparks, puffs, motes)
 		rings = 14, -- flat ground rings
 		balls = 14, -- flash balls
+		shapes = 90, -- ability effect parts: beams, waves, sweeps, ground marks, ghosts (AbilityFx)
 	},
 
 	-- Effects grow with the unit's star level (1, 2, 3): sizes and particle counts.
@@ -254,12 +255,12 @@ return deepFreeze({
 	-- Casting --------------------------------------------------------------------------------------
 	-- Wind-up: the arms rise, the body crouches, an orb of the faction color gathers between the
 	-- hands (with sparkles drawn in at high quality) and the body glows in the last part. It starts
-	-- `windup` before the cast (shorter if the unit's last attack landed later). Release: arms thrust
+	-- `windup` before the cast (a signature's own length for units with one), taking over the motion
+	-- of the unit's attacks that overlap it (they still land). Release: arms thrust
 	-- up, the body leans back then forward, and a burst at the caster (a ring, a flash ball and
 	-- sparks). Every target of the ability gets a hit effect in the caster's faction color.
 	cast = {
 		windup = 0.4,
-		minWindup = 0.1, -- shorter than this: the cast is shown as a release only
 		release = 0.3,
 		glowFrom = 0.6, -- fraction of the wind-up where the body starts to glow
 		windupArms = 125,
@@ -275,6 +276,31 @@ return deepFreeze({
 		targetWindow = 1.0, -- seconds after a cast in which its caster's hits count as ability hits
 		targetRing = 2.4,
 		targetSparks = 6,
+	},
+
+	-- Signature poses (AbilityFxConfig.signatures). "punch": the wind-up draws the right fist back
+	-- with the body coiled (arm, offArm, twist and lean in degrees; crouch as above), reaching it at
+	-- `stillFrom` of the wind-up and then holding still with a faint tremble; the release snaps the
+	-- fist straight out with a step in (`lunge` studs), holds to `hold`, then recovers.
+	signaturePoses = {
+		punch = {
+			stillFrom = 0.72,
+			windupArm = -55,
+			windupOffArm = 70,
+			windupTwist = -42,
+			windupLean = -6,
+			windupCrouch = 0.22,
+			tremble = 0.012,
+			releaseArm = 92,
+			releaseOffArm = -20,
+			releaseTwist = 38,
+			releaseLean = 22,
+			releaseCrouch = 0.12,
+			lunge = 1.1,
+			snap = 0.12, -- share of the release taken by the snap
+			hold = 0.55,
+			release = 0.6, -- seconds
+		},
 	},
 
 	-- Stun: the unit droops (lean forward, arms hang), sways, and small stars circle its head over

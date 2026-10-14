@@ -42,7 +42,53 @@ local KINDS = {
 		drag = 1,
 		acceleration = Vector3.new(0, 3, 0),
 	},
+	-- Ability elements (AbilityFxConfig.elements).
+	flame = {
+		texture = "rbxasset://textures/particles/fire_main.dds",
+		lightEmission = 0.9,
+		drag = 2,
+		acceleration = Vector3.new(0, 7, 0),
+		growth = 0.4,
+	},
+	ember = {
+		texture = "rbxasset://textures/particles/fire_sparks_main.dds",
+		lightEmission = 1,
+		drag = 2,
+		acceleration = Vector3.new(0, 4, 0),
+	},
+	smoke = {
+		texture = "rbxasset://textures/particles/smoke_main.dds",
+		lightEmission = 0,
+		drag = 3,
+		acceleration = Vector3.new(0, 1, 0),
+		growth = 1.8,
+		spin = true,
+	},
+	bubble = {
+		texture = "rbxasset://textures/particles/forcefield_glow_main.dds",
+		lightEmission = 0.6,
+		drag = 2,
+		acceleration = Vector3.new(0, 3.5, 0),
+		growth = 1.2,
+	},
+	glow = {
+		texture = "rbxasset://textures/particles/explosion01_core_main.dds",
+		lightEmission = 1,
+		drag = 4,
+		acceleration = Vector3.zero,
+		growth = 1.5,
+	},
+	shock = {
+		texture = "rbxasset://textures/particles/explosion01_shockwave_main.dds",
+		lightEmission = 0.8,
+		drag = 0,
+		acceleration = Vector3.zero,
+		growth = 4,
+	},
 }
+-- Kinds whose particles grow instead of shrinking (end size = start x growth); spin: they rotate.
+KINDS.puff.growth = 1.6
+KINDS.puff.spin = true
 
 type Animated = {
 	part: Part,
@@ -68,6 +114,19 @@ local liveCount = 0
 local free: { [string]: { Part } } = { ring = {}, ball = {} }
 local made: { [string]: number } = { ring = 0, ball = 0 }
 local active: { Animated } = {}
+
+-- Generic animated shapes (ImpactEffects.shape): pooled parts by part shape, each driven by its
+-- own step function.
+type Shape = {
+	part: BasePart,
+	shape: string,
+	startsAt: number,
+	duration: number,
+	step: (BasePart, number) -> (),
+}
+local spareShapes: { [string]: { BasePart } } = {}
+local madeShapes = 0
+local shapes: { Shape } = {}
 
 local trauma = 0
 local traumaAt = os.clock()
@@ -146,6 +205,18 @@ local function update()
 			part.CFrame = effect.center
 		end
 	end
+	for i = #shapes, 1, -1 do
+		local shape = shapes[i]
+		local progress = (now - shape.startsAt) / shape.duration
+		if progress >= 1 then
+			shape.part.Transparency = 1
+			shape.part.Parent = nil
+			table.insert(spareShapes[shape.shape], shape.part)
+			table.remove(shapes, i)
+		elseif progress >= 0 then
+			shape.step(shape.part, progress)
+		end
+	end
 end
 
 local function ensureRunning()
@@ -217,11 +288,17 @@ export type Burst = {
 	lifetime: { number }, -- { min, max }
 	spread: number?, -- degrees around `direction` (default all around)
 	transparency: number?,
+	color2: Color3?, -- the color particles fade to (default `color`)
 }
 
--- Emits a burst of `kind` ("spark", "puff" or "mote") at `position`, aimed along `direction` (nil:
--- all around).
+-- Emits a burst of `kind` (KINDS: spark, puff, mote, flame, ember, smoke, bubble, glow, shock) at
+-- `position`, aimed along `direction` (nil: all around). Sparks shrink away; puffs, smoke, bubbles,
+-- glows and shockwaves grow (KINDS `growth`).
 function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3?, burst: Burst)
+	local config = KINDS[kind]
+	if not config then
+		return
+	end
 	local count = budget(burst.count, burst.lifetime[2])
 	if count <= 0 then
 		return
@@ -230,10 +307,10 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	local part = emitter.Parent :: BasePart
 	local aim = if direction and direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
 	part.CFrame = CFrame.lookAt(position, position + aim)
-	emitter.Color = ColorSequence.new(burst.color)
+	emitter.Color = ColorSequence.new(burst.color, burst.color2 or burst.color)
 	emitter.Size = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, burst.size),
-		NumberSequenceKeypoint.new(1, if kind == "puff" then burst.size * 1.6 else 0),
+		NumberSequenceKeypoint.new(1, burst.size * (config.growth or 0)),
 	})
 	local transparency = burst.transparency or 0
 	emitter.Transparency = NumberSequence.new(transparency, 1)
@@ -241,8 +318,64 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	emitter.Lifetime = NumberRange.new(burst.lifetime[1], burst.lifetime[2])
 	local spread = if direction then burst.spread or 180 else 180
 	emitter.SpreadAngle = Vector2.new(spread, spread)
-	emitter.RotSpeed = if kind == "puff" then NumberRange.new(-90, 90) else NumberRange.new(0, 0)
+	emitter.RotSpeed = if config.spin then NumberRange.new(-90, 90) else NumberRange.new(0, 0)
+	emitter.Rotation = if config.spin then NumberRange.new(0, 360) else NumberRange.new(0, 0)
 	emitter:Emit(count)
+end
+
+-- A pooled part of `shape` ("Block", "Ball" or "Cylinder"; Neon, or `material`) shown for
+-- `duration` (the effects' clock) from `delay` on, and driven each frame by `step(part, progress)`
+-- (progress 0-1), which sets its size, place, color and transparency. Nothing at quality levels
+-- without rings. At most AnimationConfig.pools.shapes at once: past that the oldest is reused.
+function ImpactEffects.shape(
+	shape: string,
+	color: Color3,
+	duration: number,
+	step: (BasePart, number) -> (),
+	delay: number?,
+	material: Enum.Material?
+)
+	if not level.rings then
+		return
+	end
+	local list = spareShapes[shape]
+	if not list then
+		list = {}
+		spareShapes[shape] = list
+	end
+	local part = table.remove(list)
+	if not part then
+		if madeShapes < POOLS.shapes then
+			madeShapes += 1
+			local created = Instance.new("Part")
+			created.Name = shape
+			bare(created)
+			created.Shape = (Enum.PartType :: any)[shape]
+			part = created
+		else
+			-- The pool is full: reuse the oldest shape of this kind, if any.
+			for i, running in shapes do
+				if running.shape == shape then
+					table.remove(shapes, i)
+					part = running.part
+					break
+				end
+			end
+			if not part then
+				return
+			end
+		end
+	end
+	local p = part :: BasePart
+	ensureRunning()
+	p.Color = color
+	p.Material = material or Enum.Material.Neon
+	p.Transparency = 1
+	p.Parent = getFolder()
+	table.insert(
+		shapes,
+		{ part = p, shape = shape, startsAt = clock() + (delay or 0), duration = duration, step = step }
+	)
 end
 
 local function pooled(kind: string): Part?
@@ -361,6 +494,12 @@ function ImpactEffects.clear()
 		table.insert(free[effect.kind], effect.part)
 	end
 	table.clear(active)
+	for _, shape in shapes do
+		shape.part.Transparency = 1
+		shape.part.Parent = nil
+		table.insert(spareShapes[shape.shape], shape.part)
+	end
+	table.clear(shapes)
 	trauma = 0
 end
 

@@ -70,6 +70,7 @@ end
 export type AttackOptions = {
 	color: Color3?, -- the projectile's color (ranged)
 	tongue: boolean?, -- a stretching tongue instead of a projectile ball (RenderConfig.tongueAttacks)
+	noMotion: boolean?, -- no attack motion (a cast's wind-up has taken over); a projectile still flies
 }
 
 -- Starts an attack by `attacker` on `target` that lands at `landsAt` (the views' clock): the motion
@@ -83,7 +84,9 @@ function CombatFx.attack(
 )
 	local settings: AttackOptions = options or {}
 	local launchAt = landsAt - (if plan.ranged then AnimationConfig.projectiles.flightTime else 0)
-	UnitView.attack(attacker, target, launchAt - plan.strikeAfter, plan.duration, plan.style)
+	if not settings.noMotion then
+		UnitView.attack(attacker, target, launchAt - plan.strikeAfter, plan.duration, plan.style)
+	end
 	if plan.ranged then
 		CombatEffects.projectile(attacker, target, landsAt, settings.color or AnimationConfig.projectiles.ownColor, {
 			launchAt = launchAt,

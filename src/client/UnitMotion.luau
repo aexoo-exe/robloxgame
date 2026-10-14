@@ -166,6 +166,38 @@ function UnitMotion.castRelease(pose, progress: number)
 	pose.lean += rad(config.releaseLean) * math.sin(math.pi * progress)
 end
 
+-- The signature punch's wind-up (AnimationConfig.signaturePoses.punch), `progress` 0-1: the right
+-- fist draws back and the body coils until `stillFrom`, then holds with a faint tremble.
+function UnitMotion.punchWindup(pose, progress: number, now: number)
+	local config = AnimationConfig.signaturePoses.punch
+	local k = smooth(math.min(1, progress / config.stillFrom))
+	pose.rightArm += rad(config.windupArm) * k
+	pose.leftArm += rad(config.windupOffArm) * k
+	pose.twist = (pose.twist or 0) + rad(config.windupTwist) * k
+	pose.lean += rad(config.windupLean) * k
+	pose.crouch = (pose.crouch or 0) + config.windupCrouch * k
+	pose.bob = 0
+	if progress > config.stillFrom then
+		pose.tilt = (pose.tilt or 0) + config.tremble * math.sin(now * 55)
+	end
+end
+
+-- The signature punch's release, `progress` 0-1: the fist snaps straight out, holds, recovers.
+-- Returns the step in toward the target, studs at normal size.
+function UnitMotion.punchRelease(pose, progress: number): number
+	local config = AnimationConfig.signaturePoses.punch
+	local snap = math.min(1, progress / config.snap)
+	local out = if progress < config.hold
+		then easeOut(snap)
+		else 1 - smooth((progress - config.hold) / (1 - config.hold))
+	pose.rightArm += rad(config.releaseArm) * out
+	pose.leftArm += rad(config.releaseOffArm) * out
+	pose.twist = (pose.twist or 0) + rad(config.releaseTwist) * out
+	pose.lean += rad(config.releaseLean) * out
+	pose.crouch = (pose.crouch or 0) + config.releaseCrouch * out
+	return config.lunge * out
+end
+
 -- Held while stunned: droop forward, arms hang, a slow sideways sway.
 function UnitMotion.stunned(pose, now: number, phase: number)
 	local config = AnimationConfig.stun

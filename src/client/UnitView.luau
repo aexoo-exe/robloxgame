@@ -31,6 +31,7 @@ local CharacterLook = require(script.Parent.CharacterLook)
 local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local ItemIcon = require(script.Parent.ItemIcon)
+local StatusMarkers = require(script.Parent.StatusMarkers)
 local UnitMotion = require(script.Parent.UnitMotion)
 
 local UnitView = {}
@@ -103,7 +104,11 @@ export type UnitView = {
 	attackPose: string, -- ranged attacks: "recoil" or "point" (FigureConfig.characters)
 	windupStart: number?, -- cast wind-up, from windupStart to castStart
 	castStart: number?, -- the release
-	castColor: Color3, -- the caster's faction color (glow, charge orb)
+	castColor: Color3, -- the caster's element color (glow, charge orb)
+	castStyle: string?, -- a signature's wind-up and release poses (nil: the generic ones)
+	castOrb: number, -- the charge orb's size multiplier
+	releaseDuration: number,
+	markers: any?, -- status markers (StatusMarkers)
 	chargeOrb: Part?, -- gathers between the hands in a wind-up (made on first use)
 	chargeField: ParticleEmitter?, -- sparkles drawn in toward the orb (high quality)
 	hitStart: number?,
@@ -408,6 +413,10 @@ function UnitView.new(
 		windupStart = nil,
 		castStart = nil,
 		castColor = AnimationConfig.factionColors.summon,
+		castStyle = nil,
+		castOrb = 1,
+		releaseDuration = AnimationConfig.cast.release,
+		markers = nil,
 		chargeOrb = nil,
 		chargeField = nil,
 		hitStart = nil,
@@ -851,21 +860,42 @@ end
 -- A cast wind-up from `startAt` to the release at `releaseAt` (both view.clock()): the arms rise, an
 -- orb of `color` (the caster's faction) gathers between the hands, and the body glows in the last
 -- part (AnimationConfig.cast). UnitView.cast shows the release.
-function UnitView.castWindup(view: UnitView, startAt: number, releaseAt: number, color: Color3)
+-- A signature's `style` (AbilitySignatures: "punch") replaces the generic wind-up pose, with an orb
+-- `orbScale` times the usual size.
+function UnitView.castWindup(
+	view: UnitView,
+	startAt: number,
+	releaseAt: number,
+	color: Color3,
+	style: string?,
+	orbScale: number?
+)
 	view.windupStart = startAt
 	view.castStart = releaseAt
 	view.castColor = color
+	view.castStyle = style
+	view.castOrb = orbScale or 1
 end
 
 -- The release of a cast, now: arms thrust up and the body flashes in `color` (default: the color of
--- its wind-up). Ability names are not announced.
-function UnitView.cast(view: UnitView, color: Color3?)
+-- its wind-up). A signature's `style` plays its own release pose over `releaseDuration`. Ability
+-- names are not announced.
+function UnitView.cast(view: UnitView, color: Color3?, style: string?, releaseDuration: number?)
 	local now = view.clock()
 	if color then
 		view.castColor = color
 	end
+	view.castStyle = style
+	view.releaseDuration = releaseDuration or AnimationConfig.cast.release
 	view.castStart = now
 	view.glowUntil = now + AnimationConfig.cast.release * 0.5
+end
+
+-- Shows a status marker (StatusMarkers; AbilityFxConfig.statuses) until `untilTime` (its clock).
+function UnitView.mark(view: UnitView, status: string, untilTime: number)
+	if not view.dyingSince then
+		StatusMarkers.add(view :: any, status, untilTime)
+	end
 end
 
 -- Shows a hit: a flash (crits: orange), a small knock along `direction` (away from the attacker;
@@ -887,10 +917,16 @@ function UnitView.flash(view: UnitView, crit: boolean?, direction: Vector3?, str
 end
 
 -- Hit-stop: the unit holds its pose for `seconds`; `shake` jitters it (the one that was hit). Not
--- again within AnimationConfig.hitStop.cooldown of the last one. Returns whether it holds.
-function UnitView.hitStop(view: UnitView, seconds: number, shake: boolean?): boolean
+-- again within AnimationConfig.hitStop.cooldown of the last one, unless `force` (a signature),
+-- which also extends a hold already running. Returns whether it holds.
+function UnitView.hitStop(view: UnitView, seconds: number, shake: boolean?, force: boolean?): boolean
 	local now = view.clock()
-	if view.stopUntil > 0 and now < view.stopUntil + AnimationConfig.hitStop.cooldown then
+	if force and now < view.stopUntil then
+		view.stopUntil = math.max(view.stopUntil, now + seconds)
+		view.stopShake = view.stopShake or shake == true
+		return true
+	end
+	if not force and view.stopUntil > 0 and now < view.stopUntil + AnimationConfig.hitStop.cooldown then
 		return false
 	end
 	view.stopAt = now
@@ -1002,11 +1038,16 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 	end
 
 	local windup = windupOf(view, now)
-	if windup then
+	local punch = view.castStyle == "punch"
+	if windup and punch then
+		UnitMotion.punchWindup(pose, windup, now)
+	elseif windup then
 		UnitMotion.castWindup(pose, windup)
 	else
-		local release = progressOf(view.castStart, AnimationConfig.cast.release, now)
-		if release then
+		local release = progressOf(view.castStart, view.releaseDuration, now)
+		if release and punch then
+			offset += view.lungeDirection * (UnitMotion.punchRelease(pose, release) * size)
+		elseif release then
 			UnitMotion.castRelease(pose, release)
 		end
 	end
@@ -1156,6 +1197,8 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		})
 	end
 
+	StatusMarkers.update(view :: any, now, root, dying ~= nil)
+
 	-- The cast wind-up: the orb gathers between the hands (over the head for a figure with none).
 	local windup = if dying then nil else windupOf(view, now)
 	if windup then
@@ -1168,9 +1211,19 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 				and not view.figure.isModel
 			then (left.Position + right.Position) / 2 + Vector3.new(0, 0.25 * scale, 0)
 			else center + Vector3.new(0, part.Size.Y * 0.65, 0)
+		local charge = windup
+		if view.castStyle == "punch" then
+			-- The energy gathers at the drawn-back fist, then throbs through the held beat.
+			if right and not view.figure.isModel then
+				at = right.Position
+			end
+			local still = AnimationConfig.signaturePoses.punch.stillFrom
+			charge = math.min(1, windup / still)
+				* (1 + 0.12 * math.sin(now * 40) * math.max(0, windup - still) / (1 - still))
+		end
 		orb.Color = view.castColor
 		orb.Size = Vector3.one
-			* math.max(0.05, AnimationConfig.cast.orbSize * scale * UnitView.effectScale(view) * windup)
+			* math.max(0.05, AnimationConfig.cast.orbSize * view.castOrb * scale * UnitView.effectScale(view) * charge)
 		orb.CFrame = CFrame.new(at)
 		orb.Transparency = 0.1
 		local field = view.chargeField
