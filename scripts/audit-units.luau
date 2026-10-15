@@ -552,7 +552,11 @@ local FAKE_EVENTS = {
 	{ kind = "Form", unit = 1, formIndex = 2, form = "Form" },
 	{ kind = "Copy", unit = 1, target = 2, ability = "x" },
 }
--- The same events, last first: hits before areas (handlers that depend on order take both paths).local REVERSED_EVENTS = {}for i = #FAKE_EVENTS, 1, -1 do	table.insert(REVERSED_EVENTS, FAKE_EVENTS[i])end
+-- The same events, last first: hits before areas (handlers that depend on order take both paths).
+local REVERSED_EVENTS = {}
+for i = #FAKE_EVENTS, 1, -1 do
+	table.insert(REVERSED_EVENTS, FAKE_EVENTS[i])
+end
 local CIRCLE_EVENTS = {}
 for _, event in FAKE_EVENTS do
 	if event.shape ~= "LINE" then
@@ -835,12 +839,24 @@ local function checkUltimate(unitType: string, problems: { string }): string
 					end
 				end
 				if def.event then
+					-- Each event at the time its effect really lands: the unit's ability's `delay`s,
+					-- taken in order per event kind (delayed hits do not pile onto the release).
+					local delays = {}
+					for _, effect in UnitConfig[unitType].ability.effects or {} do
+						for _, produced in EVENTS[effect.type] or {} do
+							delays[produced] = delays[produced] or {}
+							table.insert(delays[produced], effect.delay or 0)
+						end
+					end
 					for _, event in castEvents do
+						local queue = delays[event.kind]
+						dryClock = if queue and #queue > 0 then table.remove(queue, 1) else 0
 						local okEvent, err = pcall(def.event, run, event)
 						if not okEvent then
 							fail("event " .. event.kind, err)
 						end
 					end
+					dryClock = 0
 				end
 			else
 				table.remove(pending, 1)

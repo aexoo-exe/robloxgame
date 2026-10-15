@@ -115,7 +115,7 @@ function def.event(run, event): boolean
 			run:designTime() + 0.3,
 			center,
 			radius,
-			if run.reduced then 5 else 10,
+			if run.reduced then 4 else 6,
 			{ green, WHITE },
 			0.8
 		)
