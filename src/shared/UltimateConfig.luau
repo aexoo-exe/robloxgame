@@ -96,7 +96,7 @@ return deepFreeze({
 			tier = 5,
 			preroll = 1.05,
 			linger = 1.4,
-			look = "goes still, steam thickens and turns orange, chest glows, ground cracks; stillness; an eruption dome over the real area; steam rolls out",
+			look = "store model: sinks and trembles harder, steam thickens white to orange, a glow in the chest, the ground blackens and cracks; stillness; eruption column and dome on the real hit, he heaves up and back, steam rolls out, scorched ground",
 			wanted = { "kettle rising", "rumble", "steam eruption roar", "hiss tail" },
 		},
 		-- Tier 4 -------------------------------------------------------------------------------
