@@ -386,6 +386,447 @@ checkKeys("RenderConfig.castClones", RenderConfig.castClones)
 checkKeys("RenderConfig.tongueAttacks", RenderConfig.tongueAttacks)
 checkKeys("AnimationConfig.unitStyles", AnimationConfig.unitStyles)
 
+local UltimateConfig = shared("UltimateConfig")
+local Vector3 = roblox.Vector3
+
+-- Ultimates: a dry run of each unit's timeline (Ultimates/<unit id>) on stand-ins ----------------------
+-- ImpactEffects is replaced by a recorder (FxKit and UltimateKit draw through it), each recorded
+-- part's step is run on a checking stand-in part, every beat, the release and the event hooks run
+-- on a stand-in run whose methods are Cinematic's (read from its source), and the pose keys are
+-- evaluated with the real UnitMotion.
+
+local recorded = {} -- shapes drawn during a dry run, with their real start and end
+local stubErrors = {}
+local dryClock = 0 -- the dry run's clock (design time)
+local function recordClock(): number
+	return dryClock
+end
+-- Most effect parts alive at once (the shape pool is AnimationConfig.pools.shapes, shared).
+local PEAK_LIMIT = { 14, 18, 26, 34, 44 }
+local function expect(value, kind: string, what: string)
+	if typeof(value) ~= kind then
+		table.insert(stubErrors, string.format("%s: %s expected, got %s", what, kind, typeof(value)))
+	end
+end
+loaded["src/client/ImpactEffects"] = {
+	shape = function(shape, color, duration, step, delay)
+		expect(color, "Color3", "shape color")
+		expect(duration, "number", "shape duration")
+		local startAt = recordClock() + (delay or 0)
+		table.insert(recorded, { shape = shape, step = step, startAt = startAt, endAt = startAt + duration })
+	end,
+	ball = function(position, color, diameter)
+		expect(position, "Vector3", "ball position")
+		expect(color, "Color3", "ball color")
+		expect(diameter, "number", "ball size")
+	end,
+	ring = function(position, color, diameter)
+		expect(position, "Vector3", "ring position")
+		expect(color, "Color3", "ring color")
+		expect(diameter, "number", "ring size")
+	end,
+	burst = function(kind, position, _direction, burst)
+		expect(kind, "string", "burst kind")
+		expect(position, "Vector3", "burst position")
+		expect(burst.color, "Color3", "burst color")
+	end,
+	shake = function(amount)
+		expect(amount, "number", "shake")
+	end,
+	allows = function()
+		return true
+	end,
+	quality = function()
+		return "high"
+	end,
+	particleShare = function()
+		return 1
+	end,
+}
+local Ultimates = load("src/client/Ultimates")
+local UnitMotion = load("src/client/UnitMotion")
+
+-- A part that checks what a step sets on it.
+local function checkingPart()
+	return setmetatable({}, {
+		__newindex = function(self, key, value)
+			if key == "Size" then
+				assert(typeof(value) == "Vector3", "Size is " .. typeof(value))
+				assert(
+					finite(value.X)
+						and finite(value.Y)
+						and finite(value.Z)
+						and value.X >= 0
+						and value.Y >= 0
+						and value.Z >= 0,
+					"bad Size " .. tostring(value)
+				)
+			elseif key == "CFrame" then
+				assert(typeof(value) == "CFrame", "CFrame is " .. typeof(value))
+				assert(finite(value.Position.Magnitude), "bad CFrame")
+			elseif key == "Transparency" then
+				assert(type(value) == "number" and finite(value), "bad Transparency")
+			end
+			rawset(self, key, value)
+		end,
+	})
+end
+
+local RUN_METHODS = {}
+for name in string.gmatch(source("Cinematic"), "\nfunction Methods%.(%w+)") do
+	RUN_METHODS[name] = true
+end
+local POSE_CHANNELS = {}
+for _, name in
+	{
+		"leftArm",
+		"rightArm",
+		"leftArmOut",
+		"rightArmOut",
+		"lean",
+		"twist",
+		"tilt",
+		"fall",
+		"leftLeg",
+		"rightLeg",
+		"crouch",
+		"tremble",
+		"lunge",
+		"rise",
+	}
+do
+	POSE_CHANNELS[name] = true
+end
+local EASE_NAMES = { linear = true, ["in"] = true, out = true, inOut = true, snap = true, back = true, hold = true }
+
+local function mockView(position: Vector3)
+	local hips = roblox.CFrame.new(position - Vector3.new(0, 0.5, 0))
+	return {
+		part = { Position = position, Size = Vector3.new(2, 5, 1), Parent = {} },
+		figure = {
+			isModel = false,
+			anchors = {
+				hips = hips,
+				head = hips * roblox.CFrame.new(0, 2, 0),
+				leftHand = hips * roblox.CFrame.new(-1, 0, -0.5),
+				rightHand = hips * roblox.CFrame.new(1, 0, -0.5),
+			},
+		},
+		yaw = 0,
+		starLevel = 1,
+	}
+end
+
+-- One of each event an ability can produce, from the caster (1) on two enemies (2, 3).
+local FAKE_EVENTS = {
+	{ kind = "Dash", unit = 1, column = 4, row = 5 },
+	{ kind = "Pull", unit = 1, target = 2 },
+	{ kind = "Area", unit = 1, column = 4, row = 6, radius = 2, shape = nil },
+	{
+		kind = "Area",
+		unit = 1,
+		column = 4,
+		row = 6,
+		shape = "LINE",
+		cells = { { 4, 6 }, { 4, 7 } },
+		fromColumn = 4,
+		fromRow = 4,
+	},
+	{ kind = "AreaStun", unit = 1, column = 4, row = 6, radius = 2 },
+	{ kind = "Damage", unit = 1, target = 2, damage = 100 },
+	{ kind = "Damage", unit = 1, target = 3, damage = 100 },
+	{ kind = "Stun", unit = 1, target = 2, duration = 1 },
+	{ kind = "Knockback", unit = 1, target = 2, column = 4, row = 7 },
+	{ kind = "Bounce", unit = 1, from = 2, target = 3 },
+	{ kind = "Shield", unit = 1, target = 1, shield = 100 },
+	{ kind = "Heal", unit = 1, target = 3, amount = 50 },
+	{ kind = "Buff", unit = 1, target = 1, stat = "AD", percent = 10 },
+	{ kind = "Dot", unit = 1, target = 2, status = "BURN" },
+	{ kind = "Summon", unit = 1, summon = 4, column = 3, row = 5 },
+	{ kind = "Form", unit = 1, formIndex = 2, form = "Form" },
+	{ kind = "Copy", unit = 1, target = 2, ability = "x" },
+}
+
+-- Problems with a unit's ultimate (nil, "NOT STARTED" if it has none).
+local function checkUltimate(unitType: string, problems: { string }): string
+	local config = UltimateConfig.units[unitType]
+	if not config then
+		table.insert(problems, "no UltimateConfig entry")
+		return "-"
+	end
+	if config.tier ~= UnitConfig[unitType].cost then
+		table.insert(
+			problems,
+			string.format("ultimate tier %d is not its cost %d", config.tier, UnitConfig[unitType].cost)
+		)
+	end
+	if not (config.preroll > 0 and config.linger > 0) then
+		table.insert(problems, "ultimate preroll and linger must be > 0")
+	end
+	local ok, def = pcall(Ultimates.of, unitType)
+	if not ok then
+		table.insert(problems, "ultimate failed to load: " .. tostring(def))
+		return "BROKEN"
+	end
+	if not def then
+		return "NOT STARTED"
+	end
+	if config.look == "" then
+		table.insert(problems, "ultimate has no `look` note")
+	end
+	local function fail(what: string, err)
+		table.insert(problems, "ultimate " .. what .. ": " .. tostring(err))
+	end
+
+	-- Pose keys: known channels, ordered keys in the run's span, known eases; evaluate across it.
+	for channel, keys in def.pose or {} do
+		if not POSE_CHANNELS[channel] then
+			fail("pose", "unknown channel " .. tostring(channel))
+		end
+		for i, key in keys do
+			if type(key[1]) ~= "number" or type(key[2]) ~= "number" then
+				fail("pose", channel .. " key " .. i .. " is not { t, value }")
+			elseif i > 1 and key[1] < keys[i - 1][1] then
+				fail("pose", channel .. " keys out of order at " .. i)
+			elseif key[1] < -config.preroll - 1e-6 or key[1] > config.linger + 1e-6 then
+				fail(
+					"pose",
+					string.format(
+						"%s key at %.2f is outside -%.2f..%.2f",
+						channel,
+						key[1],
+						config.preroll,
+						config.linger
+					)
+				)
+			end
+			if key[3] and not EASE_NAMES[key[3]] then
+				fail("pose", channel .. " unknown ease " .. tostring(key[3]))
+			end
+		end
+	end
+	if def.pose then
+		local t = -config.preroll
+		while t <= config.linger do
+			local pose =
+				{ bob = 0, lean = 0, fall = 0, leftArm = 0, rightArm = 0, leftLeg = 0, rightLeg = 0, stride = 0 }
+			local evaluated, lunge, rise = pcall(UnitMotion.ultimatePose, pose, def.pose, t, 1, { 0, 0 }, t)
+			if not evaluated then
+				fail("pose", lunge)
+				break
+			end
+			for key, value in pose do
+				if not finite(value) then
+					fail("pose", key .. " not finite at " .. t)
+				end
+			end
+			if not (finite(lunge) and finite(rise)) then
+				fail("pose", "lunge or rise not finite")
+			end
+			t += 0.05
+		end
+	end
+
+	-- A dry run: beats in order, scheduled beats, the release, then every kind of event.
+	table.clear(recorded)
+	table.clear(stubErrors)
+	local entry = AbilityFxConfig.units[unitType]
+	local views =
+		{ mockView(Vector3.new(0, 2.5, 0)), mockView(Vector3.new(0, 2.5, -9)), mockView(Vector3.new(3, 2.5, -10)) }
+	dryClock = -config.preroll
+	local pending = {}
+	local run = {
+		unitIndex = 1,
+		unitType = unitType,
+		view = views[1],
+		style = {
+			element = entry and entry.element or "magic",
+			def = AbilityFxConfig.elements[entry and entry.element or "magic"],
+			primary = entry and entry.primary or roblox.Color3.new(1, 1, 1),
+			secondary = entry and entry.secondary or roblox.Color3.new(1, 1, 1),
+		},
+		tier = config.tier,
+		config = config,
+		def = def,
+		context = {
+			views = views,
+			toWorld = function(column, row)
+				return Vector3.new(column * 3, 0, -row * 3)
+			end,
+			now = function()
+				return dryClock
+			end,
+			ticksPerSecond = 10,
+			events = FAKE_EVENTS,
+		},
+		startAt = -config.preroll,
+		releaseAt = 0,
+		endAt = config.linger,
+		k = 1,
+		cast = FAKE_EVENTS,
+		reduced = false,
+		pending = pending,
+		memo = {},
+	}
+	local methods = {
+		time = function(_, t)
+			return t
+		end,
+		span = function(_, _t, seconds)
+			return seconds
+		end,
+		at = function(_, t, fn)
+			assert(type(t) == "number" and type(fn) == "function", "at(t, fn) expects a time and a function")
+			table.insert(pending, { at = t, run = fn })
+		end,
+		now = function()
+			return dryClock
+		end,
+		alive = function()
+			return true
+		end,
+		chest = function()
+			return Vector3.new(0, 3, 0)
+		end,
+		ground = function()
+			return Vector3.new(0, 0, 0)
+		end,
+		head = function()
+			return Vector3.new(0, 4.5, 0)
+		end,
+		hand = function(_, side)
+			assert(side == "left" or side == "right", "hand(side): left or right")
+			return Vector3.new(if side == "left" then -1 else 1, 2.5, -0.6)
+		end,
+		forward = function()
+			return Vector3.new(0, 0, -1)
+		end,
+		scale = function()
+			return 1
+		end,
+		find = function(_, ...)
+			local wanted = { ... }
+			for _, event in FAKE_EVENTS do
+				if table.find(wanted, event.kind) then
+					return event
+				end
+			end
+			return nil
+		end,
+		area = function()
+			return Vector3.new(12, 0, -18), 7.5
+		end,
+		targets = function()
+			return { views[2], views[3] }
+		end,
+		target = function()
+			return views[2]
+		end,
+		camera = function(_, from, to, cue)
+			assert(type(from) == "number" and type(to) == "number" and from <= to, "camera(from, to): from <= to")
+			assert(type(cue) == "table", "camera cue table")
+		end,
+		shake = function(_, amount)
+			assert(type(amount) == "number", "shake(amount)")
+		end,
+		sound = function(_, role)
+			assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
+		end,
+		face = function() end,
+	}
+	for name in RUN_METHODS do
+		if not methods[name] then
+			fail("audit", "the stand-in run lacks Cinematic method " .. name)
+		end
+	end
+	setmetatable(run, {
+		__index = function(_, key)
+			local method = methods[key]
+			if method and RUN_METHODS[key] then
+				return method
+			end
+			error("run has no method or field " .. tostring(key), 2)
+		end,
+	})
+	local beats = table.clone(def.beats or {})
+	table.sort(beats, function(a, b)
+		return a.at < b.at
+	end)
+	for _, beat in beats do
+		if type(beat.at) ~= "number" or type(beat.run) ~= "function" then
+			fail("beat", "needs { at = number, run = function }")
+		elseif beat.at < -config.preroll - 1e-6 or beat.at > config.linger + 1e-6 then
+			fail("beat", string.format("at %.2f is outside -%.2f..%.2f", beat.at, config.preroll, config.linger))
+		else
+			table.insert(pending, { at = beat.at, run = beat.run })
+		end
+	end
+	local released = false
+	local guard = 0
+	while (#pending > 0 or not released) and guard < 500 do
+		guard += 1
+		table.sort(pending, function(a, b)
+			return a.at < b.at
+		end)
+		local nextBeat = pending[1]
+		if not released and (not nextBeat or nextBeat.at >= 0) then
+			released = true
+			dryClock = 0
+			if def.release then
+				local okRelease, err = pcall(def.release, run)
+				if not okRelease then
+					fail("release", err)
+				end
+			end
+			if def.event then
+				for _, event in FAKE_EVENTS do
+					local okEvent, err = pcall(def.event, run, event)
+					if not okEvent then
+						fail("event " .. event.kind, err)
+					end
+				end
+			end
+		else
+			table.remove(pending, 1)
+			dryClock = nextBeat.at
+			local okBeat, err = pcall(nextBeat.run, run)
+			if not okBeat then
+				fail(string.format("beat at %.2f", nextBeat.at), err)
+			end
+		end
+	end
+	-- Every part drawn, stepped through its life.
+	for _, shape in recorded do
+		for _, u in { 0, 0.5, 1 } do
+			local okStep, err = pcall(shape.step, checkingPart(), u)
+			if not okStep then
+				fail("part step (" .. shape.shape .. ")", err)
+				break
+			end
+		end
+	end
+	for _, err in stubErrors do
+		fail("effect", err)
+	end
+	-- The busiest moment: parts alive at once.
+	local peak = 0
+	for _, a in recorded do
+		local alive = 0
+		for _, b in recorded do
+			if b.startAt <= a.startAt and b.endAt > a.startAt then
+				alive += 1
+			end
+		end
+		peak = math.max(peak, alive)
+	end
+	if peak > PEAK_LIMIT[config.tier] then
+		fail(
+			"budget",
+			string.format("%d parts alive at once (tier %d limit %d)", peak, config.tier, PEAK_LIMIT[config.tier])
+		)
+	end
+	return string.format("DONE %d/%d", peak, #recorded)
+end
 -- Units ----------------------------------------------------------------------------------------------
 
 local ORDER = { "Heroes", "Crew", "Shinobi", "Titans", "Arcane", "Cursed", "Spirit", "Corps", "Hunters" }
@@ -397,6 +838,9 @@ end
 
 local failed = 0
 local count = 0
+local ultimates = { done = 0, missing = 0 }
+-- `lune run scripts/audit-units all`: a unit without an ultimate is a problem too.
+local requireAll = process.args[1] == "all"
 local noFallback = {} -- avatars with no hand-built look: the placeholder shows until they load
 for _, faction in ORDER do
 	local units = byFaction[faction] or {}
@@ -579,10 +1023,17 @@ for _, faction in ORDER do
 		if #formStyles > 0 then
 			style ..= " (" .. table.concat(formStyles, ", ") .. ")"
 		end
+		local ultimate = checkUltimate(unitType, problems)
+		ultimates[ultimate == "NOT STARTED" and "missing" or "done"] += 1
+		if ultimate == "NOT STARTED" and requireAll then
+			table.insert(problems, "no ultimate yet")
+		end
 
 		local line = string.format(
-			"%-18s %-6s r%d %-14s %-9s wpn %s%s%s",
+			"%-18s ult T%d %-14s %-6s r%d %-14s %-9s wpn %s%s%s",
 			unitType,
+			UltimateConfig.units[unitType] and UltimateConfig.units[unitType].tier or 0,
+			ultimate,
 			sourceName,
 			character.range,
 			style,
@@ -610,5 +1061,6 @@ for _, stray in strays do
 end
 table.sort(noFallback)
 print(string.format("\nnote: %d avatars fall back to the placeholder: %s", #noFallback, table.concat(noFallback, ", ")))
+print(string.format("ultimates: %d done, %d not started", ultimates.done, ultimates.missing))
 print(string.format("%d units, %d with problems", count, failed))
 process.exit(if failed > 0 then 1 else 0)

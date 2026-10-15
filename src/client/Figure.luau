@@ -59,6 +59,8 @@ export type Pose = {
 	twist: number?, -- upper body turned about the vertical (positive: the right shoulder forward)
 	crouch: number?, -- hips dropped by this fraction of leg length, legs splayed to match (a squash)
 	tilt: number?, -- sideways, about the feet (positive: toward the figure's right)
+	leftArmOut: number?, -- each arm raised out to its side (radians; ultimate pose keys)
+	rightArmOut: number?,
 }
 
 type Piece = {
@@ -881,8 +883,16 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 		anchors.head = hips * figure.headOffset
 		local shoulderX = (b.torsoWidth + b.armWidth) / 2
 		local shoulderY = b.torsoHeight - b.armWidth / 2
-		local leftArm = hips * CFrame.new(-shoulderX, shoulderY, 0) * CFrame.Angles(pose.leftArm, 0, 0)
-		local rightArm = hips * CFrame.new(shoulderX, shoulderY, 0) * CFrame.Angles(pose.rightArm, 0, 0)
+		-- An arm raised out to the side turns about the shoulder's front axis first (out: away from
+		-- the body), then forward.
+		local leftArm = hips
+			* CFrame.new(-shoulderX, shoulderY, 0)
+			* CFrame.Angles(0, 0, -(pose.leftArmOut or 0))
+			* CFrame.Angles(pose.leftArm, 0, 0)
+		local rightArm = hips
+			* CFrame.new(shoulderX, shoulderY, 0)
+			* CFrame.Angles(0, 0, pose.rightArmOut or 0)
+			* CFrame.Angles(pose.rightArm, 0, 0)
 		anchors.leftArm = leftArm
 		anchors.rightArm = rightArm
 		local reach = b.handReach or b.armLength

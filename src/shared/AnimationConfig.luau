@@ -46,7 +46,9 @@ return deepFreeze({
 		emitters = 8, -- particle hosts per particle kind (sparks, puffs, motes)
 		rings = 14, -- flat ground rings
 		balls = 14, -- flash balls
-		shapes = 90, -- ability effect parts: beams, waves, sweeps, ground marks, ghosts (AbilityFx)
+		-- ability effect parts: beams, waves, sweeps, ground marks, ghosts (AbilityFx) and ultimates
+		-- (made only as needed; scripts/audit-units caps each ultimate's peak by tier)
+		shapes = 120,
 	},
 
 	-- Effects grow with the unit's star level (1, 2, 3): sizes and particle counts.

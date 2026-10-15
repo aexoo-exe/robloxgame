@@ -108,6 +108,9 @@ export type UnitView = {
 	castStyle: string?, -- a signature's wind-up and release poses (nil: the generic ones)
 	castOrb: number, -- the charge orb's size multiplier
 	releaseDuration: number,
+	-- An ultimate's pose keys (UnitMotion.ultimatePose) from startAt to endAt; design time runs at
+	-- `k` before the release (a compressed anticipation).
+	ultimate: { track: any, startAt: number, releaseAt: number, endAt: number, k: number }?,
 	markers: any?, -- status markers (StatusMarkers)
 	chargeOrb: Part?, -- gathers between the hands in a wind-up (made on first use)
 	chargeField: ParticleEmitter?, -- sparkles drawn in toward the orb (high quality)
@@ -891,6 +894,12 @@ function UnitView.cast(view: UnitView, color: Color3?, style: string?, releaseDu
 	view.glowUntil = now + AnimationConfig.cast.release * 0.5
 end
 
+-- Plays an ultimate's pose keys (UnitMotion.ultimatePose) from `startAt` to `endAt` (the view's
+-- clock), design time 0 at `releaseAt` and running at `k` before it.
+function UnitView.ultimatePose(view: UnitView, track: any, startAt: number, releaseAt: number, k: number, endAt: number)
+	view.ultimate = { track = track, startAt = startAt, releaseAt = releaseAt, endAt = endAt, k = k }
+end
+
 -- Shows a status marker (StatusMarkers; AbilityFxConfig.statuses) until `untilTime` (its clock).
 function UnitView.mark(view: UnitView, status: string, untilTime: number)
 	if not view.dyingSince then
@@ -1014,6 +1023,7 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 	pose.bob = idle * ANIMATION.idleBob * height
 	pose.lean, pose.fall, pose.stride = 0, 0, 0
 	pose.twist, pose.crouch, pose.tilt = 0, 0, 0
+	pose.leftArmOut, pose.rightArmOut = 0, 0
 	pose.leftArm = rest[1] + rad(ANIMATION.idleArmSway) * idle
 	pose.rightArm = rest[2] - rad(ANIMATION.idleArmSway) * idle
 	pose.leftLeg, pose.rightLeg = 0, 0
@@ -1051,9 +1061,26 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 			UnitMotion.castRelease(pose, release)
 		end
 	end
-	-- A quick-draw weapon (LookKit `drawn`) is out for every attack and cast, put away after.
+	-- An ultimate's pose keys, eased in at the start and out at the end.
+	local ultimate = view.ultimate
+	local inUltimate = false
+	if ultimate then
+		if now > ultimate.endAt then
+			view.ultimate = nil
+		elseif now >= ultimate.startAt then
+			inUltimate = true
+			local t = if now < ultimate.releaseAt
+				then (now - ultimate.releaseAt) / math.max(ultimate.k, 1e-3)
+				else now - ultimate.releaseAt
+			local w = math.min(1, (now - ultimate.startAt) / 0.12, (ultimate.endAt - now) / 0.2)
+			local lunge, rise = UnitMotion.ultimatePose(pose, ultimate.track, t, math.max(w, 0), figure.restArms, now)
+			offset += CFrame.Angles(0, view.yaw, 0).LookVector * (lunge * size) + Vector3.new(0, rise * size, 0)
+		end
+	end
+
+	-- A quick-draw weapon (LookKit `drawn`) is out for every attack, cast and ultimate, put away after.
 	local releasing = progressOf(view.castStart, view.releaseDuration, now) ~= nil
-	Figure.setDrawn(figure, attack ~= nil or windup ~= nil or releasing)
+	Figure.setDrawn(figure, attack ~= nil or windup ~= nil or releasing or inUltimate)
 
 	local hit = progressOf(view.hitStart, AnimationConfig.hit.duration, now)
 	if hit then

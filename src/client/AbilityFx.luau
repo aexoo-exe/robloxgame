@@ -30,6 +30,7 @@ local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local AbilitySignatures = require(script.Parent.AbilitySignatures)
+local Cinematic = require(script.Parent.Cinematic)
 local CombatFx = require(script.Parent.CombatFx)
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
@@ -69,15 +70,29 @@ function AbilityFx.styleOf(unitType: string?, fallback: Color3): Style
 	}
 end
 
--- How long a unit's cast wind-up is: its signature's, else AnimationConfig.cast.windup.
+-- How long a unit's cast wind-up is: its ultimate's anticipation (Cinematic), else its
+-- signature's, else AnimationConfig.cast.windup.
 function AbilityFx.windupLength(unitType: string?): number
+	local preroll = Cinematic.preroll(unitType)
+	if preroll then
+		return preroll
+	end
 	local spec = AbilitySignatures.of(unitType)
 	return if spec and spec.windup then spec.windup else AnimationConfig.cast.windup
 end
 
+-- The shortest wind-up a unit's cast may be squeezed to after a recent cast (its ultimate's
+-- compressed anticipation; others are not squeezed).
+function AbilityFx.minWindup(unitType: string?): number
+	if unitType and Cinematic.has(unitType) then
+		return Cinematic.minPreroll(unitType)
+	end
+	return AbilityFx.windupLength(unitType)
+end
+
 -- The longest wind-up any unit can have.
 function AbilityFx.maxWindup(): number
-	return math.max(AnimationConfig.cast.windup, AbilitySignatures.maxWindup())
+	return math.max(AnimationConfig.cast.windup, AbilitySignatures.maxWindup(), Cinematic.maxPreroll())
 end
 
 -- Particles -----------------------------------------------------------------------------------------
@@ -297,6 +312,7 @@ export type Context = {
 	summonerOf: (number) -> number?,
 	now: () -> number, -- fight time
 	ticksPerSecond: number,
+	events: { any }, -- the fight's events (ultimates read their cast's own)
 }
 
 export type Fight = {
@@ -325,10 +341,24 @@ local function scaleOf(view: UnitView.UnitView?): number
 	return if view then UnitView.effectScale(view) else 1
 end
 
--- The cast wind-up of unit `unitIndex` (its view `view`) from `startAt` to `releaseAt`.
-function Fight.windup(self: Fight, unitIndex: number, view: UnitView.UnitView, startAt: number, releaseAt: number)
+-- The cast wind-up of unit `unitIndex` (its view `view`) from `startAt` to `releaseAt`, for the
+-- Cast event at `castIndex` in the fight's events. A unit with an ultimate plays it (Cinematic).
+function Fight.windup(
+	self: Fight,
+	unitIndex: number,
+	view: UnitView.UnitView,
+	startAt: number,
+	releaseAt: number,
+	castIndex: number?
+)
 	local style = self.context.styleOf(unitIndex)
-	local spec, kind = AbilitySignatures.of(self.context.unitTypeOf(unitIndex))
+	local unitType = self.context.unitTypeOf(unitIndex)
+	if unitType and Cinematic.has(unitType) then
+		if Cinematic.start(self.context :: any, unitIndex, unitType, view, style, startAt, releaseAt, castIndex) then
+			return
+		end
+	end
+	local spec, kind = AbilitySignatures.of(unitType)
 	if kind and kind.windup and kind.windup(spec, view, startAt, releaseAt, style) then
 		return
 	end
@@ -337,6 +367,9 @@ end
 
 -- The moment of a cast (or a follow-up) by `unitIndex`.
 function Fight.release(self: Fight, unitIndex: number, view: UnitView.UnitView)
+	if Cinematic.release(unitIndex) then
+		return
+	end
 	local style = self.context.styleOf(unitIndex)
 	local spec, kind = AbilitySignatures.of(self.context.unitTypeOf(unitIndex))
 	if kind and kind.release and kind.release(spec, view, style) then
@@ -406,6 +439,10 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 		self.dotStatus[event.target] = event.status
 	end
 	if not fresh then
+		return
+	end
+	-- A running ultimate may draw this event its own way.
+	if Cinematic.event(event) then
 		return
 	end
 

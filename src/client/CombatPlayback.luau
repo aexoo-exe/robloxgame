@@ -30,6 +30,7 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
+local UltimateConfig = require(Shared:WaitForChild("UltimateConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 -- Display name of an ability. Abilities are named by their character's internal id.
@@ -40,7 +41,9 @@ end
 
 local AbilityFx = require(script.Parent.AbilityFx)
 local Arena = require(script.Parent.Arena)
+local CameraCues = require(script.Parent.CameraCues)
 local CastReader = require(script.Parent.CastReader)
+local Cinematic = require(script.Parent.Cinematic)
 local CharacterLook = require(script.Parent.CharacterLook)
 local CombatEffects = require(script.Parent.CombatEffects)
 local CombatFx = require(script.Parent.CombatFx)
@@ -71,6 +74,9 @@ local function clear()
 	CombatEffects.setClock(nil)
 	ImpactEffects.setClock(nil)
 	ImpactEffects.clear()
+	CameraCues.setClock(nil)
+	CameraCues.clear()
+	Cinematic.clear()
 	for _, view in views do
 		UnitView.destroy(view)
 	end
@@ -123,6 +129,10 @@ local function play(playback, placement: Placement?)
 	local fightEnd = fightTimeOf(result.endTick)
 	CombatEffects.setClock(fightNow)
 	ImpactEffects.setClock(fightNow)
+	-- The fight on screen is the one the local player watches (one playback at a time): its
+	-- ultimates may use camera cues.
+	CameraCues.setClock(fightNow)
+	CameraCues.setWatched(true)
 
 	-- A unit's form data by index (nil for units without forms).
 	local function formOf(unitType: string, formIndex: number?)
@@ -271,6 +281,7 @@ local function play(playback, placement: Placement?)
 		end,
 		now = fightNow,
 		ticksPerSecond = result.ticksPerSecond,
+		events = events,
 	})
 
 	local reading = CastReader.read(result.units, result.events, function(index, name)
@@ -554,9 +565,30 @@ local function play(playback, placement: Placement?)
 
 	-- When the wind-up of the cast at event `index` starts: its wind-up length before it
 	-- (AbilityFx.windupLength: a signature's, else `cast.windup`).
+	-- An ultimate's anticipation (AbilityFx.windupLength) is squeezed (to AbilityFx.minWindup at the
+	-- least) so it starts after the unit's previous cast and a breath of room
+	-- (UltimateConfig.afterPreviousCast); the cast itself is never moved.
+	local previousCastAt: { [number]: number } = {}
+	do
+		local last: { [number]: number } = {}
+		for i, event in events do
+			if event.kind == "Cast" then
+				previousCastAt[i] = last[event.unit]
+				last[event.unit] = fightTimeOf(event.tick)
+			end
+		end
+	end
 	local function windupStartOf(index: number): number
 		local unit = info[events[index].unit]
-		return fightTimeOf(events[index].tick) - AbilityFx.windupLength(if unit then unit.unitType else nil)
+		local unitType = if unit then unit.unitType else nil
+		local at = fightTimeOf(events[index].tick)
+		local length = AbilityFx.windupLength(unitType)
+		local previous = previousCastAt[index]
+		if previous then
+			local room = at - previous - UltimateConfig.afterPreviousCast
+			length = math.clamp(room, AbilityFx.minWindup(unitType), length)
+		end
+		return at - length
 	end
 
 	local nextEvent = 1
@@ -607,7 +639,7 @@ local function play(playback, placement: Placement?)
 				if at > now and entry.plan then
 					anticipate(event, entry.plan, at, entry.quiet)
 				elseif at > now and views[event.unit] then
-					abilityFx:windup(event.unit, views[event.unit], entry.startsAt, at)
+					abilityFx:windup(event.unit, views[event.unit], entry.startsAt, at, entry.index)
 				end
 			end
 		end

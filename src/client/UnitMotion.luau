@@ -202,6 +202,95 @@ function UnitMotion.punchRelease(pose, progress: number): number
 	return config.lunge * out
 end
 
+-- Ultimate pose keys ----------------------------------------------------------------------------
+-- A track is { [channel] = { { t, value, ease? }, ... } }, keys in design seconds (relative to the
+-- release) and in order; each key's `ease` shapes the way into it: "linear", "in", "out", "inOut"
+-- (default), "snap" (slow, then violent: a release), "back" (overshoots, then settles), "hold"
+-- (jumps at the key). Channels, so each body part can run on its own timing:
+--   leftArm, rightArm          degrees raised forward from the resting angle (set, not added)
+--   leftArmOut, rightArmOut    degrees raised out to the side
+--   lean, twist, tilt, fall    degrees (twist positive: the right shoulder forward)
+--   leftLeg, rightLeg          degrees forward
+--   crouch                     hips dropped, a fraction of leg length
+--   tremble                    degrees of a fast sideways shiver (held tension)
+--   lunge, rise                studs (normal size) forward along the facing, and up
+-- A track holds the figure calm (no idle bob) while it plays.
+
+local EASES: { [string]: (number) -> number } = {
+	linear = function(t)
+		return t
+	end,
+	["in"] = easeIn,
+	out = easeOut,
+	inOut = smooth,
+	snap = function(t)
+		return t * t * t
+	end,
+	back = function(t)
+		local s = 1.7
+		t -= 1
+		return 1 + t * t * ((s + 1) * t + s)
+	end,
+	hold = function(t)
+		return if t < 1 then 0 else 1
+	end,
+}
+
+-- A channel's value at design time `t`: the first key's before it, the last key's after it.
+function UnitMotion.keyValue(keys: { any }, t: number): number
+	if #keys == 0 then
+		return 0
+	end
+	if t <= keys[1][1] then
+		return keys[1][2]
+	end
+	for i = 2, #keys do
+		local key = keys[i]
+		if t < key[1] then
+			local previous = keys[i - 1]
+			local span = key[1] - previous[1]
+			local u = if span > 0 then (t - previous[1]) / span else 1
+			local ease = EASES[key[3] or "inOut"] or smooth
+			return previous[2] + (key[2] - previous[2]) * ease(u)
+		end
+	end
+	return keys[#keys][2]
+end
+
+local DEGREE_CHANNELS = { "leftArmOut", "rightArmOut", "lean", "twist", "tilt", "fall", "leftLeg", "rightLeg" }
+
+-- Applies `track` at design time `t` with weight `w` (0-1) onto `pose`; `rest` is the figure's
+-- resting arm angles (radians). Returns the step forward and the rise, studs at normal size.
+function UnitMotion.ultimatePose(pose, track, t: number, w: number, rest: { number }, now: number): (number, number)
+	local function value(channel: string): number?
+		local keys = track[channel]
+		return if keys then UnitMotion.keyValue(keys, t) else nil
+	end
+	local left, right = value("leftArm"), value("rightArm")
+	if left then
+		pose.leftArm = lerp(pose.leftArm, rest[1] + rad(left), w)
+	end
+	if right then
+		pose.rightArm = lerp(pose.rightArm, rest[2] + rad(right), w)
+	end
+	for _, channel in DEGREE_CHANNELS do
+		local degrees = value(channel)
+		if degrees then
+			pose[channel] = (pose[channel] or 0) + rad(degrees) * w
+		end
+	end
+	local crouch = value("crouch")
+	if crouch then
+		pose.crouch = (pose.crouch or 0) + crouch * w
+	end
+	local tremble = value("tremble")
+	if tremble and tremble ~= 0 then
+		pose.tilt = (pose.tilt or 0) + rad(tremble) * w * math.sin(now * 55)
+	end
+	pose.bob *= 1 - w
+	return (value("lunge") or 0) * w, (value("rise") or 0) * w
+end
+
 -- Held while stunned: droop forward, arms hang, a slow sideways sway.
 function UnitMotion.stunned(pose, now: number, phase: number)
 	local config = AnimationConfig.stun

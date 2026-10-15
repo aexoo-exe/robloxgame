@@ -46,10 +46,12 @@ local Forms = require(Shared:WaitForChild("Forms"))
 local Pve = require(Shared:WaitForChild("Pve"))
 local HubConfig = require(Shared:WaitForChild("HubConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+local UltimateConfig = require(Shared:WaitForChild("UltimateConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local CharacterLook = require(script.Parent.CharacterLook)
 local AbilityFx = require(script.Parent.AbilityFx)
+local CameraCues = require(script.Parent.CameraCues)
 local Arena = require(script.Parent.Arena)
 local CombatEffects = require(script.Parent.CombatEffects)
 local CombatPlayback = require(script.Parent.CombatPlayback)
@@ -383,6 +385,8 @@ local function closeStage()
 	ImpactEffects.clear()
 	CombatEffects.setClock(nil)
 	ImpactEffects.setClock(nil)
+	CameraCues.setClock(nil)
+	CameraCues.clear()
 	s.folder:Destroy() -- every view of the stage is inside it
 end
 
@@ -420,6 +424,7 @@ local function openStage(unitType: string)
 	stage = s
 	CombatEffects.setClock(stageClock)
 	ImpactEffects.setClock(stageClock)
+	CameraCues.setClock(stageClock)
 	spawnActors(s)
 	print("[DevLineup] keys: 1 attack, 2 crit, 3 cast, 4 get hit, 5 stun, 6 death, 7 victory, 8 heal + shield,")
 	print("[DevLineup]       9 auto loop, F form, X star level, Q quality (now " .. ImpactEffects.quality() .. ")")
@@ -483,6 +488,7 @@ local function endFieldPreview(s: Stage)
 	CombatPlayback.stop() -- also resets the effects' clocks: back to the stage's
 	CombatEffects.setClock(stageClock)
 	ImpactEffects.setClock(stageClock)
+	CameraCues.setClock(stageClock)
 	s.fieldPreview:Destroy()
 	s.fieldPreview = nil
 	s.actor.part.Parent = s.folder
@@ -495,6 +501,10 @@ end
 local function fieldFraming(focusPoint: Vector3): CFrame
 	if cameraMode == "board" then
 		return CFrame.lookAt(focusPoint + RenderConfig.cameraOffset, focusPoint)
+	elseif cameraMode == "close" then
+		-- Close on the unit, looking past it toward the dummies (an ultimate close-up).
+		local unitAt = FIELD_ORIGIN + Vector3.new(0, 2, 0)
+		return CFrame.lookAt(unitAt + Vector3.new(-7, 4, 9), unitAt:Lerp(focusPoint, 0.4))
 	end
 	return CFrame.lookAt(focusPoint + Vector3.new(0, 11, 15), focusPoint)
 end
@@ -625,6 +635,10 @@ local function cast(s: Stage)
 			castAt
 		)
 	)
+	local ultimate = UltimateConfig.units[s.unitType]
+	if ultimate and ultimate.look ~= "" then
+		print(string.format("[Ultimate] %s (tier %d): %s", s.unitType, ultimate.tier, ultimate.look))
+	end
 end
 
 -- The dummy attacks the unit.
@@ -750,7 +764,7 @@ local function updateStage(s: Stage, now: number, dt: number)
 	if not s.fieldPreview then
 		CombatEffects.update(now) -- a field preview's playback updates its own effects
 	end
-	setCamera(s.camera * ImpactEffects.shakeOffset())
+	setCamera(s.camera * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera))
 end
 
 -- Lineup -------------------------------------------------------------------------------------------
@@ -1014,13 +1028,24 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
 }
 
 -- A handle for Studio scripts (the command bar, Studio MCP; DevLineupQA below) for visual checks:
--- show(unitId), press("One" ... "Nine", "F", "X", "Q"), timeScale(0.25) for slow
--- motion (0 freezes), freezeAfter(stageSeconds), camera("front" | "side" | "close" |
--- "board"), state(). Studio only.
+-- show(unitId), ultimate(unitId) (shows it and plays its next cast, as key 3), press("One" ...
+-- "Nine", "F", "X", "Q"), timeScale(0.25) for slow motion (0 freezes), freezeAfter(stageSeconds),
+-- camera("front" | "side" | "close" | "board"; "close" also frames key 3's preview close on the
+-- unit), state(). Studio only.
 local function qaHandle()
 	return {
 		show = function(unitType: string)
 			showUnit(unitType)
+		end,
+		-- Shows the unit and plays its next cast (its ultimate) in the field preview, as key 3.
+		ultimate = function(unitType: string)
+			if not stage or stage.unitType ~= unitType then
+				showUnit(unitType)
+			end
+			local s = stage
+			if s then
+				cast(s)
+			end
 		end,
 		press = function(keyName: string)
 			local key = (Enum.KeyCode :: any)[keyName]
