@@ -684,6 +684,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			releaseAt = 0,
 			endAt = config.linger,
 			k = 1,
+			castIndex = 1,
 			cast = castEvents,
 			reduced = false,
 			pending = pending,
