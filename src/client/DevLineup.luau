@@ -52,6 +52,7 @@ local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 local CharacterLook = require(script.Parent.CharacterLook)
 local AbilityFx = require(script.Parent.AbilityFx)
 local CameraCues = require(script.Parent.CameraCues)
+local Cinematic = require(script.Parent.Cinematic)
 local Arena = require(script.Parent.Arena)
 local CombatEffects = require(script.Parent.CombatEffects)
 local CombatPlayback = require(script.Parent.CombatPlayback)
@@ -705,6 +706,32 @@ local function nextForm(s: Stage)
 	s.formIndex = s.formIndex % #forms + 1
 	local form = forms[s.formIndex]
 	local formLook = RenderConfig.formLooks[form.name]
+	-- A unit whose ultimate draws its real form changes (Cinematic.shift) plays it here too.
+	local actor = s.actor
+	Cinematic.shift(
+		{
+			views = { actor },
+			toWorld = function()
+				return STAGE
+			end,
+			now = stageClock,
+			ticksPerSecond = CombatConfig.ticksPerSecond,
+			events = {},
+			summonerOf = function()
+				return nil
+			end,
+		},
+		1,
+		s.unitType,
+		actor,
+		AbilityFx.styleOf(s.unitType, CombatFx.factionColor(s.unitType)),
+		{
+			kind = "Form",
+			unit = 1,
+			formIndex = s.formIndex,
+			form = form.name,
+		}
+	)
 	UnitView.setForm(s.actor, formLook, nil, nil, form.name)
 	local _, own = CharacterLook.formFigure(CharacterLook.of(s.unitType).figure, form.name)
 	print(

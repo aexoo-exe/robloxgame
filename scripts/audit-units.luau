@@ -398,6 +398,7 @@ local Vector3 = roblox.Vector3
 local recorded = {} -- shapes drawn during a dry run, with their real start and end
 local stubErrors = {}
 local dryClock = 0 -- the dry run's clock (design time)
+local recordGroup = "cast" -- shift parts are budgeted apart (they never overlap a cast)
 local function recordClock(): number
 	return dryClock
 end
@@ -413,7 +414,11 @@ loaded["src/client/ImpactEffects"] = {
 		expect(color, "Color3", "shape color")
 		expect(duration, "number", "shape duration")
 		local startAt = recordClock() + (delay or 0)
-		table.insert(recorded, { shape = shape, step = step, startAt = startAt, endAt = startAt + duration })
+		local group = recordGroup
+		table.insert(
+			recorded,
+			{ shape = shape, step = step, startAt = startAt, endAt = startAt + duration, group = group }
+		)
 	end,
 	ball = function(position, color, diameter)
 		expect(position, "Vector3", "ball position")
@@ -591,7 +596,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 	end
 
 	-- Pose keys: known channels, ordered keys in the run's span, known eases; evaluate across it.
-	local function checkTrack(track)
+	local function checkTrack(track, relative: boolean?)
 		for channel, keys in track do
 			if not POSE_CHANNELS[channel] then
 				fail("pose", "unknown channel " .. tostring(channel))
@@ -601,7 +606,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 					fail("pose", channel .. " key " .. i .. " is not { t, value }")
 				elseif i > 1 and key[1] < keys[i - 1][1] then
 					fail("pose", channel .. " keys out of order at " .. i)
-				elseif key[1] < -config.preroll - 1e-6 or key[1] > config.linger + 1e-6 then
+				elseif not relative and (key[1] < -config.preroll - 1e-6 or key[1] > config.linger + 1e-6) then
 					fail(
 						"pose",
 						string.format(
@@ -650,6 +655,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 	-- choreography follows the cast take both branches).
 	for _, castEvents in { FAKE_EVENTS, CIRCLE_EVENTS } do
 		table.clear(recorded)
+		recordGroup = "cast"
 		table.clear(stubErrors)
 		local entry = AbilityFxConfig.units[unitType]
 		local views =
@@ -758,7 +764,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 				assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
 			end,
 			pose = function(_, track)
-				checkTrack(track)
+				checkTrack(track, true)
 			end,
 			summons = function()
 				return { views[3] }
@@ -847,6 +853,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		-- A form change outside a cast (`shift`), and the beats it schedules.
 		if def.shift then
 			dryClock = 0
+			recordGroup = "shift"
 			local okShift, err = pcall(def.shift, run, { kind = "Form", unit = 1, formIndex = 2, form = "Form" })
 			if not okShift then
 				fail("shift", err)
@@ -881,7 +888,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		for _, a in recorded do
 			local alive = 0
 			for _, b in recorded do
-				if b.startAt <= a.startAt and b.endAt > a.startAt then
+				if b.group == a.group and b.startAt <= a.startAt and b.endAt > a.startAt then
 					alive += 1
 				end
 			end
