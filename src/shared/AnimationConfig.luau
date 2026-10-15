@@ -164,7 +164,10 @@ return deepFreeze({
 	-- (range 1) a held weapon's kind (`weaponStyles`), then its first class (`meleeClasses` or
 	-- `rangedClasses`), then `defaultMelee` / `defaultRanged`. Bosses fight `heavy` in melee;
 	-- attack pose "point" units use `point`. Range comes from the unit's current form.
-	unitStyles = {},
+	unitStyles = {
+		ascending_core = "caster", -- energy blasts from both hands, not a rifle aim
+		snapfire = "point", -- a finger snap toward the target, not a two-handed push
+	},
 	weaponStyles = {
 		greatsword = "heavy",
 		katana = "blade",

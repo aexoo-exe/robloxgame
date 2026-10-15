@@ -10,6 +10,7 @@
 --   splash       light element sparks on every target an area hits
 --   dash, blink  afterimages along the path
 --   pull         a line drawing the target in; knockback: a shockwave and dust
+--   copy         a flash on the copied enemy and a thread from it to the caster
 --   summon       a portal (ring, column, smoke); recall: the summon drawn back to its summoner
 --   form change  a transformation burst
 --   heal, shield the motes and bubble (CombatFx), touched in the caster's color
@@ -443,6 +444,9 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 		local status = self.dotStatus[event.target]
 		if status then
 			UnitView.mark(target, status, now + CONFIG.dotLinger)
+		elseif not event.aura and not event.item then
+			-- A damage over time with no status (no marker): a few sparks of the element per tick.
+			particles(style, chest(target), 3, scale)
 		end
 		if event.aura and view and now - (self.auraAt[event.unit] or -math.huge) >= CONFIG.auraPulseEvery * 0.9 then
 			-- An aura's tick: a pulse ring around its source, as wide as the aura.
@@ -455,6 +459,12 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 		end
 	elseif kind == "Dash" and view then
 		afterimages(style, view, context.toWorld(event.column, event.row))
+	elseif kind == "Copy" and view and target then
+		-- Copying an enemy's ability: a flash on the copied enemy and a thread from it to the caster
+		-- (the copied ability's own effects follow, in the caster's element).
+		ImpactEffects.ball(chest(target), style.secondary, target.part.Size.Y * 0.5, 0.15)
+		FxKit.beam(chest(target), chest(view), style.primary, 0.25, 0.35, "straight")
+		particles(style, chest(view), 8, scale)
 	elseif kind == "Pull" and view and target then
 		FxKit.beam(chest(view), chest(target), style.primary, 0.2, RenderConfig.dashDuration + 0.25, "straight")
 		particles(style, chest(target), 6, scale)
