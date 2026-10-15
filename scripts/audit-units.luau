@@ -546,6 +546,12 @@ local FAKE_EVENTS = {
 	{ kind = "Form", unit = 1, formIndex = 2, form = "Form" },
 	{ kind = "Copy", unit = 1, target = 2, ability = "x" },
 }
+local CIRCLE_EVENTS = {}
+for _, event in FAKE_EVENTS do
+	if event.shape ~= "LINE" then
+		table.insert(CIRCLE_EVENTS, event)
+	end
+end
 
 -- Problems with a unit's ultimate (nil, "NOT STARTED" if it has none).
 local function checkUltimate(unitType: string, problems: { string }): string
@@ -638,225 +644,232 @@ local function checkUltimate(unitType: string, problems: { string }): string
 	end
 
 	-- A dry run: beats in order, scheduled beats, the release, then every kind of event.
-	table.clear(recorded)
-	table.clear(stubErrors)
-	local entry = AbilityFxConfig.units[unitType]
-	local views =
-		{ mockView(Vector3.new(0, 2.5, 0)), mockView(Vector3.new(0, 2.5, -9)), mockView(Vector3.new(3, 2.5, -10)) }
-	dryClock = -config.preroll
-	local pending = {}
-	local run = {
-		unitIndex = 1,
-		unitType = unitType,
-		view = views[1],
-		style = {
-			element = entry and entry.element or "magic",
-			def = AbilityFxConfig.elements[entry and entry.element or "magic"],
-			primary = entry and entry.primary or roblox.Color3.new(1, 1, 1),
-			secondary = entry and entry.secondary or roblox.Color3.new(1, 1, 1),
-		},
-		tier = config.tier,
-		config = config,
-		def = def,
-		context = {
-			views = views,
-			toWorld = function(column, row)
-				return Vector3.new(column * 3, 0, -row * 3)
+	local maxPeak, total = 0, 0
+	-- Twice: a cast with every event kind, and one with a circle hit and no line (units whose
+	-- choreography follows the cast take both branches).
+	for _, castEvents in { FAKE_EVENTS, CIRCLE_EVENTS } do
+		table.clear(recorded)
+		table.clear(stubErrors)
+		local entry = AbilityFxConfig.units[unitType]
+		local views =
+			{ mockView(Vector3.new(0, 2.5, 0)), mockView(Vector3.new(0, 2.5, -9)), mockView(Vector3.new(3, 2.5, -10)) }
+		dryClock = -config.preroll
+		local pending = {}
+		local run = {
+			unitIndex = 1,
+			unitType = unitType,
+			view = views[1],
+			style = {
+				element = entry and entry.element or "magic",
+				def = AbilityFxConfig.elements[entry and entry.element or "magic"],
+				primary = entry and entry.primary or roblox.Color3.new(1, 1, 1),
+				secondary = entry and entry.secondary or roblox.Color3.new(1, 1, 1),
+			},
+			tier = config.tier,
+			config = config,
+			def = def,
+			context = {
+				views = views,
+				toWorld = function(column, row)
+					return Vector3.new(column * 3, 0, -row * 3)
+				end,
+				now = function()
+					return dryClock
+				end,
+				ticksPerSecond = 10,
+				events = castEvents,
+			},
+			startAt = -config.preroll,
+			releaseAt = 0,
+			endAt = config.linger,
+			k = 1,
+			cast = castEvents,
+			reduced = false,
+			pending = pending,
+			memo = {},
+		}
+		local methods = {
+			time = function(_, t)
+				return t
+			end,
+			span = function(_, _t, seconds)
+				return seconds
+			end,
+			at = function(_, t, fn)
+				assert(type(t) == "number" and type(fn) == "function", "at(t, fn) expects a time and a function")
+				table.insert(pending, { at = t, run = fn })
 			end,
 			now = function()
 				return dryClock
 			end,
-			ticksPerSecond = 10,
-			events = FAKE_EVENTS,
-		},
-		startAt = -config.preroll,
-		releaseAt = 0,
-		endAt = config.linger,
-		k = 1,
-		cast = FAKE_EVENTS,
-		reduced = false,
-		pending = pending,
-		memo = {},
-	}
-	local methods = {
-		time = function(_, t)
-			return t
-		end,
-		span = function(_, _t, seconds)
-			return seconds
-		end,
-		at = function(_, t, fn)
-			assert(type(t) == "number" and type(fn) == "function", "at(t, fn) expects a time and a function")
-			table.insert(pending, { at = t, run = fn })
-		end,
-		now = function()
-			return dryClock
-		end,
-		designTime = function()
-			return dryClock
-		end,
-		alive = function()
-			return true
-		end,
-		chest = function()
-			return Vector3.new(0, 3, 0)
-		end,
-		ground = function()
-			return Vector3.new(0, 0, 0)
-		end,
-		head = function()
-			return Vector3.new(0, 4.5, 0)
-		end,
-		hand = function(_, side)
-			assert(side == "left" or side == "right", "hand(side): left or right")
-			return Vector3.new(if side == "left" then -1 else 1, 2.5, -0.6)
-		end,
-		forward = function()
-			return Vector3.new(0, 0, -1)
-		end,
-		scale = function()
-			return 1
-		end,
-		find = function(_, ...)
-			local wanted = { ... }
-			for _, event in FAKE_EVENTS do
-				if table.find(wanted, event.kind) then
-					return event
-				end
-			end
-			return nil
-		end,
-		area = function()
-			return Vector3.new(12, 0, -18), 7.5
-		end,
-		targets = function()
-			return { views[2], views[3] }
-		end,
-		target = function()
-			return views[2]
-		end,
-		camera = function(_, from, to, cue)
-			assert(type(from) == "number" and type(to) == "number" and from <= to, "camera(from, to): from <= to")
-			assert(type(cue) == "table", "camera cue table")
-		end,
-		shake = function(_, amount)
-			assert(type(amount) == "number", "shake(amount)")
-		end,
-		sound = function(_, role)
-			assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
-		end,
-		face = function() end,
-		hitStop = function(_, _view, seconds)
-			assert(type(seconds) == "number" and seconds >= 0, "hitStop(view, seconds)")
-		end,
-	}
-	for name in RUN_METHODS do
-		if not methods[name] then
-			fail("audit", "the stand-in run lacks Cinematic method " .. name)
-		end
-	end
-	setmetatable(run, {
-		__index = function(_, key)
-			local method = methods[key]
-			if method and RUN_METHODS[key] then
-				return method
-			end
-			error("run has no method or field " .. tostring(key), 2)
-		end,
-	})
-	-- Per-cast pose keys: picked from every event kind, and from a cast with only a circle hit.
-	if def.poseFor then
-		for _, cast in { FAKE_EVENTS, { FAKE_EVENTS[3], FAKE_EVENTS[6] } } do
-			run.cast = cast
-			local picked, track = pcall(def.poseFor, run)
-			if not picked then
-				fail("poseFor", track)
-			elseif type(track) ~= "table" then
-				fail("poseFor", "returned no pose keys")
-			else
-				checkTrack(track)
-			end
-		end
-		run.cast = FAKE_EVENTS
-	end
-	local beats = table.clone(def.beats or {})
-	table.sort(beats, function(a, b)
-		return a.at < b.at
-	end)
-	for _, beat in beats do
-		if type(beat.at) ~= "number" or type(beat.run) ~= "function" then
-			fail("beat", "needs { at = number, run = function }")
-		elseif beat.at < -config.preroll - 1e-6 or beat.at > config.linger + 1e-6 then
-			fail("beat", string.format("at %.2f is outside -%.2f..%.2f", beat.at, config.preroll, config.linger))
-		else
-			table.insert(pending, { at = beat.at, run = beat.run })
-		end
-	end
-	local released = false
-	local guard = 0
-	while (#pending > 0 or not released) and guard < 500 do
-		guard += 1
-		table.sort(pending, function(a, b)
-			return a.at < b.at
-		end)
-		local nextBeat = pending[1]
-		if not released and (not nextBeat or nextBeat.at >= 0) then
-			released = true
-			dryClock = 0
-			if def.release then
-				local okRelease, err = pcall(def.release, run)
-				if not okRelease then
-					fail("release", err)
-				end
-			end
-			if def.event then
-				for _, event in FAKE_EVENTS do
-					local okEvent, err = pcall(def.event, run, event)
-					if not okEvent then
-						fail("event " .. event.kind, err)
+			designTime = function()
+				return dryClock
+			end,
+			alive = function()
+				return true
+			end,
+			chest = function()
+				return Vector3.new(0, 3, 0)
+			end,
+			ground = function()
+				return Vector3.new(0, 0, 0)
+			end,
+			head = function()
+				return Vector3.new(0, 4.5, 0)
+			end,
+			hand = function(_, side)
+				assert(side == "left" or side == "right", "hand(side): left or right")
+				return Vector3.new(if side == "left" then -1 else 1, 2.5, -0.6)
+			end,
+			forward = function()
+				return Vector3.new(0, 0, -1)
+			end,
+			scale = function()
+				return 1
+			end,
+			find = function(_, ...)
+				local wanted = { ... }
+				for _, event in castEvents do
+					if table.find(wanted, event.kind) then
+						return event
 					end
 				end
-			end
-		else
-			table.remove(pending, 1)
-			dryClock = nextBeat.at
-			local okBeat, err = pcall(nextBeat.run, run)
-			if not okBeat then
-				fail(string.format("beat at %.2f", nextBeat.at), err)
+				return nil
+			end,
+			area = function()
+				return Vector3.new(12, 0, -18), 7.5
+			end,
+			targets = function()
+				return { views[2], views[3] }
+			end,
+			target = function()
+				return views[2]
+			end,
+			camera = function(_, from, to, cue)
+				assert(type(from) == "number" and type(to) == "number" and from <= to, "camera(from, to): from <= to")
+				assert(type(cue) == "table", "camera cue table")
+			end,
+			shake = function(_, amount)
+				assert(type(amount) == "number", "shake(amount)")
+			end,
+			sound = function(_, role)
+				assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
+			end,
+			face = function() end,
+			hitStop = function(_, _view, seconds)
+				assert(type(seconds) == "number" and seconds >= 0, "hitStop(view, seconds)")
+			end,
+		}
+		for name in RUN_METHODS do
+			if not methods[name] then
+				fail("audit", "the stand-in run lacks Cinematic method " .. name)
 			end
 		end
-	end
-	-- Every part drawn, stepped through its life.
-	for _, shape in recorded do
-		for _, u in { 0, 0.5, 1 } do
-			local okStep, err = pcall(shape.step, checkingPart(), u)
-			if not okStep then
-				fail("part step (" .. shape.shape .. ")", err)
-				break
+		setmetatable(run, {
+			__index = function(_, key)
+				local method = methods[key]
+				if method and RUN_METHODS[key] then
+					return method
+				end
+				error("run has no method or field " .. tostring(key), 2)
+			end,
+		})
+		-- Per-cast pose keys: picked from every event kind, and from a cast with only a circle hit.
+		if def.poseFor then
+			for _, cast in { castEvents, { castEvents[3], castEvents[6] } } do
+				run.cast = cast
+				local picked, track = pcall(def.poseFor, run)
+				if not picked then
+					fail("poseFor", track)
+				elseif type(track) ~= "table" then
+					fail("poseFor", "returned no pose keys")
+				else
+					checkTrack(track)
+				end
+			end
+			run.cast = castEvents
+		end
+		local beats = table.clone(def.beats or {})
+		table.sort(beats, function(a, b)
+			return a.at < b.at
+		end)
+		for _, beat in beats do
+			if type(beat.at) ~= "number" or type(beat.run) ~= "function" then
+				fail("beat", "needs { at = number, run = function }")
+			elseif beat.at < -config.preroll - 1e-6 or beat.at > config.linger + 1e-6 then
+				fail("beat", string.format("at %.2f is outside -%.2f..%.2f", beat.at, config.preroll, config.linger))
+			else
+				table.insert(pending, { at = beat.at, run = beat.run })
 			end
 		end
-	end
-	for _, err in stubErrors do
-		fail("effect", err)
-	end
-	-- The busiest moment: parts alive at once.
-	local peak = 0
-	for _, a in recorded do
-		local alive = 0
-		for _, b in recorded do
-			if b.startAt <= a.startAt and b.endAt > a.startAt then
-				alive += 1
+		local released = false
+		local guard = 0
+		while (#pending > 0 or not released) and guard < 500 do
+			guard += 1
+			table.sort(pending, function(a, b)
+				return a.at < b.at
+			end)
+			local nextBeat = pending[1]
+			if not released and (not nextBeat or nextBeat.at >= 0) then
+				released = true
+				dryClock = 0
+				if def.release then
+					local okRelease, err = pcall(def.release, run)
+					if not okRelease then
+						fail("release", err)
+					end
+				end
+				if def.event then
+					for _, event in castEvents do
+						local okEvent, err = pcall(def.event, run, event)
+						if not okEvent then
+							fail("event " .. event.kind, err)
+						end
+					end
+				end
+			else
+				table.remove(pending, 1)
+				dryClock = nextBeat.at
+				local okBeat, err = pcall(nextBeat.run, run)
+				if not okBeat then
+					fail(string.format("beat at %.2f", nextBeat.at), err)
+				end
 			end
 		end
-		peak = math.max(peak, alive)
+		-- Every part drawn, stepped through its life.
+		for _, shape in recorded do
+			for _, u in { 0, 0.5, 1 } do
+				local okStep, err = pcall(shape.step, checkingPart(), u)
+				if not okStep then
+					fail("part step (" .. shape.shape .. ")", err)
+					break
+				end
+			end
+		end
+		for _, err in stubErrors do
+			fail("effect", err)
+		end
+		-- The busiest moment: parts alive at once.
+		local peak = 0
+		for _, a in recorded do
+			local alive = 0
+			for _, b in recorded do
+				if b.startAt <= a.startAt and b.endAt > a.startAt then
+					alive += 1
+				end
+			end
+			peak = math.max(peak, alive)
+		end
+		if peak > PEAK_LIMIT[config.tier] then
+			fail(
+				"budget",
+				string.format("%d parts alive at once (tier %d limit %d)", peak, config.tier, PEAK_LIMIT[config.tier])
+			)
+		end
+		maxPeak = math.max(maxPeak, peak)
+		total += #recorded
 	end
-	if peak > PEAK_LIMIT[config.tier] then
-		fail(
-			"budget",
-			string.format("%d parts alive at once (tier %d limit %d)", peak, config.tier, PEAK_LIMIT[config.tier])
-		)
-	end
-	return string.format("DONE %d/%d", peak, #recorded)
+	return string.format("DONE %d/%d", maxPeak, total)
 end
 -- Units ----------------------------------------------------------------------------------------------
 

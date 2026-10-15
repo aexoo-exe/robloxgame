@@ -82,7 +82,7 @@ return deepFreeze({
 			tier = 5,
 			preroll = 0.9,
 			linger = 1.2,
-			look = "each cast steps the aura up; Core III: hands cupped at the side, light grows, stones float, then a full-board beam on the real line",
+			look = "casts 1-2: fists clench, yell, gold aura spikes climb (blue sparks into Core III), palm blast, gold eruption on the form change; Core III: hands cupped at the hip, light grows, stones float, stillness, then a held full-board beam along the real line that thins out",
 			wanted = { "power-up roar swell", "charging whine", "beam blast and sustain" },
 		},
 		final_argument = {
