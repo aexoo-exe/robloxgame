@@ -89,7 +89,7 @@ return deepFreeze({
 			tier = 5,
 			preroll = 1.05,
 			linger = 1.2,
-			look = "bored to serious; the fist draws back slowly, dust lifts; total stillness; an almost invisible punch; a white flash, the cone of air and a crack across the board",
+			look = "slouched and bored, then straight; the fist draws back slowly inside a bend of air, dust lifts; stillness while the camera goes face then fist; an almost invisible punch; white flash, a cone of air, a long crack along the punch, wind streaks and debris, long hit-stop; back to bored",
 			wanted = { "silence drop", "fist creak", "massive punch boom", "wind rush" },
 		},
 		boiling_crown = {
