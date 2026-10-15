@@ -74,8 +74,8 @@ return deepFreeze({
 		severing_temple = {
 			tier = 5,
 			preroll = 1.0,
-			linger = 1.6,
-			look = "hand sign; shrine rises over the area, floor turns dark; a bell beat of stillness; the area fills with slashes on the real hit; slashes keep flickering while the damage over time ticks",
+			linger = 4.3, -- through the 4 s damage over time (the pose ends at 1.8)
+			look = "hand sign; the shrine climbs out of the ground behind the area, the floor turns to a dark pool; a bell beat of stillness; the area fills with cuts on the real hit; fresh cuts on each enemy at every real tick; shrine fades by 2.6",
 			wanted = { "temple bell", "rising drone", "hundreds of fast slash swishes", "big impact" },
 		},
 		ascending_core = {

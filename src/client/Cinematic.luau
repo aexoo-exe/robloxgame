@@ -2,6 +2,7 @@
 -- timeline around a unit's real cast, in design seconds relative to the Cast event (negative:
 -- before it):
 --   pose     pose keys per channel (UnitMotion.ultimatePose): { { t, value, ease? }, ... }
+--   poseFor  function(run) -> pose keys, instead of `pose`, for units whose casts differ
 --   beats    { { at = t, run = function(run) } }: effects, camera cues, sounds at their moment
 --   release  function(run): the moment of the cast; return true to replace the generic release
 --   event    function(run, event): each of the caster's events while it runs (its real hits,
@@ -86,6 +87,15 @@ end
 
 function Methods.now(self: Run): number
 	return self.context.now()
+end
+
+-- The design time now (relative to the release; the anticipation's compression undone).
+function Methods.designTime(self: Run): number
+	local now = self.context.now()
+	if now < self.releaseAt then
+		return (now - self.releaseAt) / math.max(self.k, 1e-3)
+	end
+	return now - self.releaseAt
 end
 
 function Methods.alive(self: Run): boolean
@@ -354,8 +364,19 @@ function Cinematic.start(
 		memo = {},
 	}, Methods) :: any
 	runs[unitIndex] = run
-	if def.pose then
-		UnitView.ultimatePose(view, def.pose, from, releaseAt, k, run.endAt)
+	-- `poseFor(run)` picks the pose keys from the cast's own events (a unit whose casts differ).
+	local track = if def.poseFor then def.poseFor(run) else def.pose
+	if track then
+		-- The pose layer ends just after its last key (a long linger keeps only its effects), so the
+		-- unit's own attacks show again.
+		local last = -math.huge
+		for _, keys in track do
+			if #keys > 0 then
+				last = math.max(last, keys[#keys][1])
+			end
+		end
+		local poseEnd = math.min(run.endAt, timeOf(run, last) + 0.2)
+		UnitView.ultimatePose(view, track, from, releaseAt, k, poseEnd)
 	end
 	for _, beat in def.beats or {} do
 		-- Beats before the window (a late start) are skipped; t >= -preroll always fits.

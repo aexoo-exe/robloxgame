@@ -153,6 +153,131 @@ function UltimateKit.pool(
 	end, material or Enum.Material.SmoothPlastic)
 end
 
+-- A block set each frame from `u`: its CFrame, size and transparency.
+function UltimateKit.block(
+	run: any,
+	from: number,
+	to: number,
+	color: Color3,
+	frame: (number) -> CFrame,
+	size: (number) -> Vector3,
+	transparency: (number) -> number,
+	material: Enum.Material?
+)
+	UltimateKit.live(run, from, to, "Block", color, function(part, u)
+		part.Size = size(u)
+		part.CFrame = frame(u)
+		part.Transparency = transparency(u)
+	end, material)
+end
+
+-- A held beam from `a()` to `b()` (moving points), `width(u)` thick: a bright core in a wider glow.
+function UltimateKit.beam(
+	run: any,
+	from: number,
+	to: number,
+	core: Color3,
+	glow: Color3,
+	a: () -> Vector3,
+	b: () -> Vector3,
+	width: (number) -> number
+)
+	for layer = 1, 2 do
+		UltimateKit.live(run, from, to, "Cylinder", if layer == 1 then core else glow, function(part, u)
+			local p, q = a(), b()
+			local length = math.max((q - p).Magnitude, 0.05)
+			local w = math.max(0.05, width(u) * (if layer == 1 then 1 else 2.2))
+			part.Size = Vector3.new(length, w, w)
+			part.CFrame = CFrame.lookAt((p + q) / 2, q) * CFrame.Angles(0, math.pi / 2, 0)
+			part.Transparency = if layer == 1 then 0.05 + 0.9 * UltimateKit.easeIn(u) else 0.55 + 0.45 * u
+		end)
+	end
+end
+
+-- `count` thin slash flashes across a disc of `radius` around `center`, each a blink, spread over
+-- the span: an area filling with cuts. `colors` alternate.
+function UltimateKit.slashes(
+	run: any,
+	from: number,
+	to: number,
+	center: Vector3,
+	radius: number,
+	count: number,
+	colors: { Color3 },
+	height: number?
+)
+	local span = run:time(to) - run:time(from)
+	local start = math.max(0, run:time(from) - run:now())
+	for i = 1, count do
+		local angle = math.random() * 2 * math.pi
+		local r = radius * math.sqrt(math.random())
+		local at = center
+			+ Vector3.new(math.cos(angle) * r, (height or 1.4) * (0.3 + math.random()), math.sin(angle) * r)
+		local frame = CFrame.new(at)
+			* CFrame.Angles(0, math.random() * math.pi * 2, 0)
+			* CFrame.Angles(0, 0, (math.random() - 0.5) * 1.8)
+		local length = radius * (0.5 + math.random() * 0.6)
+		local color = colors[(i - 1) % #colors + 1]
+		ImpactEffects.shape("Block", color, 0.12, function(part, u)
+			part.Size = Vector3.new(length * (0.6 + 0.4 * u), 0.08, 0.08)
+			part.CFrame = frame
+			part.Transparency = u * 0.9
+		end, start + (i - 1) / count * span)
+	end
+end
+
+-- Spiky aura flames rising around the caster from `from` to `to`: `count` thin spikes at the waist,
+-- each licking up and fading in turn, `height(u)` studs tall.
+function UltimateKit.aura(run: any, from: number, to: number, color: Color3, count: number, height: (number) -> number)
+	for i = 1, count do
+		local angle = (i - 1) / count * 2 * math.pi
+		local phase = (i * 0.37) % 1
+		UltimateKit.live(run, from, to, "Block", color, function(part, u)
+			local base = run:ground()
+			local radius = run.view.part.Size.X * 0.55
+			local flicker = (run:now() * 3 + phase) % 1
+			local tall = height(u) * (0.5 + 0.5 * math.sin(flicker * math.pi))
+			local foot = base + Vector3.new(math.cos(angle) * radius, 0.2, math.sin(angle) * radius)
+			part.Size = Vector3.new(0.14, math.max(tall, 0.05), 0.14)
+			part.CFrame = CFrame.new(foot + Vector3.new(0, tall / 2, 0)) * CFrame.Angles(0, -angle, 0.12)
+			part.Transparency = 0.25 + 0.6 * flicker
+		end)
+	end
+end
+
+-- Wind streaks: `count` long thin lines shooting from `origin` along `direction` (ground plane),
+-- spread across `width` studs, `length` studs long, starting at design time `at`.
+function UltimateKit.streaks(
+	run: any,
+	at: number,
+	origin: Vector3,
+	direction: Vector3,
+	count: number,
+	length: number,
+	width: number,
+	color: Color3
+)
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	if flat.Magnitude < 1e-3 then
+		return
+	end
+	flat = flat.Unit
+	local side = Vector3.new(-flat.Z, 0, flat.X)
+	for _ = 1, count do
+		local offset = side * (math.random() - 0.5) * width + Vector3.new(0, 0.4 + math.random() * 2.4, 0)
+		local reach = length * (0.6 + math.random() * 0.4)
+		local lag = math.random() * 0.08
+		UltimateKit.live(run, at + lag, at + lag + 0.35, "Block", color, function(part, u)
+			local tip = origin + offset + flat * reach * UltimateKit.easeOut(u)
+			local tail = origin + offset + flat * reach * UltimateKit.easeIn(u)
+			local span = math.max((tip - tail).Magnitude, 0.05)
+			part.Size = Vector3.new(0.07, 0.07, span)
+			part.CFrame = CFrame.lookAt((tip + tail) / 2, tip + flat * 0.01)
+			part.Transparency = 0.2 + 0.7 * u
+		end)
+	end
+end
+
 -- Motes drifting up from a disc of `radius` around `center`, a few at a time, from `from` to `to`.
 function UltimateKit.drift(
 	run: any,

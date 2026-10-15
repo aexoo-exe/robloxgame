@@ -569,6 +569,11 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		return "BROKEN"
 	end
 	if not def then
+		-- The registry warns and leaves out a module that fails to load: that is a problem here.
+		if PATHS["src/client/Ultimates/" .. unitType] then
+			table.insert(problems, "ultimate module exists but failed to load (see the warning above)")
+			return "BROKEN"
+		end
 		return "NOT STARTED"
 	end
 	if config.look == "" then
@@ -579,52 +584,57 @@ local function checkUltimate(unitType: string, problems: { string }): string
 	end
 
 	-- Pose keys: known channels, ordered keys in the run's span, known eases; evaluate across it.
-	for channel, keys in def.pose or {} do
-		if not POSE_CHANNELS[channel] then
-			fail("pose", "unknown channel " .. tostring(channel))
-		end
-		for i, key in keys do
-			if type(key[1]) ~= "number" or type(key[2]) ~= "number" then
-				fail("pose", channel .. " key " .. i .. " is not { t, value }")
-			elseif i > 1 and key[1] < keys[i - 1][1] then
-				fail("pose", channel .. " keys out of order at " .. i)
-			elseif key[1] < -config.preroll - 1e-6 or key[1] > config.linger + 1e-6 then
-				fail(
-					"pose",
-					string.format(
-						"%s key at %.2f is outside -%.2f..%.2f",
-						channel,
-						key[1],
-						config.preroll,
-						config.linger
-					)
-				)
+	local function checkTrack(track)
+		for channel, keys in track do
+			if not POSE_CHANNELS[channel] then
+				fail("pose", "unknown channel " .. tostring(channel))
 			end
-			if key[3] and not EASE_NAMES[key[3]] then
-				fail("pose", channel .. " unknown ease " .. tostring(key[3]))
+			for i, key in keys do
+				if type(key[1]) ~= "number" or type(key[2]) ~= "number" then
+					fail("pose", channel .. " key " .. i .. " is not { t, value }")
+				elseif i > 1 and key[1] < keys[i - 1][1] then
+					fail("pose", channel .. " keys out of order at " .. i)
+				elseif key[1] < -config.preroll - 1e-6 or key[1] > config.linger + 1e-6 then
+					fail(
+						"pose",
+						string.format(
+							"%s key at %.2f is outside -%.2f..%.2f",
+							channel,
+							key[1],
+							config.preroll,
+							config.linger
+						)
+					)
+				end
+				if key[3] and not EASE_NAMES[key[3]] then
+					fail("pose", channel .. " unknown ease " .. tostring(key[3]))
+				end
+			end
+		end
+		do
+			local t = -config.preroll
+			while t <= config.linger do
+				local pose =
+					{ bob = 0, lean = 0, fall = 0, leftArm = 0, rightArm = 0, leftLeg = 0, rightLeg = 0, stride = 0 }
+				local evaluated, lunge, rise = pcall(UnitMotion.ultimatePose, pose, track, t, 1, { 0, 0 }, t)
+				if not evaluated then
+					fail("pose", lunge)
+					break
+				end
+				for key, value in pose do
+					if not finite(value) then
+						fail("pose", key .. " not finite at " .. t)
+					end
+				end
+				if not (finite(lunge) and finite(rise)) then
+					fail("pose", "lunge or rise not finite")
+				end
+				t += 0.05
 			end
 		end
 	end
 	if def.pose then
-		local t = -config.preroll
-		while t <= config.linger do
-			local pose =
-				{ bob = 0, lean = 0, fall = 0, leftArm = 0, rightArm = 0, leftLeg = 0, rightLeg = 0, stride = 0 }
-			local evaluated, lunge, rise = pcall(UnitMotion.ultimatePose, pose, def.pose, t, 1, { 0, 0 }, t)
-			if not evaluated then
-				fail("pose", lunge)
-				break
-			end
-			for key, value in pose do
-				if not finite(value) then
-					fail("pose", key .. " not finite at " .. t)
-				end
-			end
-			if not (finite(lunge) and finite(rise)) then
-				fail("pose", "lunge or rise not finite")
-			end
-			t += 0.05
-		end
+		checkTrack(def.pose)
 	end
 
 	-- A dry run: beats in order, scheduled beats, the release, then every kind of event.
@@ -680,6 +690,9 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			table.insert(pending, { at = t, run = fn })
 		end,
 		now = function()
+			return dryClock
+		end,
+		designTime = function()
 			return dryClock
 		end,
 		alive = function()
@@ -751,6 +764,21 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			error("run has no method or field " .. tostring(key), 2)
 		end,
 	})
+	-- Per-cast pose keys: picked from every event kind, and from a cast with only a circle hit.
+	if def.poseFor then
+		for _, cast in { FAKE_EVENTS, { FAKE_EVENTS[3], FAKE_EVENTS[6] } } do
+			run.cast = cast
+			local picked, track = pcall(def.poseFor, run)
+			if not picked then
+				fail("poseFor", track)
+			elseif type(track) ~= "table" then
+				fail("poseFor", "returned no pose keys")
+			else
+				checkTrack(track)
+			end
+		end
+		run.cast = FAKE_EVENTS
+	end
 	local beats = table.clone(def.beats or {})
 	table.sort(beats, function(a, b)
 		return a.at < b.at
