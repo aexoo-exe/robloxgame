@@ -194,6 +194,14 @@ function Methods.camera(
 	})
 end
 
+-- A cosmetic hit-stop impression on `view` (a unit's pose holds for `seconds`; combat goes on).
+function Methods.hitStop(self: Run, view: any?, seconds: number)
+	local target = view or self.view
+	if target and target.part.Parent then
+		UnitView.hitStop(target, seconds, target ~= self.view, true)
+	end
+end
+
 -- Camera shake, capped by the tier.
 function Methods.shake(self: Run, amount: number)
 	ImpactEffects.shake(math.min(amount, UltimateConfig.tiers[self.tier].shake))

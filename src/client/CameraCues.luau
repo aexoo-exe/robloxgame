@@ -92,9 +92,12 @@ function CameraCues.request(request: Request): boolean
 	end
 	local now = clock()
 	prune(now)
-	local push = if EffectSettings.reducedCameraMotion() then 0 else math.min(request.push or 0, CONFIG.maxPush)
+	-- A negative push pulls the camera back (a release's sudden pullback).
+	local push = if EffectSettings.reducedCameraMotion()
+		then 0
+		else math.clamp(request.push or 0, -CONFIG.maxPush, CONFIG.maxPush)
 	local dim = if EffectSettings.reducedEffects() or not tier.dim then 0 else math.min(request.dim or 0, CONFIG.maxDim)
-	if push <= 0 and dim <= 0 then
+	if push == 0 and dim <= 0 then
 		return false
 	end
 	local key = request.key or "main"
@@ -191,7 +194,7 @@ function CameraCues.offset(cameraCFrame: CFrame): CFrame
 	for _, cue in cues do
 		local w = weight(cue, now)
 		if w > 0 then
-			if cue.push * w > push then
+			if math.abs(cue.push * w) > math.abs(push) then
 				push, focus = cue.push * w, cue.focus
 			end
 			dim = math.max(dim, cue.dim * w)
@@ -204,16 +207,17 @@ function CameraCues.offset(cameraCFrame: CFrame): CFrame
 		effect.Saturation = -0.6 * dim
 		effect.Contrast = 0.25 * dim
 	end
-	if push <= 0 then
+	if push == 0 then
 		return CFrame.identity
 	end
-	-- Move along the line to the focus (or straight ahead), in the camera's own space.
+	-- Move along the line to the focus (or straight ahead), in the camera's own space; a pullback
+	-- moves the other way.
 	local direction = Vector3.new(0, 0, -1)
 	if focus then
 		local relative = cameraCFrame:PointToObjectSpace(focus)
 		if relative.Magnitude > 1e-3 then
 			direction = relative.Unit
-			push = math.min(push, relative.Magnitude * 0.25)
+			push = math.clamp(push, -relative.Magnitude * 0.25, relative.Magnitude * 0.25)
 		end
 	end
 	return CFrame.new(direction * push)

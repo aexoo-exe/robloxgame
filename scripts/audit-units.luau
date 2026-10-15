@@ -733,6 +733,9 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
 		end,
 		face = function() end,
+		hitStop = function(_, _view, seconds)
+			assert(type(seconds) == "number" and seconds >= 0, "hitStop(view, seconds)")
+		end,
 	}
 	for name in RUN_METHODS do
 		if not methods[name] then

@@ -172,8 +172,10 @@ def.beats = {
 					FxKit.beam(center, center + offset, WHITE:Lerp(PURPLE, 0.4), 0.18, 0.08, "jagged")
 				end)
 			end
-			-- Silence and the push: the camera leans in on him.
-			run:camera(-0.3, 0.35, { key = "push", push = 3.5, focus = run:chest(), rise = 0.2, fall = 0.35 })
+			-- Silence and the push: the camera leans in on him until the flick, then snaps back as
+			-- the erasure lands (the contrast is the point).
+			run:camera(-0.3, 0, { key = "push", push = 3.5, focus = run:chest(), rise = 0.2, fall = 0.06 })
+			run:camera(0, 0.55, { key = "pull", push = -2.2, focus = run:chest(), rise = 0.04, fall = 0.45 })
 			run:sound("chime", 0.5)
 		end,
 	},
@@ -243,6 +245,11 @@ function def.event(run, event): boolean
 			lifetime = { 0.5, 0.9 },
 			transparency = 0.35,
 		})
+		-- The impact frame holds: every enemy hit and the caster freeze for a beat (cosmetic only).
+		for _, target in run:targets() do
+			run:hitStop(target, 0.14)
+		end
+		run:hitStop(nil, 0.08)
 		run:shake(0.45)
 		run:sound("whoosh", 0.55)
 		return true

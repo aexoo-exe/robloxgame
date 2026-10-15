@@ -45,7 +45,8 @@ function UltimateKit.live(
 	ImpactEffects.shape(shape, color, duration, step, delay, material)
 end
 
--- A glowing orb at `where()` from `from` to `to`, `size(u)` studs across, pulsing a little.
+-- A glowing orb at `where()` from `from` to `to`, `size(u)` studs across, pulsing a little: a
+-- bright core inside a soft, larger halo of the same color.
 function UltimateKit.orb(
 	run: any,
 	from: number,
@@ -55,11 +56,18 @@ function UltimateKit.orb(
 	size: (number) -> number,
 	transparency: ((number) -> number)?
 )
-	UltimateKit.live(run, from, to, "Ball", color, function(part, u)
+	UltimateKit.live(run, from, to, "Ball", color:Lerp(UltimateKit.WHITE, 0.35), function(part, u)
 		local pulse = 1 + 0.08 * math.sin(run:now() * 38)
 		part.Size = Vector3.one * math.max(0.05, size(u) * pulse)
 		part.CFrame = CFrame.new(where())
 		part.Transparency = if transparency then transparency(u) else 0.05
+	end)
+	UltimateKit.live(run, from, to, "Ball", color, function(part, u)
+		local pulse = 1 + 0.15 * math.sin(run:now() * 23 + 1)
+		part.Size = Vector3.one * math.max(0.05, size(u) * 1.9 * pulse)
+		part.CFrame = CFrame.new(where())
+		local base = if transparency then transparency(u) else 0.05
+		part.Transparency = 0.6 + 0.4 * base
 	end)
 end
 
