@@ -278,6 +278,39 @@ function UltimateKit.streaks(
 	end
 end
 
+-- A cheap lightning zig-zag from `a` to `b`: one strand of `segments` parts (FxKit's jagged beam
+-- uses up to 18), flickering as it fades over `duration` real seconds after `delay`.
+function UltimateKit.zap(
+	a: Vector3,
+	b: Vector3,
+	color: Color3,
+	width: number,
+	duration: number,
+	segments: number?,
+	delay: number?
+)
+	local count = segments or 3
+	local side = Vector3.new(-(b - a).Z, 0, (b - a).X)
+	side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
+	local points = { a }
+	for i = 1, count - 1 do
+		local jitter = (if i % 2 == 0 then 1 else -1) * (0.3 + math.random() * 0.4) * (b - a).Magnitude / count
+		table.insert(points, a:Lerp(b, i / count) + side * jitter + Vector3.yAxis * (math.random() - 0.5) * 0.4)
+	end
+	table.insert(points, b)
+	for i = 1, count do
+		local p, q = points[i], points[i + 1]
+		local length = math.max((q - p).Magnitude, 0.05)
+		local frame = CFrame.lookAt((p + q) / 2, q)
+		ImpactEffects.shape("Block", color, duration, function(part, u)
+			part.Size = Vector3.new(width, width, length)
+			part.CFrame = frame
+			local flicker = if math.floor(u * 10 + i) % 2 == 0 then 0 else 0.4
+			part.Transparency = math.min(1, u * 0.8 + flicker * (1 - u))
+		end, delay)
+	end
+end
+
 -- Motes drifting up from a disc of `radius` around `center`, a few at a time, from `from` to `to`.
 function UltimateKit.drift(
 	run: any,

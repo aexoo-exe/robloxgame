@@ -441,9 +441,18 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 	if not fresh then
 		return
 	end
-	-- A running ultimate may draw this event its own way.
+	-- A running ultimate may draw this event its own way; a form change outside a cast may get its
+	-- unit's own shift (Cinematic.shift).
 	if Cinematic.event(event) then
 		return
+	end
+	if kind == "Form" and view and not Cinematic.running(event.unit) then
+		local unitType = context.unitTypeOf(event.unit)
+		if
+			unitType and Cinematic.shift(context :: any, event.unit, unitType, view, context.styleOf(event.unit), event)
+		then
+			return
+		end
 	end
 
 	local style = context.styleOf(event.unit)

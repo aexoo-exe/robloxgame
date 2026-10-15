@@ -844,6 +844,25 @@ local function checkUltimate(unitType: string, problems: { string }): string
 				end
 			end
 		end
+		-- A form change outside a cast (`shift`), and the beats it schedules.
+		if def.shift then
+			dryClock = 0
+			local okShift, err = pcall(def.shift, run, { kind = "Form", unit = 1, formIndex = 2, form = "Form" })
+			if not okShift then
+				fail("shift", err)
+			end
+			table.sort(pending, function(a, b)
+				return a.at < b.at
+			end)
+			while #pending > 0 do
+				local beat = table.remove(pending, 1)
+				dryClock = beat.at
+				local okBeat, beatErr = pcall(beat.run, run)
+				if not okBeat then
+					fail(string.format("shift beat at %.2f", beat.at), beatErr)
+				end
+			end
+		end
 		-- Every part drawn, stepped through its life.
 		for _, shape in recorded do
 			for _, u in { 0, 0.5, 1 } do

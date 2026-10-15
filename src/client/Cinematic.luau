@@ -8,6 +8,9 @@
 --   event    function(run, event): each of the caster's events while it runs (its real hits,
 --            areas, stuns, shields); return true to replace the generated effect of that event
 --   ownClones  true: the ultimate draws its own cast clones (RenderConfig.castClones are skipped)
+--   shift    function(run, event): a real form change outside a cast (a health trigger) gets its
+--            own short run starting at the Form event (no anticipation); `shiftLinger` its length.
+--            Return true to replace the generated transformation effect
 -- `release` also runs for each FollowUp event (a chained repeat) while the ultimate runs.
 -- The anticipation (t < 0) is scaled to the real window before the cast (the playback starts it
 -- early from the precomputed event list; a short window after a previous cast compresses it);
@@ -63,6 +66,7 @@ export type Run = {
 }
 
 local runs: { [number]: Run } = {} -- by unit index
+local shifts: { Run } = {} -- form-change runs (Cinematic.shift), alongside any cast run
 local connection: RBXScriptConnection? = nil
 
 -- Design time `t` (relative to the release) as fight time.
@@ -238,8 +242,9 @@ function Methods.sound(self: Run, role: string, pitch: number?)
 	end)
 end
 
--- Plays `track` (pose keys) now, its design time 0 at this moment: a follow-up's own motion.
-function Methods.pose(self: Run, track: any)
+-- Plays `track` (pose keys) now, its design time 0 at this moment: a follow-up's own motion, or
+-- (with `view`) another unit's reaction (enemies floating in a held area). Cosmetic only.
+function Methods.pose(self: Run, track: any, view: any?)
 	local now = self.context.now()
 	local last = 0
 	for _, keys in track do
@@ -247,7 +252,7 @@ function Methods.pose(self: Run, track: any)
 			last = math.max(last, keys[#keys][1])
 		end
 	end
-	UnitView.ultimatePose(self.view, track, now, now, 1, now + last + 0.2)
+	UnitView.ultimatePose(view or self.view, track, now, now, 1, now + last + 0.2)
 end
 
 -- The caster's living summons (views).
@@ -268,8 +273,28 @@ function Methods.face(self: Run, target: any?)
 	end
 end
 
+-- Runs a run's due beats; returns false once it has ended.
+local function step(run: Run): boolean
+	local now = run.context.now()
+	for i = #run.pending, 1, -1 do
+		local beat = run.pending[i]
+		if now >= beat.at then
+			table.remove(run.pending, i)
+			local ok, err = pcall(beat.run, run)
+			if not ok then
+				warn("[Cinematic] " .. run.unitType .. ": " .. tostring(err))
+			end
+		end
+	end
+	if now > run.endAt then
+		CameraCues.release(run)
+		return false
+	end
+	return true
+end
+
 local function update()
-	if next(runs) == nil then
+	if next(runs) == nil and #shifts == 0 then
 		if connection then
 			connection:Disconnect()
 			connection = nil
@@ -277,20 +302,13 @@ local function update()
 		return
 	end
 	for unitIndex, run in runs do
-		local now = run.context.now()
-		for i = #run.pending, 1, -1 do
-			local beat = run.pending[i]
-			if now >= beat.at then
-				table.remove(run.pending, i)
-				local ok, err = pcall(beat.run, run)
-				if not ok then
-					warn("[Cinematic] " .. run.unitType .. ": " .. tostring(err))
-				end
-			end
-		end
-		if now > run.endAt then
+		if not step(run) then
 			runs[unitIndex] = nil
-			CameraCues.release(run)
+		end
+	end
+	for i = #shifts, 1, -1 do
+		if not step(shifts[i]) then
+			table.remove(shifts, i)
 		end
 	end
 end
@@ -450,9 +468,50 @@ function Cinematic.event(event): boolean
 	return result == true
 end
 
+-- A real form change of unit `unitIndex` outside a cast (a health trigger): its ultimate's `shift`
+-- plays from now. Returns true when it drew the change (the generated effect is skipped).
+function Cinematic.shift(context: Context, unitIndex: number, unitType: string, view: any, style: any, event): boolean
+	local def = Ultimates.of(unitType)
+	local config = UltimateConfig.units[unitType]
+	if not def or not def.shift or not config then
+		return false
+	end
+	local now = context.now()
+	local run: Run = setmetatable({
+		unitIndex = unitIndex,
+		unitType = unitType,
+		view = view,
+		style = style,
+		tier = config.tier,
+		config = config,
+		def = def,
+		context = context,
+		startAt = now,
+		releaseAt = now,
+		endAt = now + (def.shiftLinger or 1.2),
+		k = 1,
+		castIndex = nil,
+		cast = {},
+		reduced = EffectSettings.reducedEffects(),
+		pending = {},
+		memo = {},
+	}, Methods) :: any
+	local ok, result = pcall(def.shift, run, event)
+	if not ok then
+		warn("[Cinematic] " .. unitType .. " shift: " .. tostring(result))
+		return false
+	end
+	table.insert(shifts, run)
+	if not connection then
+		connection = RunService.RenderStepped:Connect(update)
+	end
+	return result == true
+end
+
 -- Ends every ultimate (the playback ended).
 function Cinematic.clear()
 	table.clear(runs)
+	table.clear(shifts)
 	CameraCues.clear()
 end
 
