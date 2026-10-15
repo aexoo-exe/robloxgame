@@ -1023,7 +1023,7 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 	pose.bob = idle * ANIMATION.idleBob * height
 	pose.lean, pose.fall, pose.stride = 0, 0, 0
 	pose.twist, pose.crouch, pose.tilt = 0, 0, 0
-	pose.leftArmOut, pose.rightArmOut = 0, 0
+	pose.leftArmOut, pose.rightArmOut, pose.spin = 0, 0, 0
 	pose.leftArm = rest[1] + rad(ANIMATION.idleArmSway) * idle
 	pose.rightArm = rest[2] - rad(ANIMATION.idleArmSway) * idle
 	pose.leftLeg, pose.rightLeg = 0, 0

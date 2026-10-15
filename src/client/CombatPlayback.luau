@@ -416,7 +416,11 @@ local function play(playback, placement: Placement?)
 						pulseArea(area, colorOf(event.unit))
 					end
 				end
-				spawnClones(view, event.ability)
+				-- An ultimate that draws its own clones replaces the generic ones.
+				local ultimate = Cinematic.running(event.unit)
+				if not (ultimate and ultimate.def.ownClones) then
+					spawnClones(view, event.ability)
+				end
 			end
 		elseif kind == "FollowUp" and view and fresh then
 			lastCastAt[event.unit] = fightTimeOf(event.tick)

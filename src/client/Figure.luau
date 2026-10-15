@@ -61,6 +61,7 @@ export type Pose = {
 	tilt: number?, -- sideways, about the feet (positive: toward the figure's right)
 	leftArmOut: number?, -- each arm raised out to its side (radians; ultimate pose keys)
 	rightArmOut: number?,
+	spin: number?, -- the whole body turned about the vertical (radians; ultimate pose keys)
 }
 
 type Piece = {
@@ -859,6 +860,11 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 	anchors.root = root
 	local tilt = pose.tilt or 0
 	local feet = if pose.fall ~= 0 or tilt ~= 0 then root * CFrame.Angles(pose.fall, 0, -tilt) else root
+	-- A whole-body spin about the vertical (an ultimate's spinning attack).
+	local spin = pose.spin or 0
+	if spin ~= 0 then
+		feet *= CFrame.Angles(0, spin, 0)
+	end
 	local twist = pose.twist or 0
 	-- Riders stay seated: no crouch on a horse.
 	local crouch = if horse then 0 else math.clamp(pose.crouch or 0, 0, 0.9)

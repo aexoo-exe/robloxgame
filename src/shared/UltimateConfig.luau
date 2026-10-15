@@ -100,9 +100,32 @@ return deepFreeze({
 			wanted = { "kettle rising", "rumble", "steam eruption roar", "hiss tail" },
 		},
 		-- Tier 4 -------------------------------------------------------------------------------
-		reelbreaker = { tier = 4, preroll = 0.7, linger = 0.9, look = "", wanted = {} },
-		night_command = { tier = 4, preroll = 0.8, linger = 0.9, look = "", wanted = {} },
-		cyclone_edge = { tier = 4, preroll = 0.55, linger = 0.6, look = "", wanted = {} },
+		reelbreaker = {
+			tier = 4,
+			preroll = 0.7,
+			linger = 0.9,
+			look = "rod overhead and whipped forward, the line flies to the farthest enemy and holds taut; the free fist draws back glowing yellow-green and growing (push on the fist); yank and punch together, the impact lands as the enemy arrives; aura sheds as sparks",
+			wanted = {
+				"rod whip and reel whirr",
+				"rising charge hum in the fist",
+				"line snap",
+				"huge punch thud with crack",
+			},
+		},
+		night_command = {
+			tier = 4,
+			preroll = 0.8,
+			linger = 0.9,
+			look = "hand raised, eyes glow purple, mist at his feet; a black-purple pool spreads under him, stillness and a push; a dark silhouette with lit eyes rises out of the pool at each real summon cell; pool drains, daggers glint blue and red",
+			wanted = { "deep whispered command", "shadow pool hiss", "rising groan per soldier", "dagger glint ting" },
+		},
+		cyclone_edge = {
+			tier = 4,
+			preroll = 0.55,
+			linger = 4.2, -- through the chain window (his attack speed lasts 4 s); the pose ends at 1.2
+			look = "two cables shoot from his hips to the target, gas puffs; he sinks and launches; the whole body spins into a blade tornado on the dash, a whirl of rings and cuts on the real hit; low crouch after; each real chain: a cable snaps to the next enemy and a faster spin",
+			wanted = { "cable fire and reel", "gas jet hiss", "spinning blade whirr", "rapid cut flurry" },
+		},
 		frozen_moment = { tier = 4, preroll = 1.0, linger = 0.9, look = "", wanted = {} },
 		restoration_strike = { tier = 4, preroll = 0.85, linger = 0.6, look = "", wanted = {} },
 		night_parade = { tier = 4, preroll = 0.8, linger = 0.8, look = "", wanted = {} },

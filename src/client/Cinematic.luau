@@ -7,6 +7,8 @@
 --   release  function(run): the moment of the cast; return true to replace the generic release
 --   event    function(run, event): each of the caster's events while it runs (its real hits,
 --            areas, stuns, shields); return true to replace the generated effect of that event
+--   ownClones  true: the ultimate draws its own cast clones (RenderConfig.castClones are skipped)
+-- `release` also runs for each FollowUp event (a chained repeat) while the ultimate runs.
 -- The anticipation (t < 0) is scaled to the real window before the cast (the playback starts it
 -- early from the precomputed event list; a short window after a previous cast compresses it);
 -- the release and everything after run at design speed on the cast's real events. Nothing here
@@ -37,6 +39,7 @@ export type Context = {
 	now: () -> number,
 	ticksPerSecond: number,
 	events: { any },
+	summonerOf: (number) -> number?,
 }
 
 export type Run = {
@@ -233,6 +236,29 @@ function Methods.sound(self: Run, role: string, pitch: number?)
 	task.delay(spec.length or 2, function()
 		sound:Destroy()
 	end)
+end
+
+-- Plays `track` (pose keys) now, its design time 0 at this moment: a follow-up's own motion.
+function Methods.pose(self: Run, track: any)
+	local now = self.context.now()
+	local last = 0
+	for _, keys in track do
+		if #keys > 0 then
+			last = math.max(last, keys[#keys][1])
+		end
+	end
+	UnitView.ultimatePose(self.view, track, now, now, 1, now + last + 0.2)
+end
+
+-- The caster's living summons (views).
+function Methods.summons(self: Run): { any }
+	local list = {}
+	for index, view in self.context.views do
+		if self.context.summonerOf(index) == self.unitIndex then
+			table.insert(list, view)
+		end
+	end
+	return list
 end
 
 -- Faces the caster toward `target` (a view) for the rest of the run.

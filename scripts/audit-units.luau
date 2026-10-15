@@ -493,6 +493,7 @@ for _, name in
 		"tremble",
 		"lunge",
 		"rise",
+		"spin",
 	}
 do
 	POSE_CHANNELS[name] = true
@@ -754,6 +755,12 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			end,
 			sound = function(_, role)
 				assert(UltimateConfig.sounds[role], "unknown sound role " .. tostring(role))
+			end,
+			pose = function(_, track)
+				checkTrack(track)
+			end,
+			summons = function()
+				return { views[3] }
 			end,
 			face = function() end,
 			hitStop = function(_, _view, seconds)

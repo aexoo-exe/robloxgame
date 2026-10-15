@@ -210,6 +210,7 @@ end
 --   leftArm, rightArm          degrees raised forward from the resting angle (set, not added)
 --   leftArmOut, rightArmOut    degrees raised out to the side
 --   lean, twist, tilt, fall    degrees (twist positive: the right shoulder forward)
+--   spin                       degrees, the whole body about the vertical (a spinning attack)
 --   leftLeg, rightLeg          degrees forward
 --   crouch                     hips dropped, a fraction of leg length
 --   tremble                    degrees of a fast sideways shiver (held tension)
@@ -257,7 +258,8 @@ function UnitMotion.keyValue(keys: { any }, t: number): number
 	return keys[#keys][2]
 end
 
-local DEGREE_CHANNELS = { "leftArmOut", "rightArmOut", "lean", "twist", "tilt", "fall", "leftLeg", "rightLeg" }
+local DEGREE_CHANNELS =
+	{ "leftArmOut", "rightArmOut", "lean", "twist", "tilt", "fall", "leftLeg", "rightLeg", "spin" }
 
 -- Applies `track` at design time `t` with weight `w` (0-1) onto `pose`; `rest` is the figure's
 -- resting arm angles (radians). Returns the step forward and the rise, studs at normal size.
