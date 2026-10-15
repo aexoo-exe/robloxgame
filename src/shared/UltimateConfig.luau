@@ -236,9 +236,27 @@ return deepFreeze({
 			look = "hand down and back with a crackling blue-white ball and a rapid chirp; drops low; a lightning-torn groove along the real lunge; a burst of lightning through the target (the stun and burn markers are the real ones)",
 			wanted = { "chirping lightning", "lunge crack", "lightning burst" },
 		},
-		mirror_script = { tier = 3, preroll = 0.45, linger = 0.5, look = "", wanted = {} },
-		threefold_crash = { tier = 3, preroll = 0.25, linger = 0.9, look = "", wanted = {} },
-		zero_field = { tier = 3, preroll = 0.4, linger = 1.2, look = "", wanted = {} },
+		mirror_script = {
+			tier = 3,
+			preroll = 0.45,
+			linger = 0.6,
+			look = "lifts his headband, a red eye with marks turning; copy: a flickering red ghost of the copied pose over him, a red thread from the copied enemy, the copied effects with red sparks; no copy: lightning in his hand, a quick lightning-blade stab (needs an enemy cast first to see the copy: in a real fight)",
+			wanted = { "eye activation hum", "copy whoosh", "lightning blade chirp" },
+		},
+		threefold_crash = {
+			tier = 3,
+			preroll = 0.25,
+			linger = 1.35,
+			look = "third sword in his teeth, two crossed, green aura; a right cut and a crossing left cut on the two real hits; a 1.5-turn spin with arms wide on the real area hit, a green tornado of rings and cuts; holds with his back to the enemy, then turns back",
+			wanted = { "blade unsheathe", "two quick slashes", "tornado spin whoosh" },
+		},
+		zero_field = {
+			tier = 3,
+			preroll = 0.4,
+			linger = 1.9, -- through the hold (up to 1.25 s) and the drop
+			look = "fingertips touch, pink pads glow, a tap; pink rings over the area; every held enemy floats up turning in a pink glow; a pink pulse under each sped-up ally; she claps and they slam down on the real end-of-hold hits, dust and pink rings",
+			wanted = { "soft float hum", "clap", "heavy drop thuds" },
+		},
 		-- Tier 2 -------------------------------------------------------------------------------
 		redline_cut = { tier = 2, preroll = 0.2, linger = 0.6, look = "", wanted = {} },
 		orbit_breaker = { tier = 2, preroll = 0.35, linger = 0.5, look = "", wanted = {} },

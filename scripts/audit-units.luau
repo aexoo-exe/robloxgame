@@ -552,6 +552,7 @@ local FAKE_EVENTS = {
 	{ kind = "Form", unit = 1, formIndex = 2, form = "Form" },
 	{ kind = "Copy", unit = 1, target = 2, ability = "x" },
 }
+-- The same events, last first: hits before areas (handlers that depend on order take both paths).local REVERSED_EVENTS = {}for i = #FAKE_EVENTS, 1, -1 do	table.insert(REVERSED_EVENTS, FAKE_EVENTS[i])end
 local CIRCLE_EVENTS = {}
 for _, event in FAKE_EVENTS do
 	if event.shape ~= "LINE" then
@@ -651,9 +652,9 @@ local function checkUltimate(unitType: string, problems: { string }): string
 
 	-- A dry run: beats in order, scheduled beats, the release, then every kind of event.
 	local maxPeak, total = 0, 0
-	-- Twice: a cast with every event kind, and one with a circle hit and no line (units whose
+	-- Three times: a cast with every event kind, one with a circle hit and no line, and one in reverse order (units whose
 	-- choreography follows the cast take both branches).
-	for _, castEvents in { FAKE_EVENTS, CIRCLE_EVENTS } do
+	for _, castEvents in { FAKE_EVENTS, CIRCLE_EVENTS, REVERSED_EVENTS } do
 		table.clear(recorded)
 		recordGroup = "cast"
 		table.clear(stubErrors)
