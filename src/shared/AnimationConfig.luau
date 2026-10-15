@@ -263,6 +263,7 @@ return deepFreeze({
 		windup = 0.4,
 		release = 0.3,
 		glowFrom = 0.6, -- fraction of the wind-up where the body starts to glow
+		glowBlend = 0.5, -- how far the glow tints the body toward the color (0-1), keeping it readable
 		windupArms = 125,
 		releaseArms = 165,
 		windupCrouch = 0.12,

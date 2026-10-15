@@ -60,6 +60,8 @@ return deepFreeze({
 		magic = { beam = "straight", strike = "burst", particle = "mote", accent = "glow", ground = "glyph" },
 		explosion = { beam = "straight", strike = "explode", particle = "flame", accent = "smoke", ground = "scorch" },
 		rubber = { beam = "stretch", strike = "stretch", particle = "puff", ground = "none" },
+		-- A ki-charged punch: ki glow around a shockwave hit.
+		ki_impact = { beam = "straight", strike = "shock", particle = "glow", accent = "spark", ground = "crack" },
 	},
 
 	-- Each roster unit's element and colors (primary: beams, cores, glows; secondary: particles,
@@ -72,7 +74,7 @@ return deepFreeze({
 		cinder_arc = unit("fire", rgb(255, 120, 40), rgb(255, 215, 110)),
 		thunder_nest = unit("lightning", rgb(120, 195, 255), WHITE),
 		horizon_cut = unit("slash", rgb(40, 36, 44), rgb(215, 40, 55)),
-		reelbreaker = unit("water", rgb(90, 200, 255), rgb(130, 225, 130)),
+		reelbreaker = unit("ki_impact", rgb(215, 240, 70), rgb(140, 220, 60)),
 		-- Corps
 		wolfstep = unit("slash", STEEL, rgb(130, 200, 255)),
 		redline_cut = unit("slash", rgb(230, 60, 60), STEEL),
@@ -94,7 +96,7 @@ return deepFreeze({
 		-- Arcane
 		null_edge = unit("shadow", BLACK, rgb(205, 205, 215)),
 		bitter_vapor = unit("poison", rgb(115, 225, 120), rgb(150, 55, 85)),
-		starless_burst = unit("magic", rgb(255, 90, 110), rgb(235, 195, 95)),
+		starless_burst = unit("magic", WHITE, rgb(165, 205, 255)),
 		night_command = unit("shadow", rgb(125, 65, 185), rgb(150, 205, 245)),
 		-- Titans
 		iron_rush = unit("impact", rgb(225, 185, 115), rgb(205, 65, 55)),
@@ -109,7 +111,7 @@ return deepFreeze({
 		echo_legion = unit("wind", rgb(120, 190, 255), WHITE),
 		-- Crew
 		flare_kick = unit("fire", rgb(255, 140, 40), rgb(255, 230, 120)),
-		field_medic = unit("magic", rgb(255, 150, 200), WHITE),
+		field_medic = unit("magic", rgb(140, 230, 150), rgb(225, 250, 225)),
 		threefold_crash = unit("slash", rgb(115, 225, 125), WHITE),
 		elastic_wardrum = unit("rubber", rgb(230, 60, 50), rgb(255, 222, 80)),
 		-- Heroes
@@ -176,4 +178,5 @@ return deepFreeze({
 	auraPulseEvery = 1.0, -- seconds between a unit's aura pulse rings (auras tick every second)
 	strikeSize = 2.2, -- single-target ability hit, studs
 	blastHeight = 1.2, -- flash ball height over the ground in area blasts, studs
+	blastBall = 0.45, -- the blast's flash ball diameter, as a share of the area's radius
 })

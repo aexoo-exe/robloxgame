@@ -207,7 +207,7 @@ end
 -- A circle blast at `center` (ground) reaching `radius` studs.
 local function blast(style: Style, center: Vector3, radius: number, scale: number)
 	local def = style.def
-	ImpactEffects.ball(center + Vector3.new(0, CONFIG.blastHeight, 0), style.primary, radius * 0.9, 0.2)
+	ImpactEffects.ball(center + Vector3.new(0, CONFIG.blastHeight, 0), style.primary, radius * CONFIG.blastBall, 0.2)
 	FxKit.ring(center, style.secondary, radius * 2.1, 0.45)
 	FxKit.ring(center, style.primary, radius * 1.6, 0.35, 0.05)
 	if def.ground ~= "none" then
@@ -431,7 +431,7 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 		local radius = ((event.radius or 0) + 0.5) * HEX
 		local mark = if style.def.ground ~= "none" then style.def.ground else "rings"
 		FxKit.mark(center, style.primary, style.secondary, radius, mark, CONFIG.areaMarkDuration)
-		FxKit.ring(center, RenderConfig.areaStunColor, radius * 2, 0.4)
+		FxKit.ring(center, style.secondary, radius * 2, 0.4)
 	elseif kind == "Damage" and target and not event.dot and not event.item then
 		if event.splash or self.areaTick[event.unit] == event.tick then
 			-- One of an area's (or a splash's) targets: light sparks of the element.

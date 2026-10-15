@@ -63,7 +63,7 @@ return table.freeze({
 	dashTrailLifetime = 0.2,
 	areaPulseColor = Color3.fromRGB(200, 120, 255),
 	areaPulseDuration = 0.45,
-	areaPulseTransparency = 0.35, -- starting transparency of each affected hex
+	areaPulseTransparency = 0.5, -- starting transparency of each affected hex
 	areaWaveDelay = 0.06, -- extra delay per hex from the center, so the pulse spreads outward
 	shieldBubbleColor = Color3.fromRGB(150, 220, 255),
 	shieldBubbleScale = 1.35, -- bubble diameter relative to the unit's largest side

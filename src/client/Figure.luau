@@ -724,8 +724,10 @@ end
 
 -- Recolors the body (not the props, weapons, face, ring, visor or horse). nil restores the body
 -- color: a placeholder's one body color, or each part of a look its own color, blended toward the
--- form tint while a tinted form is on (FigureConfig.lookTintBlend).
-function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?)
+-- form tint while a tinted form is on (FigureConfig.lookTintBlend). `blend` (0-1) only tints part of
+-- the way and keeps the figure readable (a cast glow: FigureConfig.glow); without it a color covers
+-- the body (a hit flash).
+function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?, blend: number?)
 	local formTint = figure.formTint
 	local avatar = figure.avatar
 	if avatar then
@@ -745,9 +747,15 @@ function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?
 			end
 			local h = highlight :: Highlight
 			h.FillColor = color or look.selectColor
-			h.FillTransparency = if color then look.flashFill else look.selectFill
 			h.OutlineColor = color or look.selectColor
-			h.OutlineTransparency = if color then 1 else look.selectOutline
+			if color and blend then
+				-- A glow: a light fill and a bright rim, so the avatar still reads.
+				h.FillTransparency = 1 - blend * look.glowFill
+				h.OutlineTransparency = look.glowOutline
+			else
+				h.FillTransparency = if color then look.flashFill else look.selectFill
+				h.OutlineTransparency = if color then 1 else look.selectOutline
+			end
 			h.Enabled = true
 		elseif highlight then
 			highlight.Enabled = false
@@ -760,7 +768,9 @@ function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?
 	end
 	for _, part in figure.tinted do
 		local base = figure.baseColors[part]
-		if color then
+		if color and blend then
+			part.Color = (base or figure.color):Lerp(color, blend)
+		elseif color then
 			part.Color = color
 		elseif base then
 			part.Color = if formTint then base:Lerp(formTint, FigureConfig.lookTintBlend) else base

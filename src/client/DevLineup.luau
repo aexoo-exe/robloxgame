@@ -106,6 +106,7 @@ type Stage = {
 	camera: CFrame,
 	stageCamera: CFrame, -- the stage's own framing (the camera returns to it after a field preview)
 	fieldPreview: Folder?, -- key 3's preview fight, while it is shown
+	fieldFocus: Vector3?, -- what its camera looks at
 	castPresses: number,
 }
 
@@ -113,6 +114,14 @@ local folder: Folder? = nil
 local entries: { Entry } = {}
 local focus: number? = nil
 local stage: Stage? = nil
+-- The stage runs on its own clock (stage seconds), so the preview can play in slow motion or freeze
+-- (DevLineup QA handle, below).
+local stageTime = 0
+local timeScale = 1
+local function stageClock(): number
+	return stageTime
+end
+local cameraMode = "front" -- stage camera framing (stageFraming)
 local heartbeat: RBXScriptConnection? = nil
 local savedCamera: { cameraType: Enum.CameraType, cframe: CFrame }? = nil
 local hud: ScreenGui? = nil
@@ -290,6 +299,29 @@ local function later(s: Stage, at: number, run: () -> ())
 	table.insert(s.pending, { at = at, run = run })
 end
 
+-- The stage camera for the current CAMERA_MODES entry (`cameraMode`): the unit stands at STAGE
+-- facing -X toward the dummy `distance` studs away.
+--   front  a three-quarter view of the unit's front, the dummy beside it (the default)
+--   side   both from the side, square on to the line between them
+--   close  the unit's head and shoulders, from the front
+--   board  the normal board camera's angle and distance
+local function stageFraming(s: Stage, distance: number): CFrame
+	local height = HEIGHT * CharacterLook.of(s.unitType).scale * RenderConfig.starSizeScale[s.starLevel]
+	local chest = STAGE + Vector3.new(0, height * 0.55, 0)
+	local size = height / HEIGHT
+	if cameraMode == "side" then
+		local middle = STAGE - Vector3.new(distance / 2, -HEIGHT * 0.45, 0)
+		return CFrame.lookAt(middle + Vector3.new(0, 2.5 + distance * 0.1, -(7 + distance * 0.75)), middle)
+	elseif cameraMode == "close" then
+		local head = STAGE + Vector3.new(0, height * 0.8, 0)
+		return CFrame.lookAt(head + Vector3.new(-3.2, 0.4, -2.2) * size, head)
+	elseif cameraMode == "board" then
+		local middle = STAGE - Vector3.new(distance / 2, 0, 0)
+		return CFrame.lookAt(middle + RenderConfig.cameraOffset, middle)
+	end
+	return CFrame.lookAt(chest + Vector3.new(-6.5, 1.4, -6.5) * size, chest - Vector3.new(1.5, 0, 0))
+end
+
 -- Places the unit and the dummy (the dummy in front at melee or ranged distance) and frames them.
 local function spawnActors(s: Stage)
 	local look = CharacterLook.of(s.unitType)
@@ -306,6 +338,7 @@ local function spawnActors(s: Stage)
 		yaw = math.pi / 2,
 		formLook = if form then RenderConfig.formLooks[form.name] else nil,
 		formName = if form then form.name else nil,
+		clock = stageClock,
 	})
 	if not s.dummy or not s.dummy.part.Parent then
 		s.dummy = UnitView.new("dummy", 1, DUMMY_COLOR, STAGE - Vector3.new(distance, 0, 0), s.folder, {
@@ -313,6 +346,7 @@ local function spawnActors(s: Stage)
 			maxHealth = PREVIEW.health,
 			yaw = -math.pi / 2,
 			starPips = false,
+			clock = stageClock,
 		})
 	else
 		UnitView.moveTo(s.dummy, STAGE - Vector3.new(distance, 0, 0))
@@ -321,9 +355,8 @@ local function spawnActors(s: Stage)
 	UnitView.face(actor, s.dummy)
 	UnitView.face(s.dummy, actor)
 	s.actor = actor
-	local middle = STAGE - Vector3.new(distance / 2, -HEIGHT * 0.45, 0)
-	s.camera = CFrame.lookAt(middle + Vector3.new(0, 2.5 + distance * 0.1, -(7 + distance * 0.75)), middle)
-	s.stageCamera = s.camera
+	s.stageCamera = stageFraming(s, distance)
+	s.camera = s.stageCamera
 	print(
 		string.format(
 			"[DevLineup] %s %d-star, style %s (%s), form %s",
@@ -347,6 +380,8 @@ local function closeStage()
 	end
 	CombatEffects.clear()
 	ImpactEffects.clear()
+	CombatEffects.setClock(nil)
+	ImpactEffects.setClock(nil)
 	s.folder:Destroy() -- every view of the stage is inside it
 end
 
@@ -382,6 +417,8 @@ local function openStage(unitType: string)
 		castPresses = 0,
 	}
 	stage = s
+	CombatEffects.setClock(stageClock)
+	ImpactEffects.setClock(stageClock)
 	spawnActors(s)
 	print("[DevLineup] keys: 1 attack, 2 crit, 3 cast, 4 get hit, 5 stun, 6 death, 7 victory, 8 heal + shield,")
 	print("[DevLineup]       9 auto loop, F form, X star level, Q quality (now " .. ImpactEffects.quality() .. ")")
@@ -396,7 +433,7 @@ local function attack(s: Stage, crit: boolean)
 	local style = styleOf(s)
 	local ranged = rangeOf(s) > 1
 	local plan = CombatFx.plan(style, PREVIEW.interval, ranged)
-	local landsAt = os.clock() + CombatFx.leadTime(plan)
+	local landsAt = stageClock() + CombatFx.leadTime(plan)
 	local tongue = RenderConfig.tongueAttacks[s.unitType] == true
 	CombatFx.attack(actor, dummy, landsAt, plan, {
 		color = if tongue then RenderConfig.tongueColor else AnimationConfig.projectiles.ownColor,
@@ -419,7 +456,7 @@ local function quickCast(s: Stage)
 		return
 	end
 	local color = AbilityFx.styleOf(s.unitType, CombatFx.factionColor(s.unitType)).primary
-	local now = os.clock()
+	local now = stageClock()
 	local release = now + AnimationConfig.cast.windup
 	CombatFx.castWindup(actor, now, release, color)
 	later(s, release, function()
@@ -442,12 +479,23 @@ local function endFieldPreview(s: Stage)
 	if not s.fieldPreview then
 		return
 	end
-	CombatPlayback.stop()
+	CombatPlayback.stop() -- also resets the effects' clocks: back to the stage's
+	CombatEffects.setClock(stageClock)
+	ImpactEffects.setClock(stageClock)
 	s.fieldPreview:Destroy()
 	s.fieldPreview = nil
 	s.actor.part.Parent = s.folder
 	s.dummy.part.Parent = s.folder
 	s.camera = s.stageCamera
+end
+
+-- The field preview's camera: from behind the unit's side, closer than the board camera (camera
+-- mode "board": at the board camera's own angle and distance).
+local function fieldFraming(focusPoint: Vector3): CFrame
+	if cameraMode == "board" then
+		return CFrame.lookAt(focusPoint + RenderConfig.cameraOffset, focusPoint)
+	end
+	return CFrame.lookAt(focusPoint + Vector3.new(0, 11, 15), focusPoint)
 end
 
 -- Runs a short fight between the unit and FIELD_DUMMIES with CombatSim, on private copies of the
@@ -561,9 +609,12 @@ local function cast(s: Stage)
 	s.actor.part.Parent = nil
 	s.dummy.part.Parent = nil
 	-- Frame the unit and the dummies from behind the unit's side, as the board camera does.
-	local focusPoint = FIELD_ORIGIN:Lerp(middle, 0.6)
-	s.camera = CFrame.lookAt(focusPoint + Vector3.new(0, 19, 24), focusPoint)
-	CombatPlayback.preview(result, fieldFolder, offset, from)
+	s.fieldFocus = FIELD_ORIGIN:Lerp(middle, 0.6)
+	s.camera = fieldFraming(s.fieldFocus)
+	local startedAt = stageClock()
+	CombatPlayback.preview(result, fieldFolder, offset, from, function()
+		return from + (stageClock() - startedAt)
+	end)
 	print(
 		string.format(
 			"[DevLineup] %s: cast %d of %d in the preview fight (at %.1f s)",
@@ -582,7 +633,7 @@ local function getHit(s: Stage)
 		return
 	end
 	local plan = CombatFx.plan("brawler", PREVIEW.interval, false)
-	local landsAt = os.clock() + CombatFx.leadTime(plan)
+	local landsAt = stageClock() + CombatFx.leadTime(plan)
 	CombatFx.attack(dummy, actor, landsAt, plan)
 	later(s, landsAt, function()
 		CombatFx.hit(actor, dummy, { damage = PREVIEW.damage })
@@ -596,7 +647,7 @@ local function die(s: Stage)
 	end
 	CombatFx.death(actor, s.dummy)
 	table.insert(s.dying, actor)
-	later(s, os.clock() + AnimationConfig.death.duration + 0.8, function()
+	later(s, stageClock() + AnimationConfig.death.duration + 0.8, function()
 		spawnActors(s)
 	end)
 end
@@ -609,7 +660,7 @@ local function healAndShield(s: Stage)
 	CombatFx.heal(actor, PREVIEW.heal)
 	UnitView.setShield(actor, PREVIEW.shield)
 	CombatFx.shield(actor)
-	later(s, os.clock() + 2.5, function()
+	later(s, stageClock() + 2.5, function()
 		if UnitView.isAlive(actor) then
 			UnitView.setShield(actor, 0)
 		end
@@ -854,11 +905,12 @@ local function open()
 	savedCamera = { cameraType = camera.CameraType, cframe = camera.CFrame }
 	local last = os.clock()
 	heartbeat = RunService.Heartbeat:Connect(function()
-		local now = os.clock()
-		local dt = now - last
-		last = now
+		local real = os.clock()
+		local dt = (real - last) * timeScale
+		last = real
+		stageTime += dt
 		if stage then
-			updateStage(stage, now, dt)
+			updateStage(stage, stageTime, dt)
 		end
 	end)
 	openHud()
@@ -944,13 +996,13 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
 	[Enum.KeyCode.Six] = die,
 	[Enum.KeyCode.Seven] = function(s)
 		if UnitView.isAlive(s.actor) then
-			CombatFx.victory({ s.actor }, os.clock())
+			CombatFx.victory({ s.actor }, stageClock())
 		end
 	end,
 	[Enum.KeyCode.Eight] = healAndShield,
 	[Enum.KeyCode.Nine] = function(s)
 		s.auto = not s.auto
-		s.nextAuto = os.clock()
+		s.nextAuto = stageClock()
 		print("[DevLineup] auto " .. (if s.auto then "on" else "off"))
 	end,
 	[Enum.KeyCode.F] = nextForm,
@@ -960,10 +1012,73 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
 	end,
 }
 
+-- A handle for Studio scripts (the command bar, Studio MCP; DevLineupQA below) for visual checks:
+-- show(unitId), press("One" ... "Nine", "F", "X", "Q"), timeScale(0.25) for slow
+-- motion (0 freezes), freezeAfter(stageSeconds), camera("front" | "side" | "close" |
+-- "board"), state(). Studio only.
+local function qaHandle()
+	return {
+		show = function(unitType: string)
+			showUnit(unitType)
+		end,
+		press = function(keyName: string)
+			local key = (Enum.KeyCode :: any)[keyName]
+			local s = stage
+			if s and PREVIEW_KEYS[key] then
+				if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
+					endFieldPreview(s)
+				end
+				PREVIEW_KEYS[key](s)
+			end
+		end,
+		timeScale = function(scale: number)
+			timeScale = scale
+		end,
+		freezeAfter = function(seconds: number)
+			local s = stage
+			if s then
+				later(s, stageClock() + seconds, function()
+					timeScale = 0
+				end)
+			end
+		end,
+		camera = function(mode: string)
+			cameraMode = mode
+			local s = stage
+			if s then
+				local distance = if rangeOf(s) > 1 then PREVIEW.rangedDistance else PREVIEW.meleeDistance
+				s.stageCamera = stageFraming(s, distance)
+				s.camera = if s.fieldPreview and s.fieldFocus then fieldFraming(s.fieldFocus) else s.stageCamera
+			end
+		end,
+		state = function()
+			local s = stage
+			return {
+				unit = if s then s.unitType else nil,
+				star = if s then s.starLevel else nil,
+				form = if s then s.formIndex else nil,
+				time = stageTime,
+				scale = timeScale,
+				preview = s ~= nil and s.fieldPreview ~= nil,
+			}
+		end,
+	}
+end
+
 function DevLineup.start()
 	if not RunService:IsStudio() then
 		return
 	end
+	-- The QA handle, reachable from Studio scripts as a BindableFunction on the local player:
+	-- Players.LocalPlayer.DevLineupQA:Invoke("show", "unit_id"), :Invoke("press", "One"), ...
+	local handle = qaHandle()
+	local bindable = Instance.new("BindableFunction")
+	bindable.Name = "DevLineupQA"
+	bindable.OnInvoke = function(name: string, ...)
+		local run = (handle :: any)[name]
+		return if run then run(...) else nil
+	end
+	bindable.Parent = Players.LocalPlayer
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if UserInputService:GetFocusedTextBox() then
 			return -- typing (chat, a text box)

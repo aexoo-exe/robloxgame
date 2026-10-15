@@ -94,6 +94,9 @@ return table.freeze({
 		selectColor = Color3.fromRGB(255, 255, 255),
 		selectFill = 0.75,
 		selectOutline = 0.1,
+		-- A cast glow (Figure.setTint with a blend): fill opacity at full blend, and the rim.
+		glowFill = 0.55,
+		glowOutline = 0.15,
 	}),
 
 	-- Units with a hand-built look (UnitLookConfig) keep their own colors in a tinted form

@@ -423,14 +423,14 @@ function UnitView.new(
 		knockDirection = Vector3.zero,
 		knockStrength = 0,
 		stopAt = 0,
-		stopUntil = 0,
+		stopUntil = -math.huge, -- timers start in the past: fight time can be negative (a preview)
 		stopShake = false,
-		flashUntil = 0,
+		flashUntil = -math.huge,
 		flashColor = color,
-		glowUntil = 0,
-		stunUntil = 0,
+		glowUntil = -math.huge,
+		stunUntil = -math.huge,
 		stunStars = nil,
-		trailUntil = 0,
+		trailUntil = -math.huge,
 		cheerStart = nil,
 		bubblePop = nil,
 		dyingSince = nil,
@@ -450,7 +450,7 @@ function UnitView.new(
 		baseSize = part.Size,
 		boardHeight = boardHeight,
 		formScale = 1,
-		vanishUntil = 0,
+		vanishUntil = -math.huge,
 		itemSlots = itemSlots,
 	}
 	if #itemSlots > 0 then
@@ -926,7 +926,7 @@ function UnitView.hitStop(view: UnitView, seconds: number, shake: boolean?, forc
 		view.stopShake = view.stopShake or shake == true
 		return true
 	end
-	if not force and view.stopUntil > 0 and now < view.stopUntil + AnimationConfig.hitStop.cooldown then
+	if not force and now < view.stopUntil + AnimationConfig.hitStop.cooldown then
 		return false
 	end
 	view.stopAt = now
@@ -1239,17 +1239,18 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 
 	-- Body tint: a hit flash wins over a cast glow (the end of a wind-up, and the release), which
 	-- wins over the selection glow.
-	local color, material = nil, nil
+	-- The glow tints part of the way (AnimationConfig.cast.glowBlend) so the unit still reads.
+	local color, material, blend = nil, nil, nil
 	local glowing = windup ~= nil and windup >= AnimationConfig.cast.glowFrom
 	if now < view.flashUntil then
 		color = view.flashColor
 	elseif glowing or now < view.glowUntil then
-		color, material = view.castColor, Enum.Material.Neon
+		color, blend = view.castColor, AnimationConfig.cast.glowBlend
 	elseif view.selected then
 		material = Enum.Material.Neon
 	end
 	if color ~= view.shownColor or material ~= view.shownMaterial then
-		Figure.setTint(view.figure, color, material)
+		Figure.setTint(view.figure, color, material, blend)
 		view.shownColor, view.shownMaterial = color, material
 	end
 

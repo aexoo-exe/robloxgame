@@ -91,6 +91,7 @@ end
 type Placement = {
 	parent: Instance, -- the views' parent
 	offset: Vector3, -- added to every arena cell position
+	clock: (() -> number)?, -- fight time (default: from server time since `startsAt`)
 }
 
 local function play(playback, placement: Placement?)
@@ -109,7 +110,11 @@ local function play(playback, placement: Placement?)
 	end
 	-- Fight time: the moment of the fight on screen now, with fast-forward applied. Every view and
 	-- effect of this fight runs on it.
+	local clock = if placement then placement.clock else nil
 	local function fightNow(): number
+		if clock then
+			return clock()
+		end
 		return Playback.fightSeconds(workspace:GetServerTimeNow() - playback.startsAt)
 	end
 	local function fightTimeOf(tick: number): number
@@ -396,7 +401,7 @@ local function play(playback, placement: Placement?)
 				-- Areas the server described pulse with their Area events; only inferred ones here.
 				for _, area in reading.areas[index] or {} do
 					if area.inferred then
-						pulseArea(area)
+						pulseArea(area, colorOf(event.unit))
 					end
 				end
 				spawnClones(view, event.ability)
@@ -405,7 +410,13 @@ local function play(playback, placement: Placement?)
 			lastCastAt[event.unit] = fightTimeOf(event.tick)
 			abilityFx:release(event.unit, view)
 		elseif kind == "Area" and fresh then
-			pulseArea(reading.areaEvents[index] or CastReader.areaOf(event), nil, event.fromColumn, event.fromRow)
+			-- In the caster's element color (AbilityFx draws the shape's own effect on top).
+			pulseArea(
+				reading.areaEvents[index] or CastReader.areaOf(event),
+				colorOf(event.unit),
+				event.fromColumn,
+				event.fromRow
+			)
 		elseif kind == "Bounce" and fresh and targetView and views[event.from] then
 			local now = fightNow()
 			CombatEffects.projectile(
@@ -467,7 +478,8 @@ local function play(playback, placement: Placement?)
 		elseif kind == "MaxHealth" and view then
 			UnitView.setMaxHealth(view, event.maxHealth, event.health)
 		elseif kind == "AreaStun" and fresh then
-			pulseArea({ column = event.column, row = event.row, radius = event.radius }, RenderConfig.areaStunColor)
+			-- The field in the caster's element color; each stunned unit shows the stun halo.
+			pulseArea({ column = event.column, row = event.row, radius = event.radius }, colorOf(event.unit))
 		elseif kind == "Summon" and view then
 			local own = info[event.summon].side == localSide
 			views[event.summon] = UnitView.new("summon", 1, view.color, toWorld(event.column, event.row), parent, {
@@ -645,13 +657,15 @@ end
 -- Dev preview (DevLineup): plays a fight `result` (CombatSim) the way a real fight plays, drawn at
 -- arena cell positions shifted by `offset` under `parent`, from fight time `from` on (earlier
 -- events apply without their one-shot effects, as for a client joining mid-fight). Side 1 is
--- nearest the camera. It replaces any playback in progress; CombatPlayback.stop ends it.
-function CombatPlayback.preview(result, parent: Instance, offset: Vector3, from: number)
+-- nearest the camera. `clock` (optional) gives the fight time instead of server time (the
+-- preview's slow motion and freeze). It replaces any playback in progress; CombatPlayback.stop
+-- ends it.
+function CombatPlayback.preview(result, parent: Instance, offset: Vector3, from: number, clock: (() -> number)?)
 	play({
 		result = result,
 		startsAt = workspace:GetServerTimeNow() - Playback.realSeconds(from),
 		sideUserIds = { Players.LocalPlayer.UserId },
-	}, { parent = parent, offset = offset })
+	}, { parent = parent, offset = offset, clock = clock })
 end
 
 -- Ends any playback and removes its views and effects.

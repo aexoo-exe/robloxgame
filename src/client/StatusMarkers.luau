@@ -70,7 +70,7 @@ local TEXTURES = {
 local function build(holder: Holder, status: string): Marker
 	local config = AbilityFxConfig.statuses[status]
 	local height = holder.figure.height
-	local marker: Marker = { untilTime = 0, parts = {}, emitter = nil, shown = false }
+	local marker: Marker = { untilTime = -math.huge, parts = {}, emitter = nil, shown = false }
 	local shape = config.shape
 	if TEXTURES[shape] then
 		local emitter =

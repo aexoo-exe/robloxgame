@@ -191,6 +191,11 @@ local tuning = {
 		hand = "both",
 	},
 
+	-- The yellow collar-scarf the catalog suit lacks (his strongest identifier after the hair).
+	skybreaker = {
+		outfit = { scarf = { color = rgb(240, 200, 45) } },
+	},
+
 	-- zero_field: the round pink wrist pads (the catalog shirt only has thin pink stripes).
 	zero_field = {
 		outfit = { bands = { { limb = "arms", from = 0.68, to = 0.84, color = rgb(240, 120, 170) } } },
