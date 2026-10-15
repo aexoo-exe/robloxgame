@@ -1051,6 +1051,9 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 			UnitMotion.castRelease(pose, release)
 		end
 	end
+	-- A quick-draw weapon (LookKit `drawn`) is out for every attack and cast, put away after.
+	local releasing = progressOf(view.castStart, view.releaseDuration, now) ~= nil
+	Figure.setDrawn(figure, attack ~= nil or windup ~= nil or releasing)
 
 	local hit = progressOf(view.hitStart, AnimationConfig.hit.duration, now)
 	if hit then

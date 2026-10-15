@@ -333,7 +333,10 @@ local function checkElement(unitType: string, problems: { string })
 end
 
 -- The attack style UnitMotion.styleFor picks (its rules, on the look CharacterLook builds).
-local function styleOf(unitType: string, range: number, look): string
+local function styleOf(unitType: string, range: number, look, formName: string?): string
+	if formName and AnimationConfig.formStyles[formName] then
+		return AnimationConfig.formStyles[formName]
+	end
 	if AnimationConfig.unitStyles[unitType] then
 		return AnimationConfig.unitStyles[unitType]
 	end
@@ -357,7 +360,7 @@ end
 local function weaponList(weapons): string
 	local names = {}
 	for _, w in weapons or {} do
-		table.insert(names, w.kind .. "@" .. (w.anchor or w.hand or "right"))
+		table.insert(names, w.kind .. "@" .. (w.anchor or w.hand or "right") .. (if w.drawn then "(drawn)" else ""))
 	end
 	return if #names > 0 then table.concat(names, ",") else "-"
 end
@@ -453,9 +456,22 @@ for _, faction in ORDER do
 				end)
 			end
 			if weapons then
-				build("avatar weapons", problems, function()
+				local specs = build("avatar weapons", problems, function()
 					return LookKit.weaponSpecs(weapons, body, HEIGHT)
 				end)
+				-- Quick-draw weapons: their parts (and only theirs) are marked drawn.
+				local marked, wanted = 0, 0
+				for _, spec in specs do
+					marked += if spec.drawn then 1 else 0
+				end
+				for _, w in weapons do
+					if w.drawn then
+						wanted += #LookKit.weaponSpecs({ w }, body, HEIGHT)
+					end
+				end
+				if marked ~= wanted then
+					table.insert(problems, string.format("drawn weapon parts: %d marked, %d expected", marked, wanted))
+				end
 			end
 		elseif unitLook then
 			sourceName = "look"
@@ -506,9 +522,12 @@ for _, faction in ORDER do
 			if i > 1 or own then
 				table.insert(formNotes, form.name .. "=" .. (own or "base"))
 			end
-			if form.range and form.range ~= character.range then
+			if i > 1 and (form.range and form.range ~= character.range or AnimationConfig.formStyles[form.name]) then
 				local look = if formLook then { weapons = formLook.weapons } else { weapons = weapons }
-				table.insert(formStyles, form.name .. ":" .. styleOf(unitType, form.range, look))
+				table.insert(
+					formStyles,
+					form.name .. ":" .. styleOf(unitType, form.range or character.range, look, form.name)
+				)
 			end
 			if form.ability then
 				checkAbility(unitType, form.ability, "form " .. form.name .. " ability", problems, notes)
@@ -547,6 +566,16 @@ for _, faction in ORDER do
 			weapons = weapons,
 			attackPose = override and override.attackPose,
 		})
+		-- Every style chosen exists, with its projectile look for ranged ones.
+		for _, name in { style, table.unpack(formStyles) } do
+			name = string.match(name, "[%w]+$")
+			local motion = AnimationConfig.styles[name]
+			if not motion then
+				table.insert(problems, "unknown attack style " .. name)
+			elseif motion.projectile and not AnimationConfig.projectiles[motion.projectile] then
+				table.insert(problems, "style " .. name .. ": unknown projectile " .. motion.projectile)
+			end
+		end
 		if #formStyles > 0 then
 			style ..= " (" .. table.concat(formStyles, ", ") .. ")"
 		end

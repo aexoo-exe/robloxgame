@@ -292,7 +292,8 @@ local function rangeOf(s: Stage): number
 	return Forms.range(UnitConfig[s.unitType], formOf(s))
 end
 local function styleOf(s: Stage): string
-	return UnitMotion.styleFor(s.unitType, rangeOf(s), CharacterLook.of(s.unitType).figure)
+	local form = formOf(s)
+	return UnitMotion.styleFor(s.unitType, rangeOf(s), CharacterLook.of(s.unitType).figure, form and form.name)
 end
 
 local function later(s: Stage, at: number, run: () -> ())

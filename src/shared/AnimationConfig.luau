@@ -147,6 +147,19 @@ return deepFreeze({
 			lunge = { 0, -0.12, -0.08 },
 			projectile = "shot",
 		},
+		-- Ranged blades: the blade swing (raise, slash down and across) with a small step in, and a
+		-- slash wave leaves the blade at the strike.
+		slashWave = {
+			duration = 0.46,
+			timing = { windup = 0.38, strike = 0.5, follow = 0.72 },
+			arm = { 145, 45, -25 },
+			offArm = { 25, -10, -20 },
+			lean = { -8, 18, 12 },
+			twist = { -32, 22, 32 },
+			crouch = { 0.06, 0.14, 0.1 },
+			lunge = { -0.15, 0.35, 0.25 },
+			projectile = "wave",
+		},
 		-- Casters' basic attacks: draw in, push both hands out, a glowing orb leaves.
 		caster = {
 			duration = 0.5,
@@ -160,13 +173,18 @@ return deepFreeze({
 			projectile = "orb",
 		},
 	},
-	-- Which style a unit attacks with. In order: `unitStyles` (by unit id), then for melee units
+	-- Which style a unit attacks with. In order: `formStyles` (by the unit's current form name; form
+	-- names are unique), `unitStyles` (by unit id), then for melee units
 	-- (range 1) a held weapon's kind (`weaponStyles`), then its first class (`meleeClasses` or
 	-- `rangedClasses`), then `defaultMelee` / `defaultRanged`. Bosses fight `heavy` in melee;
 	-- attack pose "point" units use `point`. Range comes from the unit's current form.
+	formStyles = {
+		Chainsaw = "blade", -- ripcord_frenzy's chainsaw form: arm-blade swings, not punches
+	},
 	unitStyles = {
 		ascending_core = "caster", -- energy blasts from both hands, not a rifle aim
 		snapfire = "point", -- a finger snap toward the target, not a two-handed push
+		horizon_cut = "slashWave", -- swings his greatsword and throws a slash wave, not a rifle aim
 	},
 	weaponStyles = {
 		greatsword = "heavy",
@@ -199,6 +217,9 @@ return deepFreeze({
 		orb = { size = 0.55, arc = 1.2, trail = 0.2, trailWidth = 1.2 },
 		tongue = { size = 0.6 }, -- RenderConfig.tongueAttacks: a stretching bar, no trail
 		bounce = { size = 0.45, arc = 1.0, trail = 0.15, trailWidth = 1 },
+		-- A slash wave: a flat blade of light `width` times `size` across, flying straight, with a
+		-- ribbon trail as wide as it is.
+		wave = { size = 0.5, width = 3.2, arc = 0, trail = 0.1, flat = true },
 	},
 
 	-- Getting hit ------------------------------------------------------------------------------

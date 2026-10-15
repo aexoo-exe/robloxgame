@@ -183,6 +183,7 @@ local function play(playback, placement: Placement?)
 			range = Forms.range(stats, form),
 			moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed"),
 			unitType = unit.unitType,
+			formName = if form then form.name else nil,
 			look = CharacterLook.of(unit.unitType).figure,
 			attacksPerSecond = stats.attacksPerSecond,
 			-- The ability style: element and colors (AbilityFxConfig); `color` is its primary.
@@ -239,7 +240,7 @@ local function play(playback, placement: Placement?)
 		if not unit then
 			return AnimationConfig.defaultMelee
 		end
-		return UnitMotion.styleFor(unit.unitType, unit.range, unit.look)
+		return UnitMotion.styleFor(unit.unitType, unit.range, unit.look, unit.formName)
 	end
 	local function colorOf(unitIndex: number): Color3
 		return if info[unitIndex] then info[unitIndex].color else AnimationConfig.factionColors.summon
@@ -504,6 +505,7 @@ local function play(playback, placement: Placement?)
 			local stats = Pve.unitType(unit.unitType)
 			info[event.unit].moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed")
 			info[event.unit].range = Forms.range(stats, form)
+			info[event.unit].formName = if form then form.name else nil
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end

@@ -23,6 +23,7 @@ export type Spec = {
 	tinted: boolean,
 	transparency: number, -- 0 for most parts (auras and steam are see-through)
 	emitter: any?, -- a soft particle stream from this (invisible) part: { rate, color, size } (steam)
+	drawn: boolean?, -- part of a weapon with `drawn`: shown only while it is out (Figure.setDrawn)
 }
 
 type Options = { material: string?, fine: boolean?, plain: boolean?, transparency: number?, emitter: any? }
@@ -1326,10 +1327,13 @@ LookKit.WEAPONS = {
 	end,
 }
 
+-- A weapon with `drawn = true` is held only while attacking or casting (a quick-draw from a sheath
+-- drawn elsewhere); its specs are marked `drawn`.
 local function weapons(ctx: Context)
 	for _, w in ctx.look.weapons or {} do
 		local build = LookKit.WEAPONS[w.kind]
 		assert(build, "unknown weapon kind " .. tostring(w.kind))
+		local first = #ctx.specs + 1
 		if w.anchor then
 			local angles = w.turn or Vector3.zero
 			ctx.grip = CF((w.at or Vector3.zero) * ctx.h) * turn(angles.X, angles.Y, angles.Z)
@@ -1340,6 +1344,11 @@ local function weapons(ctx: Context)
 			build(ctx, w, "rightHand")
 		else
 			build(ctx, w, (w.hand or "right") .. "Hand")
+		end
+		if w.drawn then
+			for i = first, #ctx.specs do
+				ctx.specs[i].drawn = true
+			end
 		end
 	end
 end

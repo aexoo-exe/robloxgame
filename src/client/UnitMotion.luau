@@ -52,10 +52,14 @@ function UnitMotion.style(name: string): Style
 	return STYLES[name] or STYLES[AnimationConfig.defaultMelee]
 end
 
--- The attack style of a unit: see AnimationConfig (unitStyles, weaponStyles, meleeClasses,
--- rangedClasses). `look` is its Figure look; `range` its current range in hexes.
-function UnitMotion.styleFor(unitType: string?, range: number, look: any?): string
+-- The attack style of a unit: see AnimationConfig (formStyles, unitStyles, weaponStyles,
+-- meleeClasses, rangedClasses). `look` is its Figure look; `range` its current range in hexes;
+-- `formName` its current form, if any.
+function UnitMotion.styleFor(unitType: string?, range: number, look: any?, formName: string?): string
 	local ranged = range > 1
+	if formName and AnimationConfig.formStyles[formName] then
+		return AnimationConfig.formStyles[formName]
+	end
 	if unitType and AnimationConfig.unitStyles[unitType] then
 		return AnimationConfig.unitStyles[unitType]
 	end

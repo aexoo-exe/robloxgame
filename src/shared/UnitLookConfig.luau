@@ -32,7 +32,8 @@
 --   gearBoxes   { color }: boxes on both hips
 --   tendrils    { color }: four segmented tendrils from the lower back
 --   weapons     { { kind, hand?, ... } }: katana, sheathedKatana, greatsword, greatswordBack,
---               dagger, thinBlade, staff, rod, ball, vial, basket (see LookKit.WEAPONS)
+--               dagger, thinBlade, staff, rod, ball, vial, basket (see LookKit.WEAPONS).
+--               `drawn = true`: held only while attacking or casting (a quick-draw)
 --   extras      raw parts { anchor, shape, size, at, turn?, color, material?, fine?, plain?,
 --               transparency? }. `to` (instead of turn) makes a segment from `at` to `to` (size X
 --               and Y are its thickness). `mirror = true` adds a copy mirrored to the other side;
@@ -166,13 +167,15 @@ return deepFreeze({
 		face = { eyes = "sharp", eyeColor = rgb(110, 70, 40) },
 		coat = { color = rgb(18, 18, 22), length = 0.9, flare = 9, sides = true, cross = WHITE },
 		sash = { color = WHITE },
+		-- The black cleaver held in the right hand: he swings it to throw slash waves
+		-- (AnimationConfig.unitStyles).
 		weapons = {
 			{
-				kind = "greatswordBack",
+				kind = "greatsword",
+				hand = "right",
 				blade = rgb(22, 22, 26),
 				edge = rgb(195, 200, 210),
 				hilt = WHITE,
-				cloth = WHITE,
 			},
 		},
 	},

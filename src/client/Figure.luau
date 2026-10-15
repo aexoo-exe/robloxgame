@@ -67,6 +67,7 @@ type Piece = {
 	offset: CFrame,
 	transparency: number, -- the part's own transparency (models), faded on top of
 	horse: boolean?,
+	drawn: boolean?, -- part of a weapon drawn only while it is out (Figure.setDrawn)
 }
 
 export type Figure = {
@@ -94,6 +95,7 @@ export type Figure = {
 	unitType: string?, -- the roster unit drawn (its horse's colors: HorseLookConfig)
 	color: Color3,
 	transparency: number,
+	weaponOut: boolean, -- drawn weapons (LookKit `drawn`) show only while this is on
 	isModel: boolean,
 	horse: { seat: number, bodyY: number, joints: { Vector3 } }?,
 	anchors: { [string]: CFrame },
@@ -160,19 +162,36 @@ local function specPart(parent: Instance, spec: LookKit.Spec, figure: any?): Bas
 	return part
 end
 
-local function addPiece(figure: Figure, part: BasePart, anchor: string, offset: CFrame, horse: boolean?)
-	local transparency = part.Transparency
-	table.insert(figure.pieces, {
+-- A piece's transparency as shown: its own, faded by the figure's; a drawn weapon's is hidden while
+-- the weapon is put away.
+local function shownTransparency(figure: Figure, piece: Piece): number
+	if piece.drawn and not figure.weaponOut then
+		return 1
+	end
+	return 1 - (1 - piece.transparency) * (1 - figure.transparency)
+end
+
+local function addPiece(
+	figure: Figure,
+	part: BasePart,
+	anchor: string,
+	offset: CFrame,
+	horse: boolean?,
+	drawn: boolean?
+)
+	local piece = {
 		part = part,
 		anchor = anchor,
 		offset = offset,
-		transparency = transparency,
+		transparency = part.Transparency,
 		horse = horse,
-	})
+		drawn = drawn,
+	}
+	table.insert(figure.pieces, piece)
 	table.insert(figure.parts, part)
 	table.insert(figure.cframes, CFrame.identity)
 	if anchor ~= "hitbox" then
-		part.Transparency = 1 - (1 - transparency) * (1 - figure.transparency)
+		part.Transparency = shownTransparency(figure, piece)
 	end
 end
 
@@ -358,7 +377,7 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	-- LookKit weapons worn with the avatar (UnitAvatarConfig `weapons`), on the same anchors.
 	if look.avatarWeapons then
 		for _, spec in LookKit.weaponSpecs(look.avatarWeapons, figure.body, figure.height, look.detail == "low") do
-			addPiece(figure, specPart(parent, spec, figure), spec.anchor, spec.offset)
+			addPiece(figure, specPart(parent, spec, figure), spec.anchor, spec.offset, nil, spec.drawn)
 		end
 	end
 end
@@ -369,7 +388,7 @@ local function buildLook(figure: Figure, look: Look, parent: Instance)
 	local specs = LookKit.specs(look.unitLook, figure.body, figure.height, look.detail == "low")
 	for _, spec in specs do
 		local part = specPart(parent, spec, figure)
-		addPiece(figure, part, spec.anchor, spec.offset)
+		addPiece(figure, part, spec.anchor, spec.offset, nil, spec.drawn)
 		if spec.tinted then
 			table.insert(figure.tinted, part)
 			figure.baseColors[part] = spec.color
@@ -546,6 +565,7 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		emitters = {},
 		color = color,
 		transparency = transparency or 0,
+		weaponOut = false,
 		isModel = false,
 		horse = nil,
 		anchors = {},
@@ -786,7 +806,7 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 	figure.transparency = transparency
 	for _, piece in figure.pieces do
 		if piece.anchor ~= "hitbox" then
-			piece.part.Transparency = 1 - (1 - piece.transparency) * (1 - transparency)
+			piece.part.Transparency = shownTransparency(figure, piece)
 		end
 	end
 	for _, entry in figure.decals do
@@ -797,6 +817,20 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 	end
 	if figure.highlight and transparency >= 1 then
 		figure.highlight.Enabled = false
+	end
+end
+
+-- Shows (`out`) or hides the figure's drawn weapons (LookKit weapons with `drawn`): a sword drawn
+-- for a strike and put away after.
+function Figure.setDrawn(figure: Figure, out: boolean)
+	if figure.weaponOut == out then
+		return
+	end
+	figure.weaponOut = out
+	for _, piece in figure.pieces do
+		if piece.drawn then
+			piece.part.Transparency = shownTransparency(figure, piece)
+		end
 	end
 end
 

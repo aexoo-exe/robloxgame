@@ -137,7 +137,7 @@ end
 export type ProjectileOptions = {
 	launchAt: number?, -- when it leaves (on the effects' clock; default now)
 	origin: (() -> Vector3)?, -- where it leaves from, read at launch (default the shooter's middle)
-	look: string?, -- an AnimationConfig.projectiles entry: "shot", "orb" or "bounce" (default "orb")
+	look: string?, -- an AnimationConfig.projectiles entry: "shot", "orb", "bounce" or "wave" (default "orb")
 	tongue: boolean?, -- a thin bar that stretches from the start to its tip instead of a ball
 	scale: number?, -- size multiplier (star level)
 }
@@ -158,10 +158,18 @@ function CombatEffects.projectile(
 	local look = if settings.tongue then looks.tongue else looks[settings.look or "orb"] or looks.orb
 	local size = look.size * (settings.scale or 1)
 	local shot = takeShot(color)
-	shot.part.Shape = if settings.tongue then Enum.PartType.Block else Enum.PartType.Ball
-	shot.part.Size = Vector3.one * size
+	-- A flat look (a slash wave) is a wide, thin blade across its flight, its trail as wide.
+	local flat = not settings.tongue and look.flat == true
+	shot.part.Shape = if settings.tongue or flat then Enum.PartType.Block else Enum.PartType.Ball
+	shot.part.Size = if flat then Vector3.new(size * look.width, size * 0.12, size * 0.35) else Vector3.one * size
 	local trailing = not settings.tongue and look.trail ~= nil and ImpactEffects.allows("trails")
-	if trailing then
+	if trailing and flat then
+		local half = size * look.width / 2
+		shot.top.Position = Vector3.new(half, 0, 0)
+		shot.bottom.Position = Vector3.new(-half, 0, 0)
+		shot.trail.Lifetime = look.trail
+		shot.trail.Color = ColorSequence.new(color:Lerp(WHITE, 0.35), color)
+	elseif trailing then
 		local half = size * (look.trailWidth or 1) / 2
 		shot.top.Position = Vector3.new(0, half, 0)
 		shot.bottom.Position = Vector3.new(0, -half, 0)
