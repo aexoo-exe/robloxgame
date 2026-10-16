@@ -17,7 +17,8 @@ export type Texture = {
 	image: string, -- "rbxassetid://<id>"
 	mode: string, -- how it draws: "particle", "plane", "billboard", "beam" or "screen"
 	blend: string, -- "alpha" or "additive"
-	tint: boolean, -- multiply by the effect's color (false: the texture's own colors)
+	tint: boolean, -- tinted by the effect's color at all (tintShare > 0)
+	tintShare: number, -- how far toward the effect's color it is tinted (0: its own colors, 1: full)
 	flipbook: Flipbook?,
 	brightness: number, -- planes and billboards
 	speed: number, -- beam texture scroll
@@ -210,15 +211,33 @@ function VfxResolve.resolve(
 			table.insert(trace, { key = key, reason = why or "does not fit" })
 			continue
 		end
-		if traits.baked and color and not candidate.explicit and not hueFits(traits.baked, color) then
-			table.insert(trace, { key = key, reason = "its own color does not suit this color" })
+		if
+			VfxConfig.hue.strict
+			and traits.baked
+			and color
+			and not candidate.explicit
+			and not hueFits(traits.baked, color)
+		then
+			table.insert(trace, { key = key, reason = "baked hue rejected (hue.strict)" })
 			continue
 		end
 		if loaded and not loaded(id) then
-			table.insert(trace, { key = key, reason = "not loaded" })
+			table.insert(trace, { key = key, reason = "failed to load" })
 			continue
 		end
 		table.insert(trace, { key = key, reason = "used" })
+		-- Tinting: full for plain textures; a baked texture only part of the way (or not at all
+		-- when its color already suits the effect, or with hue.strict); none with tint = false.
+		local share = 1
+		if traits.tint == false then
+			share = 0
+		elseif traits.baked then
+			share = if VfxConfig.hue.strict
+					or not color
+					or hueFits(traits.baked, color)
+				then 0
+				else VfxConfig.hue.bakedTint
+		end
 		return {
 			key = key,
 			role = role,
@@ -226,7 +245,8 @@ function VfxResolve.resolve(
 			image = "rbxassetid://" .. string.format("%d", id),
 			mode = chosen,
 			blend = traits.blend or "alpha",
-			tint = not traits.baked and traits.tint ~= false,
+			tint = share > 0,
+			tintShare = share,
 			flipbook = traits.flipbook,
 			brightness = usage.brightness or 1,
 			speed = usage.speed or 0,
@@ -236,6 +256,18 @@ function VfxResolve.resolve(
 			trace
 	end
 	return nil, trace
+end
+
+-- The color to draw `texture` in for an effect of `color`: white (its own colors) blended toward
+-- `color` by its tint share.
+function VfxResolve.tint(texture: Texture, color: Color3): Color3
+	local share = texture.tintShare
+	if share >= 1 then
+		return color
+	elseif share <= 0 then
+		return Color3.new(1, 1, 1)
+	end
+	return Color3.new(1, 1, 1):Lerp(color, share)
 end
 
 -- Every image id any pick can draw with (for preloading).

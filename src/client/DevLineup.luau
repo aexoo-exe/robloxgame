@@ -61,6 +61,7 @@ local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
+local VfxDebug = require(script.Parent.VfxDebug)
 
 local DevLineup = {}
 
@@ -1058,7 +1059,7 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
 -- show(unitId), ultimate(unitId) (shows it and plays its next cast, as key 3), press("One" ...
 -- "Nine", "F", "X", "Q"), timeScale(0.25) for slow motion (0 freezes), freezeAfter(stageSeconds),
 -- camera("front" | "side" | "close" | "board"; "close" also frames key 3's preview close on the
--- unit), state(). Studio only.
+-- unit), state(), vfxReport() and vfxTest(seconds) (VfxDebug: effect textures). Studio only.
 local function qaHandle()
 	return {
 		show = function(unitType: string)
@@ -1114,6 +1115,13 @@ local function qaHandle()
 				scale = timeScale,
 				preview = s ~= nil and s.fieldPreview ~= nil,
 			}
+		end,
+		-- Effect texture checks (VfxDebug): the report, and every image shown in front of the camera.
+		vfxReport = function()
+			return VfxDebug.report()
+		end,
+		vfxTest = function(seconds: number?)
+			return VfxDebug.test(seconds)
 		end,
 	}
 end

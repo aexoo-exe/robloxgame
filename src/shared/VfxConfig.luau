@@ -78,9 +78,16 @@ return deepFreeze({
 	-- listed in `traits`. `packs` picks which of a pack's textures a role uses (1 = the most used).
 	packs = {},
 
-	-- A baked texture fits a color whose hue is within `maxGap` (0-1 around the wheel) of its own;
-	-- colors paler than `minSaturation` (whites, greys) only take untinted-looking textures.
-	hue = { maxGap = 0.09, minSaturation = 0.3 },
+	-- Baked textures. By default (strict = false) they are used for any color: drawn in their own
+	-- colors when the effect's color is close to theirs (hue within `maxGap`, 0-1 around the wheel;
+	-- colors paler than `minSaturation` only match pale textures), otherwise tinted `bakedTint` of the
+	-- way toward it. strict = true: a baked texture is skipped for colors that do not suit it (the
+	-- next pick is used) and is never tinted.
+	hue = { strict = false, bakedTint = 0.5, maxGap = 0.09, minSaturation = 0.3 },
+
+	-- requireLoaded = false: an image is used as soon as it is chosen (it pops in when it arrives)
+	-- and only one that failed to load falls back to neon. true: only images already loaded.
+	loading = { requireLoaded = false },
 
 	-- How each kind of effect draws. `roles` in order (the first with a fitting texture wins), `modes`
 	-- in order of preference:

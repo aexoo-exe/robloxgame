@@ -37,7 +37,6 @@ local ImpactEffects = {}
 local POOLS = AnimationConfig.pools
 local FLAT = CFrame.Angles(0, 0, math.pi / 2) -- a cylinder's axis (X) upright: a flat disc
 local RING_THICKNESS = 0.08
-local WHITE = Color3.new(1, 1, 1)
 
 -- Particle kinds: the built-in texture (kept when no picked texture fits), the physics that do not
 -- change per burst, and `usage`, the VfxConfig.uses entry that picks its texture.
@@ -229,14 +228,30 @@ local function bare(part: BasePart)
 	part.CastShadow = false
 end
 
--- Sets the quality level ("low", "medium", "high" or "auto"; see AnimationConfig).
+-- How the current level was chosen, for the debug report.
+local qualitySource = "default"
+-- Textured shapes that stayed neon because of the quality level's cap, since the last count reset.
+local capped = 0
+local skinnedDrawn = 0
+
+-- Sets the quality level ("low", "medium", "high" or "auto"; see AnimationConfig). Auto: Studio
+-- takes `autoStudio`, touch-only devices (phones, tablets) `autoTouch`, everything else (desktops,
+-- laptops, consoles) `autoDefault`. Low is only ever chosen by hand.
 function ImpactEffects.setQuality(name: string)
+	local source = "set to " .. name
 	if name == "auto" then
 		local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-		name = if touchOnly then AnimationConfig.autoTouch else AnimationConfig.autoDefault
+		if RunService:IsStudio() then
+			name, source = AnimationConfig.autoStudio, "auto: Studio"
+		elseif touchOnly then
+			name, source = AnimationConfig.autoTouch, "auto: touch-only device"
+		else
+			name, source = AnimationConfig.autoDefault, "auto: desktop"
+		end
 	end
 	if AnimationConfig.qualityLevels[name] then
 		qualityName = name
+		qualitySource = source
 		level = AnimationConfig.qualityLevels[name]
 		vfxLevel = VfxConfig.quality[name] or VfxConfig.quality.high
 	end
@@ -245,6 +260,22 @@ ImpactEffects.setQuality(AnimationConfig.quality)
 
 function ImpactEffects.quality(): string
 	return qualityName
+end
+
+-- The quality level's details for the debug report (VfxDebug).
+function ImpactEffects.qualityInfo(): any
+	return {
+		name = qualityName,
+		source = qualitySource,
+		maxSkinned = vfxLevel.maxSkinned,
+		shapes = level.rings == true,
+		particles = level.particles,
+		maxParticles = level.maxParticles,
+		impactFrame = vfxLevel.impactFrame == true,
+		skinnedNow = skinned,
+		skinnedDrawn = skinnedDrawn,
+		capped = capped,
+	}
 end
 
 -- Whether the current quality level shows `feature` ("rings", "trails", "charge" or "impactFrame").
@@ -260,9 +291,14 @@ function ImpactEffects.particleShare(): number
 	return level.particles
 end
 
--- Sets the time source for rings and balls (nil: os.clock).
+-- Sets the time source for rings and balls (nil: os.clock). A new clock is a new fight or preview:
+-- the texture draw counts (Vfx.counts, the cap count) start again.
 function ImpactEffects.setClock(source: (() -> number)?)
 	clock = source or os.clock
+	if source then
+		Vfx.resetCounts()
+		capped, skinnedDrawn = 0, 0
+	end
 end
 
 -- Texture objects -----------------------------------------------------------------------------------
@@ -362,7 +398,7 @@ local function drawSkin(entry: Shape)
 	local part = entry.part
 	local texture = entry.texture :: Vfx.Texture
 	local skin = skinOf(part)
-	local color = if texture.tint then part.Color else WHITE
+	local color = Vfx.tint(texture, part.Color)
 	local size = part.Size
 	local seen = entry.shown
 	if texture.mode == "plane" then
@@ -594,8 +630,9 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	local part = emitter.Parent :: BasePart
 	local aim = if direction and direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
 	part.CFrame = CFrame.lookAt(position, position + aim)
-	if texture and not texture.tint then
-		emitter.Color = ColorSequence.new(WHITE)
+	if texture and texture.tintShare < 1 then
+		emitter.Color =
+			ColorSequence.new(Vfx.tint(texture, burst.color), Vfx.tint(texture, burst.color2 or burst.color))
 	else
 		emitter.Color = ColorSequence.new(burst.color, burst.color2 or burst.color)
 	end
@@ -683,9 +720,11 @@ function ImpactEffects.shape(
 	end
 	if texture and skinned >= vfxLevel.maxSkinned then
 		texture = nil -- the quality level's cap: this one stays neon
+		capped += 1
 	end
 	if texture then
 		skinned += 1
+		skinnedDrawn += 1
 	end
 	local p = part :: BasePart
 	ensureRunning()
@@ -817,7 +856,7 @@ function ImpactEffects.ball(
 			local emitter = host("flash", texture)
 			local part = emitter.Parent :: BasePart
 			part.CFrame = CFrame.new(position)
-			emitter.Color = ColorSequence.new(if texture.tint then tint else WHITE)
+			emitter.Color = ColorSequence.new(Vfx.tint(texture, tint))
 			emitter.Size = NumberSequence.new(diameter * config.from, diameter)
 			emitter.Transparency = NumberSequence.new({
 				NumberSequenceKeypoint.new(0, 0.05),

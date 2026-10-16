@@ -25,11 +25,13 @@ end
 
 return deepFreeze({
 	-- Quality ------------------------------------------------------------------------------------
-	-- "low", "medium", "high" or "auto" (touch-only devices: `autoTouch`; others: `autoDefault`).
+	-- "low", "medium", "high" or "auto" (Studio: `autoStudio`; touch-only devices: `autoTouch`;
+	-- others: `autoDefault`). Low is never picked automatically.
 	-- ImpactEffects.setQuality changes it at run time (the dev preview's Q key).
 	quality = "auto",
-	autoTouch = "medium",
-	autoDefault = "high",
+	autoStudio = "high", -- playing in Studio
+	autoTouch = "medium", -- touch-only devices (phones, tablets)
+	autoDefault = "high", -- desktops, laptops, consoles
 	-- Per level: `particles` multiplies every particle count; `maxParticles` caps the particles
 	-- alive at once (new bursts shrink to fit); `rings` turns ground rings and flash balls on;
 	-- `trails` turns projectile trails on; `charge` turns the cast charge sparkles on.

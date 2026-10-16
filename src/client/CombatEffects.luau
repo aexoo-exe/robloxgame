@@ -147,7 +147,7 @@ local function label(parent: Instance, texture: Vfx.Texture, color: Color3): Ima
 	end
 	local found = image :: ImageLabel
 	found.Image = texture.image
-	found.ImageColor3 = if texture.tint then color else WHITE
+	found.ImageColor3 = Vfx.tint(texture, color)
 	return found
 end
 
