@@ -1391,6 +1391,13 @@ end
 if unused == 0 then
 	print("  none")
 end
+-- Every texture skin shown, updated, hidden and recycled on the real effect modules
+-- (scripts/lib/vfx-skins.luau; also lune run scripts/vfx-skins-test).
+local skinProblems, skinSummary = require("./lib/vfx-skins")()
+for _, text in skinProblems do
+	vfxProblem("skins: " .. text)
+end
+print(string.format("skins: %s, %d problems", skinSummary, #skinProblems))
 if vfxFailed > 0 then
 	failed += 1
 end

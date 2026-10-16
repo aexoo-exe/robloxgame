@@ -188,10 +188,10 @@ type Skin = {
 	surfaces: { SurfaceGui }?,
 	labels: { ImageLabel }?,
 	billboard: BillboardGui?,
-	sprite: ImageLabel?,
+	billboardImage: ImageLabel?, -- the billboard's image
 	ends: { Attachment }?,
 	beam: Beam?,
-	sprite: ParticleEmitter?, -- a black-background or flipbook plane/billboard (one particle)
+	particle: ParticleEmitter?, -- a black-background or flipbook plane/billboard (one particle)
 }
 local skins: { [BasePart]: Skin } = {}
 local FACES = {
@@ -319,17 +319,25 @@ local function hideSkin(part: BasePart)
 	if not skin then
 		return
 	end
+	-- Each kind of object hidden its own way: GUIs are disabled and their images reset, the beam
+	-- disabled, and only the particle sprite (a ParticleEmitter) cleared.
 	for _, surface in skin.surfaces or {} do
 		surface.Enabled = false
+	end
+	for _, label in skin.labels or {} do
+		label.Image = ""
 	end
 	if skin.billboard then
 		skin.billboard.Enabled = false
 	end
+	if skin.billboardImage then
+		skin.billboardImage.Image = ""
+	end
 	if skin.beam then
 		skin.beam.Enabled = false
 	end
-	if skin.sprite then
-		skin.sprite:Clear()
+	if skin.particle then
+		skin.particle:Clear()
 	end
 end
 
@@ -370,9 +378,9 @@ local function billboardOf(part: BasePart, skin: Skin): (BillboardGui, ImageLabe
 		billboard.Adornee = part
 		billboard.Parent = part
 		skin.billboard = billboard
-		skin.sprite = image(billboard)
+		skin.billboardImage = image(billboard)
 	end
-	return skin.billboard :: BillboardGui, skin.sprite :: ImageLabel
+	return skin.billboard :: BillboardGui, skin.billboardImage :: ImageLabel
 end
 
 local function beamOf(part: BasePart, skin: Skin): (Beam, { Attachment })
@@ -402,7 +410,7 @@ end
 -- color) apply to a particle already out, so it follows the shape's step every frame.
 local SPRITE_FACES = { X = Enum.NormalId.Right, Y = Enum.NormalId.Top, Z = Enum.NormalId.Front }
 local function spriteOf(part: BasePart, skin: Skin): ParticleEmitter
-	if not skin.sprite then
+	if not skin.particle then
 		local emitter = Instance.new("ParticleEmitter")
 		emitter.Rate = 0
 		emitter.Enabled = false
@@ -415,9 +423,9 @@ local function spriteOf(part: BasePart, skin: Skin): ParticleEmitter
 		emitter.RotSpeed = NumberRange.new(0)
 		emitter.ZOffset = 0.5
 		emitter.Parent = part
-		skin.sprite = emitter
+		skin.particle = emitter
 	end
-	return skin.sprite :: ParticleEmitter
+	return skin.particle :: ParticleEmitter
 end
 
 -- Draws a black-background or flipbook texture as one additive particle in place of a plane (flat,
@@ -524,16 +532,68 @@ local function drawSkin(entry: Shape)
 	end
 end
 
--- Puts a shape's part back in its pool.
+-- Puts a shape's part back in its pool (its slot in the textured cap is freed first, so a failure
+-- hiding its texture cannot leak the slot).
 local function retire(entry: Shape)
 	local part = entry.part
+	if entry.texture then
+		skinned -= 1
+		entry.texture = nil
+		hideSkin(part)
+	end
 	part.Transparency = 1
 	part.Parent = nil
-	if entry.texture then
-		hideSkin(part)
-		skinned -= 1
-	end
 	table.insert(spareShapes[entry.shape], part)
+end
+
+-- An effect that errors is dropped, and its error is warned about once per kind of effect, so one
+-- bad effect can never break the update every frame.
+local reported: { [string]: boolean } = {}
+local function report(kind: string, problem: any)
+	if not reported[kind] then
+		reported[kind] = true
+		warn(string.format("[ImpactEffects] a %s effect failed and was dropped: %s", kind, tostring(problem)))
+	end
+end
+
+local function kindOf(entry: Shape): string
+	local texture = entry.texture
+	if not texture then
+		return entry.shape
+	end
+	return entry.shape .. " " .. texture.mode .. (if texture.sprite then " sprite" else "")
+end
+
+-- One frame of a shape at `progress` (0-1).
+local function advance(shape: Shape, progress: number)
+	if shape.texture then
+		-- The step sets the look on the (hidden) neon part; the texture draws it.
+		local part = shape.part
+		part.Transparency = shape.shown
+		shape.step(part, progress)
+		shape.shown = part.Transparency
+		part.Transparency = 1
+		drawSkin(shape)
+	else
+		shape.step(shape.part, progress)
+	end
+end
+
+-- Lets go of a shape whose texture could not be hidden: its part is destroyed (never pooled with a
+-- texture still showing) and the pool may make a new one.
+local function discard(shape: Shape)
+	skins[shape.part] = nil
+	madeShapes -= 1
+	pcall(function()
+		shape.part:Destroy()
+	end)
+end
+
+-- Drops a shape whose update failed: back to its pool if it retires cleanly, else discarded.
+local function drop(shape: Shape)
+	if not pcall(retire, shape) then
+		discard(shape)
+	end
 end
 
 local function hideFrame()
@@ -548,40 +608,47 @@ local function update()
 		local effect = active[i]
 		local progress = (now - effect.startsAt) / effect.duration
 		if progress >= 1 then
+			table.remove(active, i)
 			effect.part.Transparency = 1
 			effect.part.Parent = nil
 			table.insert(free[effect.kind], effect.part)
-			table.remove(active, i)
 		elseif progress >= 0 then
-			local eased = 1 - (1 - progress) * (1 - progress)
-			local diameter = effect.from + (effect.to - effect.from) * eased
-			local part = effect.part
-			part.Transparency = effect.transparency + (1 - effect.transparency) * progress
-			if effect.kind == "ring" then
-				part.Size = Vector3.new(RING_THICKNESS, diameter, diameter)
-			else
-				part.Size = Vector3.one * diameter
+			local ok, problem = pcall(function()
+				local eased = 1 - (1 - progress) * (1 - progress)
+				local diameter = effect.from + (effect.to - effect.from) * eased
+				local part = effect.part
+				part.Transparency = effect.transparency + (1 - effect.transparency) * progress
+				if effect.kind == "ring" then
+					part.Size = Vector3.new(RING_THICKNESS, diameter, diameter)
+				else
+					part.Size = Vector3.one * diameter
+				end
+				part.CFrame = effect.center
+			end)
+			if not ok then
+				report(effect.kind, problem)
+				table.remove(active, i)
+				effect.part.Parent = nil
 			end
-			part.CFrame = effect.center
 		end
 	end
 	for i = #shapes, 1, -1 do
 		local shape = shapes[i]
 		local progress = (now - shape.startsAt) / shape.duration
 		if progress >= 1 then
-			retire(shape)
 			table.remove(shapes, i)
+			local kind = kindOf(shape)
+			local ok, problem = pcall(retire, shape)
+			if not ok then
+				report(kind, problem)
+				discard(shape)
+			end
 		elseif progress >= 0 then
-			if shape.texture then
-				-- The step sets the look on the (hidden) neon part; the texture draws it.
-				local part = shape.part
-				part.Transparency = shape.shown
-				shape.step(part, progress)
-				shape.shown = part.Transparency
-				part.Transparency = 1
-				drawSkin(shape)
-			else
-				shape.step(shape.part, progress)
+			local ok, problem = pcall(advance, shape, progress)
+			if not ok then
+				report(kindOf(shape), problem)
+				table.remove(shapes, i)
+				drop(shape)
 			end
 		end
 	end
@@ -1035,7 +1102,9 @@ function ImpactEffects.clear()
 	end
 	table.clear(active)
 	for _, shape in shapes do
-		retire(shape)
+		if not pcall(retire, shape) then
+			discard(shape)
+		end
 	end
 	table.clear(shapes)
 	table.clear(waiting)
