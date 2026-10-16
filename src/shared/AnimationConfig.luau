@@ -83,6 +83,11 @@ return deepFreeze({
 	--   twist    body turn in degrees; positive brings the attacking shoulder forward
 	--   crouch   how far the hips drop, as a fraction of leg length (a squash)
 	--   lunge    studs toward the target (negative: back, as a recoil)
+	--   armOut   the attacking arm raised out to its side, degrees (negative: across the body).
+	--            With `arm` this bends the swing into an arc: a slash comes from high outside and
+	--            carries across, instead of chopping straight down.
+	--   offArmOut  the same for the other arm (`bothArms`: it copies `armOut`)
+	--   weight   optional: replaces `overlap.weight` (below) for this style
 	-- `duration` is the motion's length when the unit attacks slowly. A faster attacker's motion is
 	-- shortened to `maxIntervalShare` of the time to its next attack (never below `minDuration`), so
 	-- the timing fits each unit's actual attack interval. `alternate`: attacks switch arms.
@@ -100,6 +105,8 @@ return deepFreeze({
 			twist = { -28, 18, 30 },
 			crouch = { 0.06, 0.14, 0.1 },
 			lunge = { -0.15, 1.0, 0.85 },
+			armOut = { 38, 6, -28 }, -- high and outside, through the front, across the body
+			offArmOut = { 10, -4, 6 },
 		},
 		-- Fists: pull back, straight punch, the other fist up as a guard.
 		brawler = {
@@ -111,6 +118,8 @@ return deepFreeze({
 			twist = { -30, 28, 18 },
 			crouch = { 0.1, 0.04, 0.06 },
 			lunge = { -0.2, 1.1, 0.95 },
+			armOut = { 22, 6, -4 }, -- drawn back from the side, a slight hook into the punch
+			offArmOut = { 6, 10, 8 },
 			alternate = true,
 		},
 		-- Guardians and giants: both arms high, a heavy two-handed slam, a dust ring on landing.
@@ -123,6 +132,7 @@ return deepFreeze({
 			twist = { 0, 0, 0 },
 			crouch = { 0.04, 0.24, 0.2 },
 			lunge = { -0.25, 0.8, 0.7 },
+			armOut = { 18, -2, 8 }, -- arms wide overhead, close at the slam, spread on the follow
 			slam = true,
 		},
 		-- Rifles, bows, throws: raise to aim, fire, kick back.
@@ -160,6 +170,8 @@ return deepFreeze({
 			twist = { -32, 22, 32 },
 			crouch = { 0.06, 0.14, 0.1 },
 			lunge = { -0.15, 0.35, 0.25 },
+			armOut = { 40, 6, -30 },
+			offArmOut = { 10, -4, 6 },
 			projectile = "wave",
 		},
 		-- Casters' basic attacks: draw in, push both hands out, a glowing orb leaves.
@@ -172,6 +184,8 @@ return deepFreeze({
 			twist = { -12, 10, 6 },
 			crouch = { 0.08, 0.02, 0.03 },
 			lunge = { -0.1, 0.15, 0.1 },
+			armOut = { 28, 8, 14 }, -- hands gather wide, push out together, open up
+			offArmOut = { 28, 8, 14 },
 			projectile = "orb",
 		},
 	},
@@ -224,9 +238,156 @@ return deepFreeze({
 		wave = { size = 0.5, width = 3.2, arc = 0, trail = 0.1, flat = true },
 	},
 
+	-- Overlapping action, weight and settle (every motion above) -------------------------------------
+	-- Rigid limbs cannot bend, so motion reads as alive through timing: body parts start and settle
+	-- at different moments, strikes snap, and everything overshoots a little before it settles.
+	-- None of this moves a strike: the attacking arm stays on the style's timing, so hits land and
+	-- shots leave exactly when they did.
+	overlap = {
+		-- Shares of the attack motion (0-1). The body (lean, twist, crouch, lunge, hip shift) runs
+		-- `bodyLead` ahead of the attacking arm: the hips start the swing. The off arm trails by
+		-- `offArmLag`, the head by `headLag` (it catches up after the body moves). All three ease to
+		-- zero at the start and end of the motion, so nothing pops.
+		bodyLead = 0.06,
+		offArmLag = 0.07,
+		headLag = 0.1,
+		-- The head turns against the body's twist by this share, so the eyes stay on the target.
+		headCounter = 0.55,
+		-- Wind-up to strike: values accelerate as t ^ `snapPower` (2 was a plain ease-in; higher snaps
+		-- harder out of the anticipation).
+		snapPower = 3.2,
+		-- Recovery after the follow-through: back to rest by `settleAt` of the recovery, then past it
+		-- by `settle` of the follow-through value and back (a small overshoot that settles). Also used
+		-- by cast releases, the signature punch and the end of ultimate poses.
+		settle = 0.18,
+		settleAt = 0.62,
+		ultimateSettle = 0.28, -- seconds over which an ultimate pose settles out (was a 0.2 s blend)
+		-- Weight on strikes: the hips shift sideways onto the planted leg (the one opposite the
+		-- attacking arm) by `strikeShift` of the figure's height and drop with the style's crouch;
+		-- the legs split by `strikeStance` degrees (front leg forward, back leg back by
+		-- `backLegShare` of it). `weight` is the shape over the motion: { windup, strike, follow }
+		-- (negative: weight rocks back onto the rear leg in the anticipation).
+		strikeShift = 0.035,
+		strikeStance = 12,
+		backLegShare = 0.6,
+		weight = { -0.35, 1, 0.75 },
+		-- The upper body rolls toward the planted leg, degrees per unit of weight.
+		strikeRoll = 4,
+	},
+
+	-- Living motion: idle, walking, landings (client visuals only) --------------------------------
+	-- On top of the base idle and walk cycles in FigureConfig.animation (idlePeriod, idleBob,
+	-- walkCycle, walkLegSwing, walkArmSwing, walkBob). Every unit gets its own phase and a rate
+	-- between `rateSpread` below and above 1, so no two units move in step.
+	living = {
+		rateSpread = 0.12,
+		-- How fast the idle layers fade out while a unit acts (attacks, casts, ultimates, hits,
+		-- stuns, walking) and back in after: 1 / seconds.
+		calmRate = 5,
+		-- Breathing: one breath every `breathPeriod` seconds; the chest lifts (lean back, degrees),
+		-- the arms float out a little (degrees) and the head nods against it.
+		breathPeriod = 3.4,
+		breathLean = 1.4,
+		breathArms = 2.5,
+		breathHead = 1.2,
+		-- Weight shifts: every `shiftEvery` seconds (varied per unit) the weight moves to the other
+		-- leg over `shiftBlend` of that time. The hips move `shift` of the height sideways, the upper
+		-- body rolls back over them by `shiftRoll` degrees, the head tips by `shiftHead`.
+		shiftEvery = 4.2,
+		shiftBlend = 0.22,
+		shift = 0.018,
+		shiftRoll = 2.2,
+		shiftHead = 2,
+		-- Looking: with a target, the head turns toward it ahead of the body (up to `lookMax`
+		-- degrees, `lookLead` of the remaining turn), so turns start at the eyes. Without one, every
+		-- `glanceEvery` seconds (varied per unit) the head glances up to `glanceYaw` degrees aside
+		-- for `glanceHold` of that time.
+		lookMax = 50,
+		lookLead = 0.6,
+		glanceEvery = 5.5,
+		glanceHold = 0.3,
+		glanceYaw = 28,
+		glancePitch = 6,
+		-- Walking: heel-to-toe bob (lowest at each heel strike, highest as the legs pass, with a
+		-- quick `heelDip` of the height just after contact), arms counter-swinging `armLag` radians
+		-- behind the legs, the shoulders counter-twisting `twist` degrees, the hips swaying over the
+		-- stance leg (`shift` of the height, `roll` degrees), and the body leaning `lean` degrees into
+		-- the direction at `leanSpeed` studs per second (more when faster, up to `maxLean`); a dash
+		-- leans `dashLean`. The head keeps `headSteady` of the lean off (eyes level).
+		walk = {
+			heelDip = 0.008,
+			armLag = 0.35,
+			twist = 7,
+			shift = 0.012,
+			roll = 2,
+			lean = 6,
+			leanSpeed = 8,
+			maxLean = 12,
+			dashLean = 14,
+			headSteady = 0.6,
+		},
+		-- Landing at the end of a walk or dash: the hips drop `depth` (crouch fraction; a dash
+		-- `dashDepth`) by `dropAt` of `duration` and shift `shift` of the height onto one leg
+		-- (alternating), then rise back past rest by `lift` of the height and settle. The head nods
+		-- `headNod` degrees, a beat after the body.
+		land = {
+			duration = 0.34,
+			dropAt = 0.3,
+			depth = 0.07,
+			dashDepth = 0.16,
+			shift = 0.02,
+			lift = 0.008,
+			headNod = 7,
+		},
+	},
+
+	-- Secondary motion: loose parts (hair, capes and back accessories, scarves, coat tails, horse
+	-- manes and tails) swing on a cheap spring each, about the point they hang from. They lag when
+	-- the body moves, hang toward the ground when it leans, and settle. Which parts are loose:
+	-- hand-built looks mark long hair (back, long sides, strands, hanging panels), coat tails and
+	-- the scarf's hanging end (LookKit); catalog avatars their accessories held on by the hair,
+	-- back, waist-back and neck attachments; horses their mane and tail. Per group:
+	--   frequency  springiness in swings per second (higher: stiffer)
+	--   damping    1 = settles without bouncing; lower bounces more
+	--   drag       radians of swing per (figure heights per second) of movement: trails behind motion
+	--   hang       0-1: how much the part keeps hanging straight down when the body tilts
+	--   back, front  the most it swings away from the body / toward it, degrees (hair and capes hang
+	--              behind: `front` stops them swinging into the head or back)
+	--   side       the most it swings sideways, degrees
+	secondary = {
+		maxPerFigure = 6, -- loose sets per figure that swing; any more stay rigid
+		teleport = 0.6, -- a jump of more than this many heights in one frame (a drag, a redraw) resets
+		maxStep = 1 / 60, -- seconds per integration step (at most 4 steps a frame)
+		groups = {
+			hair = { frequency = 2.6, damping = 0.45, drag = 0.25, hang = 0.5, back = 14, front = 3, side = 8 },
+			-- catalog hair accessories wrap the whole head, so they only sway a little before they
+			-- would lift off the forehead
+			hairWrap = { frequency = 3, damping = 0.5, drag = 0.12, hang = 0.15, back = 6, front = 1.5, side = 4 },
+			cape = { frequency = 1.6, damping = 0.4, drag = 0.45, hang = 0.7, back = 40, front = 2, side = 14 },
+			coat = { frequency = 2.2, damping = 0.45, drag = 0.35, hang = 0.6, back = 26, front = 3, side = 10 },
+			scarf = { frequency = 2.4, damping = 0.4, drag = 0.4, hang = 0.6, back = 30, front = 6, side = 14 },
+			tail = { frequency = 1.8, damping = 0.35, drag = 0.35, hang = 0.4, back = 20, front = 20, side = 18 },
+			mane = { frequency = 3.2, damping = 0.5, drag = 0.15, hang = 0.2, back = 8, front = 4, side = 6 },
+		},
+	},
+
+	-- What each effect quality level (`quality` above) keeps of the motion, for phones. `secondary`:
+	-- loose parts swing; `benchDetail`: bench units get the living idle and secondary motion (off: a
+	-- plain idle); `skipOffscreen`: units off screen are not posed at all (their click box still
+	-- moves), and are posed again as soon as they come into view (`offscreenMargin`: share of the
+	-- screen past each edge that still counts as on screen).
+	offscreenMargin = 0.15,
+	motionQuality = {
+		low = { secondary = false, benchDetail = false, skipOffscreen = true },
+		medium = { secondary = true, benchDetail = true, skipOffscreen = false },
+		high = { secondary = true, benchDetail = true, skipOffscreen = false },
+	},
+
 	-- Getting hit ------------------------------------------------------------------------------
 	-- A white flash (crits: orange), a small knock away from the attacker that eases back, a squash
-	-- (crouch) that recovers, and the body leans back.
+	-- (crouch) that recovers, and the body leans back. The head snaps first and the body follows:
+	-- the head reaches its full snap in 1 / `headSnap` of the reaction, the body starts `bodyDelay`
+	-- of the reaction later (the knock itself is not delayed).
 	hit = {
 		duration = 0.24,
 		flashDuration = 0.08,
@@ -237,6 +398,10 @@ return deepFreeze({
 		squash = 0.16, -- crouch fraction
 		lean = -14,
 		armFlail = 18, -- both arms jerk up, degrees
+		headSnap = 18,
+		headLean = -16, -- the head thrown back, degrees (on top of the body's lean)
+		headRoll = 7, -- and tipped to one side (alternating hit to hit), degrees
+		bodyDelay = 0.07,
 	},
 
 	-- Hit-stop: on a big hit, the attacker and the target hold their pose for a moment. Big: a crit,

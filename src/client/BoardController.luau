@@ -258,6 +258,7 @@ local function render()
 			formHealth = formPool,
 			maxFormHealth = formPool,
 			items = unit.items,
+			benched = unit.slot ~= nil,
 		})
 		view.part:SetAttribute("UnitId", unit.id)
 		view.part:SetAttribute("Items", table.concat(unit.items or {}, ","))

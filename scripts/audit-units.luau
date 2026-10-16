@@ -499,6 +499,9 @@ for _, name in
 		"lunge",
 		"rise",
 		"spin",
+		"headPitch",
+		"headYaw",
+		"headRoll",
 	}
 do
 	POSE_CHANNELS[name] = true

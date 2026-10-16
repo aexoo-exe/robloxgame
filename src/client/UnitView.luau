@@ -19,6 +19,10 @@
 -- in fight time, so every animation follows the playback speed.
 -- Combat motion (attack styles, hit reactions, cast wind-up and release, stun, death, victory) is
 -- UnitMotion's pose math with AnimationConfig's numbers; CombatFx decides when each one plays.
+-- Under it runs the living idle (breathing, weight shifts, looking), heel-to-toe walking and
+-- landings (AnimationConfig.living); loose parts swing in Figure (AnimationConfig.secondary). At
+-- low effect quality bench units idle plainly and units off screen are not posed
+-- (AnimationConfig.motionQuality).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -50,6 +54,7 @@ local CALLOUT_START_Y = 20
 local OVERHEAD = RenderConfig.overhead
 
 local ANIMATION = FigureConfig.animation
+local LIVING = AnimationConfig.living
 local TAU = 2 * math.pi
 local rad = math.rad
 
@@ -132,6 +137,16 @@ export type UnitView = {
 	puffed: boolean, -- the death puff has been shown
 	selected: boolean,
 	phase: number, -- 0-1 offset so neighbors do not idle in step
+	rate: number, -- this unit's idle tempo (AnimationConfig.living.rateSpread)
+	seed: number, -- offsets its weight shifts and glances
+	calm: number, -- 0-1: how much of the living idle shows (fades out while the unit acts)
+	landStart: number?, -- landing at the end of a walk or dash (AnimationConfig.living.land)
+	landDash: boolean,
+	landSide: number, -- the leg the weight lands on (alternates)
+	hitSide: number, -- the side the head tips on a hit (alternates)
+	benched: boolean, -- on the bench (AnimationConfig.motionQuality `benchDetail`)
+	mustPlace: boolean, -- pose the figure next update even off screen (new or redrawn)
+	placedAt: Vector3?, -- the body's center at the last posing
 	floaters: { Floater },
 	floaterCount: number,
 	shownColor: Color3?, -- body tint now shown (nil: the body color)
@@ -165,6 +180,7 @@ export type Options = {
 	starPips: boolean?, -- show star pips (default true; creeps, bosses and summons pass false)
 	clock: (() -> number)?, -- time source for every animation (default os.clock)
 	items: { string }?, -- equipped item ids: a row of item icons over the health bar
+	benched: boolean?, -- a bench unit (low effect quality gives it a plain idle)
 }
 
 local function partPosition(groundPosition: Vector3, part: Part): Vector3
@@ -440,6 +456,16 @@ function UnitView.new(
 		puffed = false,
 		selected = false,
 		phase = math.random(),
+		rate = 1 + (math.random() * 2 - 1) * AnimationConfig.living.rateSpread,
+		seed = math.random() * 100,
+		calm = 1,
+		landStart = nil,
+		landDash = false,
+		landSide = if math.random() < 0.5 then 1 else -1,
+		hitSide = 1,
+		benched = options.benched == true,
+		mustPlace = true,
+		placedAt = nil,
 		floaters = {},
 		floaterCount = 0,
 		shownColor = nil,
@@ -526,6 +552,7 @@ local function redraw(view: UnitView, figureLook: any, scale: number): boolean
 	view.moveFrom += lift
 	view.moveTo += lift
 	view.figure = Figure.new(figureLook, old.color, view.part.Size.Y, view.part, view.baseTransparency)
+	view.mustPlace = true
 	view.shownTransparency = -1 -- reapply on the next update
 	view.shownColor, view.shownMaterial = nil, nil
 	view.infoBoard.StudsOffset = Vector3.new(0, view.part.Size.Y / 2 + OVERHEAD.aboveHead + view.boardHeight / 2, 0)
@@ -916,6 +943,7 @@ function UnitView.flash(view: UnitView, crit: boolean?, direction: Vector3?, str
 	view.flashUntil = now + config.flashDuration
 	view.flashColor = if crit then config.critFlashColor else config.flashColor
 	view.hitStart = now
+	view.hitSide = -view.hitSide
 	if direction then
 		local flat = Vector3.new(direction.X, 0, direction.Z)
 		if flat.Magnitude > 1e-3 then
@@ -1011,80 +1039,207 @@ local function windupOf(view: UnitView, now: number): number?
 	return (now - start) / (release - start)
 end
 
+-- Whether a point is on screen, or within AnimationConfig.offscreenMargin of it (nil: no).
+local function onScreen(point: Vector3?): boolean
+	local camera = workspace.CurrentCamera
+	if not point or not camera then
+		return point ~= nil
+	end
+	local at = camera:WorldToViewportPoint(point)
+	local size = camera.ViewportSize
+	local margin = AnimationConfig.offscreenMargin
+	return at.Z > 0
+		and at.X > -size.X * margin
+		and at.X < size.X * (1 + margin)
+		and at.Y > -size.Y * margin
+		and at.Y < size.Y * (1 + margin)
+end
+
+-- 0-1 from any number, the same every time (a unit's glance directions).
+local function hash(n: number): number
+	local x = math.sin(n * 12.9898) * 43758.5453
+	return x - math.floor(x)
+end
+
+local function smooth(t: number): number
+	return t * t * (3 - 2 * t)
+end
+
+-- The living idle (AnimationConfig.living), scaled by `calm`: breathing, a weight shift from leg to
+-- leg every few seconds, and the head looking toward the target ahead of the body's turn, or
+-- glancing aside now and then when there is none. Each unit runs at its own tempo and phase.
+local function livingIdle(view: UnitView, now: number, calm: number)
+	local pose = view.pose
+	local rate = view.rate
+	if calm > 0 then
+		local breath = math.sin((now * rate / LIVING.breathPeriod + view.phase * 1.7) * TAU)
+		pose.lean -= rad(LIVING.breathLean) * breath * calm
+		local open = rad(LIVING.breathArms) * (0.5 + 0.5 * breath) * calm
+		pose.leftArmOut = (pose.leftArmOut or 0) + open
+		pose.rightArmOut = (pose.rightArmOut or 0) + open
+		pose.headPitch = (pose.headPitch or 0) + rad(LIVING.breathHead) * breath * calm
+
+		-- The weight moves from one leg (side 1: the right) to the other, then holds.
+		local cycle = now * rate / LIVING.shiftEvery + view.seed
+		local index = math.floor(cycle)
+		local from = if index % 2 == 0 then 1 else -1
+		local side = from * (1 - 2 * smooth(math.clamp((cycle - index) / LIVING.shiftBlend, 0, 1)))
+		pose.shift = (pose.shift or 0) + side * LIVING.shift * calm
+		pose.roll = (pose.roll or 0) - side * rad(LIVING.shiftRoll) * calm
+		pose.headRoll = (pose.headRoll or 0) + side * rad(LIVING.shiftHead) * calm
+	end
+
+	local target = view.faceTarget
+	local toward = if target and UnitView.isAlive(target) then yawToward(target.base - view.base) else nil
+	if toward then
+		-- The eyes lead the turn (not only while calm: the body turns between attacks too).
+		local max = rad(LIVING.lookMax)
+		pose.headYaw = (pose.headYaw or 0) + math.clamp(wrapAngle(toward - view.yaw) * LIVING.lookLead, -max, max)
+	elseif calm > 0 then
+		local cycle = now * rate / LIVING.glanceEvery + view.seed * 3.1
+		local index = math.floor(cycle)
+		local into = (cycle - index) / LIVING.glanceHold
+		if into < 1 then
+			local shape = smooth(math.min(1, math.sin(math.pi * into) * 1.6)) * calm
+			pose.headYaw = (pose.headYaw or 0) + rad(LIVING.glanceYaw) * (hash(index + view.seed) * 2 - 1) * shape
+			pose.headPitch = (pose.headPitch or 0)
+				+ rad(LIVING.glancePitch) * (hash(index * 1.3 + view.seed + 7) - 0.5) * shape
+		end
+	end
+end
+
 -- Works out this frame's pose from the animation state, and returns the body's offset from its
 -- place (studs). Later layers add to earlier ones: idle or walking, then an attack, a cast wind-up
--- or release, a hit, a stun, a victory cheer and the defeat.
-local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
+-- or release, a hit, a stun, a victory cheer and the defeat. `dt` is the frame time; `detail` adds
+-- the living idle (off for bench units at low effect quality).
+local function updatePose(view: UnitView, now: number, moving: boolean, dt: number, detail: boolean): Vector3
 	local pose = view.pose
 	local figure = view.figure
 	local height = figure.height
 	local rest = figure.restArms
-	local idle = math.sin((now / ANIMATION.idlePeriod + view.phase) * TAU)
+	local idle = math.sin((now * view.rate / ANIMATION.idlePeriod + view.phase) * TAU)
 	pose.bob = idle * ANIMATION.idleBob * height
 	pose.lean, pose.fall, pose.stride = 0, 0, 0
 	pose.twist, pose.crouch, pose.tilt = 0, 0, 0
 	pose.leftArmOut, pose.rightArmOut, pose.spin = 0, 0, 0
+	pose.headPitch, pose.headYaw, pose.headRoll = 0, 0, 0
+	pose.shift, pose.roll = 0, 0
 	pose.leftArm = rest[1] + rad(ANIMATION.idleArmSway) * idle
 	pose.rightArm = rest[2] - rad(ANIMATION.idleArmSway) * idle
 	pose.leftLeg, pose.rightLeg = 0, 0
 
+	-- What plays now. The living idle fades out while anything does, and back in after.
+	local style = view.attackStyle
+	local attack = if style then progressOf(view.attackStart, view.attackDuration, now) else nil
+	local windup = windupOf(view, now)
+	local release = progressOf(view.castStart, view.releaseDuration, now)
+	local hit = progressOf(view.hitStart, AnimationConfig.hit.duration, now)
+	local cheer = progressOf(view.cheerStart, AnimationConfig.victory.duration, now)
+	local ultimate = view.ultimate
+	if ultimate and now > ultimate.endAt then
+		view.ultimate = nil
+		ultimate = nil
+	end
+	local inUltimate = ultimate ~= nil and now >= ultimate.startAt
+	local busy = moving
+		or attack ~= nil
+		or windup ~= nil
+		or release ~= nil
+		or hit ~= nil
+		or cheer ~= nil
+		or inUltimate
+		or now < view.stunUntil
+		or view.dyingSince ~= nil
+	local goal = if busy then 0 else 1
+	view.calm += math.clamp(goal - view.calm, -dt * LIVING.calmRate, dt * LIVING.calmRate)
+	if detail then
+		livingIdle(view, now, view.calm)
+	end
+
 	if moving then
-		local step = math.sin((now / ANIMATION.walkCycle + view.phase) * TAU)
+		-- Heel to toe: lowest at each heel strike (with a quick dip just after it), highest as the
+		-- legs pass. The arms counter-swing a little behind the legs, the shoulders counter-twist, the
+		-- hips sway over the stance leg and the body leans into the direction; the head stays level.
+		local walk = LIVING.walk
+		local theta = (now / ANIMATION.walkCycle + view.phase) * TAU
+		local step = math.sin(theta)
 		local legSwing = rad(ANIMATION.walkLegSwing) * step
-		local armSwing = rad(ANIMATION.walkArmSwing) * step
+		local armSwing = rad(ANIMATION.walkArmSwing) * math.sin(theta - walk.armLag)
 		pose.leftLeg, pose.rightLeg = legSwing, -legSwing
 		pose.leftArm, pose.rightArm = rest[1] - armSwing, rest[2] + armSwing
-		pose.bob = math.abs(step) * ANIMATION.walkBob * height
+		local passing = 0.5 + 0.5 * math.cos(2 * theta)
+		local landing = math.max(0, math.sin(2 * theta - math.pi))
+		pose.bob = (ANIMATION.walkBob * passing - walk.heelDip * landing) * height
 		pose.stride = rad(ANIMATION.horseLegSwing) * step
+		pose.twist = (pose.twist or 0) + rad(walk.twist) * step
+		pose.shift = (pose.shift or 0) + walk.shift * math.cos(theta)
+		pose.roll = (pose.roll or 0) + rad(walk.roll) * math.cos(theta)
+		local lean
+		if view.moveIsDash then
+			-- A dash leans hard at the start and straightens as it slows.
+			lean = walk.dashLean * (1 - math.clamp((now - view.moveStart) / view.moveDuration, 0, 1))
+		else
+			local speed = (view.moveTo - view.moveFrom).Magnitude / math.max(view.moveDuration, 1e-3)
+			lean = math.min(walk.maxLean, walk.lean * speed / walk.leanSpeed)
+		end
+		pose.lean += rad(lean)
+		pose.headPitch = (pose.headPitch or 0) - rad(lean) * walk.headSteady
+	end
+
+	-- Landing at the end of a walk or dash: the hips drop onto one leg, rise just past rest, settle.
+	local land = progressOf(view.landStart, LIVING.land.duration, now)
+	if land then
+		local config = LIVING.land
+		local depth = if view.landDash then config.dashDepth else config.depth
+		local drop = if land < config.dropAt
+			then 1 - (1 - land / config.dropAt) ^ 2
+			else UnitMotion.settle((land - config.dropAt) / (1 - config.dropAt))
+		pose.crouch = (pose.crouch or 0) + depth * math.max(drop, 0)
+		local over = math.max(-drop, 0) / math.max(AnimationConfig.overlap.settle, 1e-3)
+		pose.bob += over * config.lift * height
+		pose.shift = (pose.shift or 0) + view.landSide * config.shift * math.max(drop, 0)
+		pose.headPitch = (pose.headPitch or 0)
+			+ rad(config.headNod) * math.sin(math.pi * math.clamp((land - 0.1) / 0.6, 0, 1))
 	end
 
 	local size = UnitView.sizeFactor(view)
 	local offset = Vector3.zero
-	local style = view.attackStyle
-	local attack = if style then progressOf(view.attackStart, view.attackDuration, now) else nil
 	if style and attack then
 		local lunge = UnitMotion.attack(pose, style, attack, view.attackArm)
 		offset += view.lungeDirection * (lunge * size)
 	end
 
-	local windup = windupOf(view, now)
 	local punch = view.castStyle == "punch"
 	if windup and punch then
 		UnitMotion.punchWindup(pose, windup, now)
 	elseif windup then
 		UnitMotion.castWindup(pose, windup)
-	else
-		local release = progressOf(view.castStart, view.releaseDuration, now)
-		if release and punch then
-			offset += view.lungeDirection * (UnitMotion.punchRelease(pose, release) * size)
-		elseif release then
-			UnitMotion.castRelease(pose, release)
-		end
+	elseif release and punch then
+		offset += view.lungeDirection * (UnitMotion.punchRelease(pose, release) * size)
+	elseif release then
+		UnitMotion.castRelease(pose, release)
 	end
-	-- An ultimate's pose keys, eased in at the start and out at the end.
-	local ultimate = view.ultimate
-	local inUltimate = false
-	if ultimate then
-		if now > ultimate.endAt then
-			view.ultimate = nil
-		elseif now >= ultimate.startAt then
-			inUltimate = true
-			local t = if now < ultimate.releaseAt
-				then (now - ultimate.releaseAt) / math.max(ultimate.k, 1e-3)
-				else now - ultimate.releaseAt
-			local w = math.min(1, (now - ultimate.startAt) / 0.12, (ultimate.endAt - now) / 0.2)
-			local lunge, rise = UnitMotion.ultimatePose(pose, ultimate.track, t, math.max(w, 0), figure.restArms, now)
-			offset += CFrame.Angles(0, view.yaw, 0).LookVector * (lunge * size) + Vector3.new(0, rise * size, 0)
+	-- An ultimate's pose keys, eased in at the start; at the end they settle out with a small
+	-- overshoot (AnimationConfig.overlap.ultimateSettle).
+	if ultimate and inUltimate then
+		local t = if now < ultimate.releaseAt
+			then (now - ultimate.releaseAt) / math.max(ultimate.k, 1e-3)
+			else now - ultimate.releaseAt
+		local w = math.min(1, (now - ultimate.startAt) / 0.12)
+		local tail = AnimationConfig.overlap.ultimateSettle
+		local left = ultimate.endAt - now
+		if left < tail then
+			w *= UnitMotion.settle(1 - left / tail)
 		end
+		local lunge, rise = UnitMotion.ultimatePose(pose, ultimate.track, t, w, figure.restArms, now)
+		offset += CFrame.Angles(0, view.yaw, 0).LookVector * (lunge * size) + Vector3.new(0, rise * size, 0)
 	end
 
 	-- A quick-draw weapon (LookKit `drawn`) is out for every attack, cast and ultimate, put away after.
-	local releasing = progressOf(view.castStart, view.releaseDuration, now) ~= nil
-	Figure.setDrawn(figure, attack ~= nil or windup ~= nil or releasing or inUltimate)
+	Figure.setDrawn(figure, attack ~= nil or windup ~= nil or release ~= nil or inUltimate)
 
-	local hit = progressOf(view.hitStart, AnimationConfig.hit.duration, now)
 	if hit then
-		local knock = UnitMotion.hit(pose, hit)
+		local knock = UnitMotion.hit(pose, hit, view.hitSide)
 		offset += view.knockDirection * (view.knockStrength * knock * size)
 	end
 
@@ -1092,7 +1247,6 @@ local function updatePose(view: UnitView, now: number, moving: boolean): Vector3
 		UnitMotion.stunned(pose, now, view.phase)
 	end
 
-	local cheer = progressOf(view.cheerStart, AnimationConfig.victory.duration, now)
 	if cheer and not view.dyingSince then
 		offset += Vector3.new(0, UnitMotion.victory(pose, cheer) * size, 0)
 	end
@@ -1159,6 +1313,12 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local base = currentBase(view, now)
 	local moving = view.moveDuration > 0 and now < view.moveStart + view.moveDuration
 	if view.moveDuration > 0 and not moving then
+		-- Arrived: the landing (AnimationConfig.living.land), on the other leg than the last one.
+		if not view.dyingSince then
+			view.landStart = view.moveStart + view.moveDuration
+			view.landDash = view.moveIsDash
+			view.landSide = -view.landSide
+		end
 		view.moveDuration = 0
 	end
 	view.base = base
@@ -1190,9 +1350,18 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 		view.shownTransparency = transparency
 	end
 
+	-- What the effect quality keeps of the motion (AnimationConfig.motionQuality): bench units may
+	-- get a plain idle, and loose parts may hang rigid.
+	local quality = AnimationConfig.motionQuality[ImpactEffects.quality()] or AnimationConfig.motionQuality.high
+	local detail = quality.benchDetail or not view.benched
+	local swinging = quality.secondary and detail
+	if view.figure.swingOn ~= swinging then
+		Figure.setSwinging(view.figure, swinging)
+	end
+
 	-- Hit-stop holds the pose (and its offset) where it was; the one hit jitters.
 	local held = now < view.stopUntil
-	local offset = updatePose(view, if held then view.stopAt else now, moving)
+	local offset = updatePose(view, if held then view.stopAt else now, moving, dt, detail)
 	if held and view.stopShake then
 		local jitter = AnimationConfig.hitStop.jitter * UnitView.sizeFactor(view)
 		offset += Vector3.new((math.random() - 0.5) * 2 * jitter, 0, (math.random() - 0.5) * 2 * jitter)
@@ -1201,7 +1370,15 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local rotation = CFrame.Angles(0, view.yaw, 0)
 	local hitboxCFrame = CFrame.new(center) * rotation
 	local root = CFrame.new(center - Vector3.new(0, part.Size.Y / 2, 0)) * rotation
-	Figure.place(view.figure, hitboxCFrame, root, view.pose)
+	-- Off screen (where the quality allows skipping it) only the click box moves; the figure is posed
+	-- again once the unit, or where it was last posed, is back in view.
+	if view.mustPlace or dt <= 0 or not quality.skipOffscreen or onScreen(center) or onScreen(view.placedAt) then
+		Figure.place(view.figure, hitboxCFrame, root, view.pose, dt)
+		view.mustPlace = false
+		view.placedAt = center
+	else
+		part.CFrame = hitboxCFrame
+	end
 	if view.bubble and view.bubble.Transparency < 1 then
 		local size = part.Size
 		local scale = 1

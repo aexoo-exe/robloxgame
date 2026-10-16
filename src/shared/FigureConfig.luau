@@ -258,7 +258,9 @@ return table.freeze({
 	}),
 
 	-- Idle, walking and riding animations. Durations are in seconds; none of them change fight
-	-- timing. Combat motion (attacks, hits, casts, stuns, deaths, victory) is in AnimationConfig.
+	-- timing. Combat motion (attacks, hits, casts, stuns, deaths, victory) is in AnimationConfig, and
+	-- so are the layers on top of these cycles (AnimationConfig.living: breathing, weight shifts,
+	-- looking, heel-to-toe walking, landings; AnimationConfig.secondary: swinging loose parts).
 	animation = table.freeze({
 		idlePeriod = 2.4,
 		idleBob = 0.012, -- fraction of height

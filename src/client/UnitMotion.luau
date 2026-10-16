@@ -16,6 +16,7 @@ export type Style = typeof(AnimationConfig.styles.blade)
 
 local rad = math.rad
 local STYLES = AnimationConfig.styles
+local OVERLAP = AnimationConfig.overlap
 
 local function lerp(a: number, b: number, t: number): number
 	return a + (b - a) * t
@@ -30,9 +31,29 @@ local function smooth(t: number): number
 	return t * t * (3 - 2 * t)
 end
 
+-- A recovery curve from 1 at `u` = 0 to 0 at 1: back to rest by AnimationConfig.overlap.settleAt,
+-- then a small overshoot past rest (`settle`) that eases back in. Smooth throughout.
+function UnitMotion.settle(u: number): number
+	u = math.clamp(u, 0, 1)
+	local at = OVERLAP.settleAt
+	local back = 1 - smooth(math.min(1, u / at))
+	if u > at then
+		local wave = math.sin(math.pi * (u - at) / (1 - at))
+		back -= OVERLAP.settle * wave * wave
+	end
+	return back
+end
+
+-- `progress` moved ahead (`by` > 0) or behind (`by` < 0) by up to `by`, easing to no offset at the
+-- start and the end, so a leading or trailing part starts and settles at its own moment without a
+-- jump (overlapping action).
+local function offsetProgress(progress: number, by: number): number
+	return math.clamp(progress + by * math.sin(math.pi * progress), 0, 1)
+end
+
 -- A channel's value at `progress` (0-1) through a motion: from rest, eased out into the wind-up key,
--- accelerating into the strike key, eased out into the follow-through key, then smoothly back to
--- rest (AnimationConfig.styles).
+-- snapping into the strike key (AnimationConfig.overlap.snapPower), eased out into the
+-- follow-through key, then back to rest with a small overshoot that settles (UnitMotion.settle).
 function UnitMotion.keyed(progress: number, timing, keys: { number }?): number
 	if not keys then
 		return 0
@@ -41,11 +62,11 @@ function UnitMotion.keyed(progress: number, timing, keys: { number }?): number
 	if progress < a then
 		return keys[1] * easeOut(progress / a)
 	elseif progress < s then
-		return lerp(keys[1], keys[2], easeIn((progress - a) / (s - a)))
+		return lerp(keys[1], keys[2], ((progress - a) / (s - a)) ^ OVERLAP.snapPower)
 	elseif progress < f then
 		return lerp(keys[2], keys[3], easeOut((progress - s) / (f - s)))
 	end
-	return keys[3] * (1 - smooth(math.clamp((progress - f) / (1 - f), 0, 1)))
+	return keys[3] * UnitMotion.settle((progress - f) / (1 - f))
 end
 
 function UnitMotion.style(name: string): Style
@@ -114,37 +135,77 @@ end
 
 -- Adds an attack at `progress` (0-1) to `pose`. `arm` is the attacking arm (1 left, 2 right).
 -- Returns how far the body moves toward the target, in studs at normal size.
+-- The attacking arm runs on the style's timing (the strike lands at `timing.strike`); the body
+-- leads it, the off arm and the head trail it (AnimationConfig.overlap). The arm swings on an arc
+-- (`armOut`), and the weight rocks back, then drops and shifts onto the planted leg (the one
+-- opposite the attacking arm) with the legs split.
 function UnitMotion.attack(pose, style: Style, progress: number, arm: number): number
 	local timing = style.timing
+	local body = offsetProgress(progress, OVERLAP.bodyLead)
+	local trailing = offsetProgress(progress, -OVERLAP.offArmLag)
+	local head = offsetProgress(progress, -OVERLAP.headLag)
 	local main = rad(UnitMotion.keyed(progress, timing, style.arm))
-	local off = if style.bothArms then main else rad(UnitMotion.keyed(progress, timing, style.offArm))
+	local off = if style.bothArms then main else rad(UnitMotion.keyed(trailing, timing, style.offArm))
+	local mainOut = rad(UnitMotion.keyed(progress, timing, style.armOut))
+	local offOut = if style.bothArms then mainOut else rad(UnitMotion.keyed(trailing, timing, style.offArmOut))
 	if arm == 1 then
 		pose.leftArm += main
 		pose.rightArm += off
+		pose.leftArmOut = (pose.leftArmOut or 0) + mainOut
+		pose.rightArmOut = (pose.rightArmOut or 0) + offOut
 	else
 		pose.rightArm += main
 		pose.leftArm += off
+		pose.rightArmOut = (pose.rightArmOut or 0) + mainOut
+		pose.leftArmOut = (pose.leftArmOut or 0) + offOut
 	end
-	pose.lean += rad(UnitMotion.keyed(progress, timing, style.lean))
+	local lean = UnitMotion.keyed(body, timing, style.lean)
+	pose.lean += rad(lean)
 	-- Positive twist brings the right shoulder forward; a left-hand attack mirrors it.
-	local twist = rad(UnitMotion.keyed(progress, timing, style.twist))
-	pose.twist = (pose.twist or 0) + (if arm == 1 then -twist else twist)
-	pose.crouch = (pose.crouch or 0) + UnitMotion.keyed(progress, timing, style.crouch)
-	return UnitMotion.keyed(progress, timing, style.lunge)
+	local side = if arm == 1 then -1 else 1
+	local twist = rad(UnitMotion.keyed(body, timing, style.twist)) * side
+	pose.twist = (pose.twist or 0) + twist
+	pose.crouch = (pose.crouch or 0) + UnitMotion.keyed(body, timing, style.crouch)
+
+	-- Weight: onto the planted leg (opposite the attacking arm), the front leg forward and the back
+	-- leg back, the upper body rolling over it.
+	local weight = UnitMotion.keyed(body, timing, (style :: any).weight or OVERLAP.weight)
+	pose.shift = (pose.shift or 0) - side * OVERLAP.strikeShift * weight
+	pose.roll = (pose.roll or 0) - side * rad(OVERLAP.strikeRoll) * weight
+	local stance = rad(OVERLAP.strikeStance) * math.max(0, weight)
+	if arm == 1 then
+		pose.rightLeg += stance
+		pose.leftLeg -= stance * OVERLAP.backLegShare
+	else
+		pose.leftLeg += stance
+		pose.rightLeg -= stance * OVERLAP.backLegShare
+	end
+
+	-- The head: turned against the twist to keep the eyes on the target, and a beat behind the body
+	-- (it trails the lean and the twist, then catches up).
+	local headLean = UnitMotion.keyed(head, timing, style.lean)
+	local headTwist = rad(UnitMotion.keyed(head, timing, style.twist)) * side
+	pose.headPitch = (pose.headPitch or 0) + rad(headLean - lean)
+	pose.headYaw = (pose.headYaw or 0) - twist * OVERLAP.headCounter + (headTwist - twist)
+	return UnitMotion.keyed(body, timing, style.lunge)
 end
 
--- Getting hit at `progress` (0-1): the squash and lean back. Returns the knock-back share (snaps to
--- 1 just after the hit, eases back to 0).
-function UnitMotion.hit(pose, progress: number): number
+-- Getting hit at `progress` (0-1): the head snaps back first, then the body squashes and leans
+-- back (AnimationConfig.hit). `side` (1 or -1) tips the head to one side. Returns the knock-back
+-- share (snaps to 1 just after the hit, eases back to 0).
+function UnitMotion.hit(pose, progress: number, side: number?): number
 	local config = AnimationConfig.hit
-	local snap = math.min(1, progress * 8) -- reaches full squash almost at once
 	local recover = 1 - smooth(progress)
-	local amount = snap * recover
-	pose.crouch = (pose.crouch or 0) + config.squash * amount
-	pose.lean += rad(config.lean) * amount
-	local flail = rad(config.armFlail) * amount
+	local amount = math.min(1, progress * 8) * recover -- the knock: full almost at once
+	local body = math.min(1, math.max(0, progress - config.bodyDelay) * 8) * recover
+	pose.crouch = (pose.crouch or 0) + config.squash * body
+	pose.lean += rad(config.lean) * body
+	local flail = rad(config.armFlail) * body
 	pose.leftArm += flail
 	pose.rightArm += flail
+	local snap = math.min(1, progress * config.headSnap) * UnitMotion.settle(progress)
+	pose.headPitch = (pose.headPitch or 0) + rad(config.headLean) * snap
+	pose.headRoll = (pose.headRoll or 0) + rad(config.headRoll) * (side or 1) * snap
 	return amount
 end
 
@@ -160,10 +221,10 @@ function UnitMotion.castWindup(pose, progress: number)
 end
 
 -- The release after a cast, `progress` 0-1: arms thrust up, the body springs up and forward, then
--- settles back to rest.
+-- settles back to rest (the arms dip just past it first: UnitMotion.settle).
 function UnitMotion.castRelease(pose, progress: number)
 	local config = AnimationConfig.cast
-	local hold = if progress < 0.25 then 1 else 1 - smooth((progress - 0.25) / 0.75)
+	local hold = if progress < 0.25 then 1 else UnitMotion.settle((progress - 0.25) / 0.75)
 	local up = rad(config.releaseArms)
 	pose.leftArm += (up - pose.leftArm) * hold
 	pose.rightArm += (up - pose.rightArm) * hold
@@ -193,7 +254,7 @@ function UnitMotion.punchRelease(pose, progress: number): number
 	local snap = math.min(1, progress / config.snap)
 	local out = if progress < config.hold
 		then easeOut(snap)
-		else 1 - smooth((progress - config.hold) / (1 - config.hold))
+		else UnitMotion.settle((progress - config.hold) / (1 - config.hold))
 	pose.rightArm += rad(config.releaseArm) * out
 	pose.leftArm += rad(config.releaseOffArm) * out
 	pose.twist = (pose.twist or 0) + rad(config.releaseTwist) * out
@@ -215,6 +276,7 @@ end
 --   crouch                     hips dropped, a fraction of leg length
 --   tremble                    degrees of a fast sideways shiver (held tension)
 --   lunge, rise                studs (normal size) forward along the facing, and up
+--   headPitch, headYaw, headRoll  degrees, the head on the neck (pitch positive: a nod forward)
 -- A track holds the figure calm (no idle bob) while it plays.
 
 local EASES: { [string]: (number) -> number } = {
@@ -258,8 +320,20 @@ function UnitMotion.keyValue(keys: { any }, t: number): number
 	return keys[#keys][2]
 end
 
-local DEGREE_CHANNELS =
-	{ "leftArmOut", "rightArmOut", "lean", "twist", "tilt", "fall", "leftLeg", "rightLeg", "spin" }
+local DEGREE_CHANNELS = {
+	"leftArmOut",
+	"rightArmOut",
+	"lean",
+	"twist",
+	"tilt",
+	"fall",
+	"leftLeg",
+	"rightLeg",
+	"spin",
+	"headPitch",
+	"headYaw",
+	"headRoll",
+}
 
 -- Applies `track` at design time `t` with weight `w` (0-1) onto `pose`; `rest` is the figure's
 -- resting arm angles (radians). Returns the step forward and the rise, studs at normal size.
