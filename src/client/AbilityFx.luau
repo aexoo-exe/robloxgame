@@ -20,6 +20,8 @@
 -- Each is drawn in the unit's element (AbilityFxConfig.elements: beam, strike, particles, ground
 -- mark) and colors (AbilityFxConfig.units). A unit with a signature (AbilitySignatures) draws its
 -- own wind-up, release and strikes. Presentation only: it reads events and never changes them.
+-- Everything a unit's event draws runs inside Vfx.within with that unit's id, element and color,
+-- so its textures take the unit's and element's variants (VfxConfig).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -35,6 +37,7 @@ local CombatFx = require(script.Parent.CombatFx)
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local UnitView = require(script.Parent.UnitView)
+local Vfx = require(script.Parent.Vfx)
 
 local AbilityFx = {}
 
@@ -135,7 +138,19 @@ local function strikeAt(style: Style, source: UnitView.UnitView?, target: UnitVi
 	local facing = if source then flat(target.part.Position - source.part.Position) else Vector3.zAxis
 	local kind = def.strike
 	if kind == "bolt" then
-		FxKit.beam(at + Vector3.new(0.6, 8, 0.4), at, style.primary, 0.5 * scale, 0.25, "jagged")
+		-- The picked bolt sprite striking down (VfxConfig.uses `bolt`), else a jagged beam.
+		local bolt = FxKit.textured("bolt", style.primary, "billboard")
+		local sky = at + Vector3.new(0.6, 8, 0.4)
+		if bolt then
+			ImpactEffects.shape("Block", style.primary, 0.25, function(part, progress)
+				part.Size = Vector3.one * 8.5 * scale
+				part.CFrame = CFrame.new((sky + at) / 2)
+				local flicker = if math.floor(progress * 10) % 2 == 0 then 0 else 0.35
+				part.Transparency = math.min(1, progress ^ 2 + flicker * (1 - progress))
+			end, nil, nil, bolt)
+		else
+			FxKit.beam(sky, at, style.primary, 0.5 * scale, 0.25, "jagged")
+		end
 		ImpactEffects.ball(at, style.secondary, size * 0.8, 0.12)
 		particles(style, at, 10, scale)
 	elseif kind == "flame" then
@@ -185,6 +200,15 @@ local function strikeAt(style: Style, source: UnitView.UnitView?, target: UnitVi
 		particles(style, at, 8, scale)
 	elseif kind == "explode" then
 		ImpactEffects.ball(at, style.primary, size * 1.2, 0.2)
+		-- The blast itself: the picked explosion flipbook (VfxConfig.uses `explosion`).
+		ImpactEffects.burst("explosion", at, nil, {
+			color = style.primary,
+			color2 = style.secondary,
+			count = 1,
+			size = size * 1.6,
+			speed = { 0, 0 },
+			lifetime = { 0.5, 0.5 },
+		})
 		ImpactEffects.burst("flame", at, nil, {
 			color = style.primary,
 			color2 = style.secondary,
@@ -341,9 +365,18 @@ local function scaleOf(view: UnitView.UnitView?): number
 	return if view then UnitView.effectScale(view) else 1
 end
 
+-- The texture context of unit `unitIndex`: its id, element and color (Vfx.within).
+local function vfxContext(self: Fight, unitIndex: number?): Vfx.Context?
+	if not unitIndex then
+		return nil
+	end
+	local style = self.context.styleOf(unitIndex)
+	return { unit = self.context.unitTypeOf(unitIndex), element = style.element, color = style.primary }
+end
+
 -- The cast wind-up of unit `unitIndex` (its view `view`) from `startAt` to `releaseAt`, for the
 -- Cast event at `castIndex` in the fight's events. A unit with an ultimate plays it (Cinematic).
-function Fight.windup(
+local function windup(
 	self: Fight,
 	unitIndex: number,
 	view: UnitView.UnitView,
@@ -365,8 +398,19 @@ function Fight.windup(
 	CombatFx.castWindup(view, startAt, releaseAt, style.primary)
 end
 
+function Fight.windup(
+	self: Fight,
+	unitIndex: number,
+	view: UnitView.UnitView,
+	startAt: number,
+	releaseAt: number,
+	castIndex: number?
+)
+	Vfx.within(vfxContext(self, unitIndex), windup, self, unitIndex, view, startAt, releaseAt, castIndex)
+end
+
 -- The moment of a cast (or a follow-up) by `unitIndex`.
-function Fight.release(self: Fight, unitIndex: number, view: UnitView.UnitView)
+local function release(self: Fight, unitIndex: number, view: UnitView.UnitView)
 	if Cinematic.release(unitIndex) then
 		return
 	end
@@ -381,6 +425,10 @@ function Fight.release(self: Fight, unitIndex: number, view: UnitView.UnitView)
 	if style.def.swirl then
 		FxKit.spiral(ground(view), style.primary, 1.4 * scale, view.part.Size.Y * 1.2, 0.5)
 	end
+end
+
+function Fight.release(self: Fight, unitIndex: number, view: UnitView.UnitView)
+	Vfx.within(vfxContext(self, unitIndex), release, self, unitIndex, view)
 end
 
 local function strike(self: Fight, sourceIndex: number, target: UnitView.UnitView)
@@ -423,7 +471,7 @@ end
 -- `fresh` is false for events from a while ago (joined mid-fight): state is still tracked, but
 -- nothing is drawn. Call it before the playback applies the event (so a dash still knows where
 -- the unit starts).
-function Fight.event(self: Fight, _index: number, event, fresh: boolean)
+local function drawEvent(self: Fight, _index: number, event, fresh: boolean)
 	local context = self.context
 	local views = context.views
 	local kind = event.kind
@@ -593,6 +641,10 @@ function Fight.event(self: Fight, _index: number, event, fresh: boolean)
 			FxKit.beam(chest(view), chest(target), style.primary, 0.12, 0.25, "straight")
 		end
 	end
+end
+
+function Fight.event(self: Fight, index: number, event, fresh: boolean)
+	Vfx.within(vfxContext(self, event.unit), drawEvent, self, index, event, fresh)
 end
 
 return AbilityFx

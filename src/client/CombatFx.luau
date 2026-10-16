@@ -2,7 +2,8 @@
 -- numbers, shake, hit-stop), casts (wind-up, release burst, a touch on every target), heals,
 -- shields, stuns, deaths and the victory cheer. CombatPlayback calls these as it plays the
 -- server's events; the dev lineup preview (DevLineup) calls the same ones on demand. Presentation
--- only: it never changes what happens in a fight or when. Every number is in AnimationConfig.
+-- only: it never changes what happens in a fight or when. Every number is in AnimationConfig;
+-- textures come from VfxConfig (ImpactEffects and CombatEffects pick them).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -143,7 +144,15 @@ function CombatFx.hit(target: UnitView.UnitView, source: UnitView.UnitView?, hit
 		spread = IMPACT.spread,
 	})
 	local ball = if hit.crit then IMPACT.critBall elseif hit.ability then IMPACT.abilityBall else IMPACT.ballSize
-	ImpactEffects.ball(point, colors.core, ball * scale, IMPACT.ballDuration)
+	-- Crits flash with their own texture, chosen for the crit color (VfxConfig.uses `critFlash`).
+	ImpactEffects.ball(
+		point,
+		colors.core,
+		ball * scale,
+		IMPACT.ballDuration,
+		if hit.crit then "critFlash" else nil,
+		if hit.crit then AnimationConfig.hit.critFlashColor else nil
+	)
 
 	if hit.ability then
 		local color = hit.abilityColor or COLORS.summon

@@ -6,6 +6,9 @@
 -- runs in fight time, so effects follow the playback speed.
 -- Projectiles are pooled (each part keeps its trail), wait hidden until they launch, and look as
 -- AnimationConfig.projectiles says; trails show at quality levels that allow them (ImpactEffects).
+-- With picked textures (VfxConfig.uses, Vfx) a ball shot glows with an energy sprite around a
+-- smaller neon core (`halo`) and a slash wave flies as a textured blade (`slash`); without them
+-- they stay neon.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -14,18 +17,21 @@ local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local Vfx = require(script.Parent.Vfx)
 
 local CombatEffects = {}
 
 -- Anything with a `part` and a `base` (current body position): a UnitView.
 type Mover = { part: BasePart, base: Vector3 }
 
--- A pooled projectile part with its trail.
+-- A pooled projectile part with its trail, and its texture objects (made on first use).
 type Shot = {
 	part: Part,
 	trail: Trail,
 	top: Attachment,
 	bottom: Attachment,
+	sprite: BillboardGui?, -- a ball's halo
+	blade: { SurfaceGui }?, -- a wave's two faces
 }
 
 type Projectile = {
@@ -41,6 +47,7 @@ type Projectile = {
 	tongue: boolean?,
 	arc: number,
 	size: number,
+	textured: boolean, -- drawn with its texture (sprite or blade)
 }
 
 type Pulse = {
@@ -119,10 +126,74 @@ local function takeShot(color: Color3): Shot
 	return taken
 end
 
+-- Hides a shot's texture objects.
+local function plain(shot: Shot)
+	if shot.sprite then
+		shot.sprite.Enabled = false
+	end
+	for _, face in shot.blade or {} do
+		face.Enabled = false
+	end
+end
+
+local function label(parent: Instance, texture: Vfx.Texture, color: Color3): ImageLabel
+	local image = parent:FindFirstChildOfClass("ImageLabel")
+	if not image then
+		local made = Instance.new("ImageLabel")
+		made.BackgroundTransparency = 1
+		made.Size = UDim2.fromScale(1, 1)
+		made.Parent = parent
+		image = made
+	end
+	local found = image :: ImageLabel
+	found.Image = texture.image
+	found.ImageColor3 = if texture.tint then color else WHITE
+	return found
+end
+
+-- Readies a shot's texture: a halo sprite `across` studs wide, or a blade on its two flat faces.
+-- It shows at launch.
+local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: number)
+	if texture.mode == "billboard" then
+		if not shot.sprite then
+			local sprite = Instance.new("BillboardGui")
+			sprite.LightInfluence = 0
+			sprite.Adornee = shot.part
+			sprite.Parent = shot.part
+			shot.sprite = sprite
+		end
+		local sprite = shot.sprite :: BillboardGui
+		sprite.Size = UDim2.fromScale(across, across)
+		sprite.Brightness = texture.brightness
+		sprite.Enabled = false
+		label(sprite, texture, color).Rotation = math.random() * 360
+	else
+		if not shot.blade then
+			local faces = {}
+			for i, face in { Enum.NormalId.Top, Enum.NormalId.Bottom } do
+				local surface = Instance.new("SurfaceGui")
+				surface.LightInfluence = 0
+				surface.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+				surface.CanvasSize = Vector2.new(256, 256)
+				surface.Face = face
+				surface.Parent = shot.part
+				faces[i] = surface
+			end
+			shot.blade = faces
+		end
+		for _, surface in shot.blade :: { SurfaceGui } do
+			surface.Brightness = texture.brightness
+			surface.Enabled = false
+			label(surface, texture, color)
+		end
+	end
+end
+
 local function releaseShot(shot: Shot)
 	shot.trail.Enabled = false
 	shot.part.Transparency = 1
 	shot.part.Parent = nil
+	plain(shot)
 	table.insert(spareShots, shot)
 end
 
@@ -162,6 +233,19 @@ function CombatEffects.projectile(
 	local flat = not settings.tongue and look.flat == true
 	shot.part.Shape = if settings.tongue or flat then Enum.PartType.Block else Enum.PartType.Ball
 	shot.part.Size = if flat then Vector3.new(size * look.width, size * 0.12, size * 0.35) else Vector3.one * size
+	-- Textures: a ball's halo, a wave's blade (only where the quality level shows rings).
+	local texture = nil
+	if not settings.tongue and ImpactEffects.allows("rings") then
+		local wanted = if flat then Vfx.texture("slash", color, "plane") else Vfx.texture("halo", color, "billboard")
+		if wanted and wanted.mode == (if flat then "plane" else "billboard") then
+			texture = wanted
+			if flat then
+				-- Deep enough for the blade texture to read.
+				shot.part.Size = Vector3.new(size * look.width, size * 0.12, size * look.width * 0.45)
+			end
+			dress(shot, texture, color, size * 3)
+		end
+	end
 	local trailing = not settings.tongue and look.trail ~= nil and ImpactEffects.allows("trails")
 	if trailing and flat then
 		local half = size * look.width / 2
@@ -193,6 +277,7 @@ function CombatEffects.projectile(
 		tongue = settings.tongue,
 		arc = look.arc or 0,
 		size = size,
+		textured = texture ~= nil,
 	})
 end
 
@@ -226,6 +311,22 @@ function CombatEffects.update(now: number)
 			shot.part.Transparency = 0
 			shot.trail:Clear()
 			shot.trail.Enabled = projectile.trailing
+			if projectile.textured then
+				-- A wave is all blade (its neon block hidden); a ball keeps a smaller bright core.
+				if shot.blade then
+					for _, face in shot.blade do
+						face.Enabled = true
+					end
+				end
+				if shot.sprite then
+					shot.sprite.Enabled = true
+				end
+				if shot.part.Shape == Enum.PartType.Block then
+					shot.part.Transparency = 1
+				else
+					shot.part.Size = Vector3.one * projectile.size * 0.6
+				end
+			end
 		end
 		local duration = projectile.arrivesAt - projectile.launchedAt
 		local progress = if duration > 0 then (now - projectile.launchedAt) / duration else 1

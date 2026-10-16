@@ -409,10 +409,45 @@ local function expect(value, kind: string, what: string)
 		table.insert(stubErrors, string.format("%s: %s expected, got %s", what, kind, typeof(value)))
 	end
 end
+
+-- Effect textures: the real Vfx (and VfxResolve, VfxConfig) with every image counting as loaded.
+-- Each texture request is recorded: per dry run (`textureLog`) and over the whole audit (`chosen`).
+local VfxConfig = shared("VfxConfig")
+local VfxResolve = shared("VfxResolve")
+local Vfx = load("src/client/Vfx")
+local textureLog: { { usage: string, key: string? } } = {}
+local chosen: { [string]: boolean } = {} -- pick keys some effect drew with
+local requested: { [string]: boolean } = {} -- usages some effect asked for
+local resolveTexture = Vfx.texture
+Vfx.texture = function(usage, color, mode)
+	local texture = resolveTexture(usage, color, mode)
+	requested[usage] = true
+	if texture then
+		chosen[texture.key] = true
+	end
+	table.insert(textureLog, { usage = usage, key = texture and texture.key })
+	return texture
+end
+-- The usage each particle kind draws with, read from ImpactEffects' KINDS (the stub below stands in
+-- for it, so the real table is read from its source).
+local KIND_USAGE = {}
+do
+	local text = source("ImpactEffects")
+	for kind, body in string.gmatch(text, "\n\t(%a+) = (%b{})") do
+		local usage = string.match(body, 'usage = "(%a+)"')
+		if usage then
+			KIND_USAGE[kind] = usage
+		end
+	end
+end
+
 loaded["src/client/ImpactEffects"] = {
-	shape = function(shape, color, duration, step, delay)
+	shape = function(shape, color, duration, step, delay, _material, texture)
 		expect(color, "Color3", "shape color")
 		expect(duration, "number", "shape duration")
+		if texture ~= nil and type(texture) ~= "table" then
+			table.insert(stubErrors, "shape texture: a Vfx texture or nil expected")
+		end
 		local startAt = recordClock() + (delay or 0)
 		local group = recordGroup
 		table.insert(
@@ -420,21 +455,30 @@ loaded["src/client/ImpactEffects"] = {
 			{ shape = shape, step = step, startAt = startAt, endAt = startAt + duration, group = group }
 		)
 	end,
-	ball = function(position, color, diameter)
+	ball = function(position, color, diameter, _duration, usage, textureColor)
 		expect(position, "Vector3", "ball position")
 		expect(color, "Color3", "ball color")
 		expect(diameter, "number", "ball size")
+		Vfx.texture(usage or "flash", textureColor or color, "particle")
 	end,
 	ring = function(position, color, diameter)
 		expect(position, "Vector3", "ring position")
 		expect(color, "Color3", "ring color")
 		expect(diameter, "number", "ring size")
+		Vfx.texture("ring", color, "plane")
 	end,
 	burst = function(kind, position, _direction, burst)
 		expect(kind, "string", "burst kind")
 		expect(position, "Vector3", "burst position")
 		expect(burst.color, "Color3", "burst color")
+		if KIND_USAGE[kind] then
+			Vfx.texture(KIND_USAGE[kind], burst.color, "particle")
+		end
 	end,
+	later = function(_delay, fn)
+		fn()
+	end,
+	impactFrame = function() end,
 	shake = function(amount)
 		expect(amount, "number", "shake")
 	end,
@@ -657,8 +701,16 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		checkTrack(def.pose)
 	end
 
-	-- A dry run: beats in order, scheduled beats, the release, then every kind of event.
+	-- A dry run: beats in order, scheduled beats, the release, then every kind of event. Each runs
+	-- with the caster's texture context (as Cinematic does), and its texture requests are counted.
 	local maxPeak, total = 0, 0
+	local unitEntry = AbilityFxConfig.units[unitType]
+	local vfxContext = {
+		unit = unitType,
+		element = unitEntry and unitEntry.element or AbilityFxConfig.default,
+		color = unitEntry and unitEntry.primary,
+	}
+	table.clear(textureLog)
 	-- Three times: a cast with every event kind, one with a circle hit and no line, and one in reverse order (units whose
 	-- choreography follows the cast take both branches).
 	for _, castEvents in { FAKE_EVENTS, CIRCLE_EVENTS, REVERSED_EVENTS } do
@@ -836,7 +888,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 				released = true
 				dryClock = 0
 				if def.release then
-					local okRelease, err = pcall(def.release, run)
+					local okRelease, err = pcall(Vfx.within, vfxContext, def.release, run)
 					if not okRelease then
 						fail("release", err)
 					end
@@ -854,7 +906,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 					for _, event in castEvents do
 						local queue = delays[event.kind]
 						dryClock = if queue and #queue > 0 then table.remove(queue, 1) else 0
-						local okEvent, err = pcall(def.event, run, event)
+						local okEvent, err = pcall(Vfx.within, vfxContext, def.event, run, event)
 						if not okEvent then
 							fail("event " .. event.kind, err)
 						end
@@ -864,7 +916,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			else
 				table.remove(pending, 1)
 				dryClock = nextBeat.at
-				local okBeat, err = pcall(nextBeat.run, run)
+				local okBeat, err = pcall(Vfx.within, vfxContext, nextBeat.run, run)
 				if not okBeat then
 					fail(string.format("beat at %.2f", nextBeat.at), err)
 				end
@@ -874,7 +926,8 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		if def.shift then
 			dryClock = 0
 			recordGroup = "shift"
-			local okShift, err = pcall(def.shift, run, { kind = "Form", unit = 1, formIndex = 2, form = "Form" })
+			local okShift, err =
+				pcall(Vfx.within, vfxContext, def.shift, run, { kind = "Form", unit = 1, formIndex = 2, form = "Form" })
 			if not okShift then
 				fail("shift", err)
 			end
@@ -884,7 +937,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			while #pending > 0 do
 				local beat = table.remove(pending, 1)
 				dryClock = beat.at
-				local okBeat, beatErr = pcall(beat.run, run)
+				local okBeat, beatErr = pcall(Vfx.within, vfxContext, beat.run, run)
 				if not okBeat then
 					fail(string.format("shift beat at %.2f", beat.at), beatErr)
 				end
@@ -923,7 +976,17 @@ local function checkUltimate(unitType: string, problems: { string }): string
 		maxPeak = math.max(maxPeak, peak)
 		total += #recorded
 	end
-	return string.format("DONE %d/%d", maxPeak, total)
+	-- Texture requests: how many drew with a picked texture (the rest keep the neon look).
+	local textured = 0
+	for _, request in textureLog do
+		if request.key then
+			textured += 1
+		end
+	end
+	if #textureLog == 0 then
+		table.insert(problems, "ultimate draws nothing through the texture system (VfxConfig)")
+	end
+	return string.format("DONE %d/%d tex %d/%d", maxPeak, total, textured, #textureLog)
 end
 -- Units ----------------------------------------------------------------------------------------------
 
@@ -1128,7 +1191,7 @@ for _, faction in ORDER do
 		end
 
 		local line = string.format(
-			"%-18s ult T%d %-14s %-6s r%d %-14s %-9s wpn %s%s%s",
+			"%-18s ult T%d %-24s %-6s r%d %-14s %-9s wpn %s%s%s",
 			unitType,
 			UltimateConfig.units[unitType] and UltimateConfig.units[unitType].tier or 0,
 			ultimate,
@@ -1155,6 +1218,179 @@ end
 
 for _, stray in strays do
 	print("PROBLEM unknown unit id key: " .. stray)
+	failed += 1
+end
+
+-- Effect textures (VfxConfig) ----------------------------------------------------------------------------
+-- Every usage the effect code names exists; how each resolves by default (a texture, or the neon
+-- fallback and why); each variant names a real pick; what each unit draws differently; and which
+-- picks no effect ever draws with.
+
+print("\n== Effect textures (VfxConfig, VfxPicks generated " .. tostring(shared("VfxPicks").generated) .. ")")
+local vfxFailed = 0
+local function vfxProblem(text: string)
+	print("PROBLEM vfx: " .. text)
+	vfxFailed += 1
+end
+
+local function isPick(key: string): boolean
+	local role, rank = string.match(key, "^(%a+):(%d+)$")
+	for _, pick in (role and VfxConfig.picks[role]) or {} do
+		if pick.rank == tonumber(rank) then
+			return true
+		end
+	end
+	return false
+end
+
+-- Usages named in the effect code.
+local named: { [string]: string } = {}
+for _, file in { "ImpactEffects", "FxKit", "UltimateKit", "CombatEffects", "CombatFx", "AbilityFx", "Cinematic" } do
+	local text = source(file)
+	for _, pattern in
+		{
+			'textured%("(%a+)"',
+			'Vfx%.texture%("(%a+)"',
+			'Vfx%.texture, "(%a+)"',
+			'usage = "(%a+)"',
+			'usage or "(%a+)"',
+			'ballDuration, "(%a+)"',
+		}
+	do
+		for usage in string.gmatch(text, pattern) do
+			named[usage] = named[usage] or file
+		end
+	end
+end
+for usage, file in named do
+	if not VfxConfig.uses[usage] then
+		vfxProblem(file .. " names usage " .. usage .. ", which VfxConfig.uses lacks")
+	end
+end
+
+-- Variants name real picks, units and elements.
+for unitType, roles in VfxConfig.units do
+	if not UnitConfig[unitType] then
+		vfxProblem("units." .. unitType .. ": no such unit")
+	end
+	for role, key in roles do
+		if not isPick(key) then
+			vfxProblem(string.format("units.%s.%s = %q: no such pick", unitType, role, key))
+		end
+	end
+end
+for element, roles in VfxConfig.elements do
+	if not AbilityFxConfig.elements[element] then
+		vfxProblem("elements." .. element .. ": no such element (AbilityFxConfig.elements)")
+	end
+	for role, key in roles do
+		if not isPick(key) then
+			vfxProblem(string.format("elements.%s.%s = %q: no such pick", element, role, key))
+		end
+	end
+end
+
+-- Each usage by default (no unit), and every unit's and color's choice (to find unused picks).
+local usages = {}
+for usage in VfxConfig.uses do
+	table.insert(usages, usage)
+end
+table.sort(usages)
+local function why(trace): string
+	local parts = {}
+	for _, step in trace do
+		table.insert(parts, step.key .. ": " .. step.reason)
+	end
+	return table.concat(parts, "; ")
+end
+print("usage         roles                 default")
+for _, usage in usages do
+	local texture, trace = VfxResolve.resolve(usage, nil)
+	if texture then
+		chosen[texture.key] = true
+	end
+	print(
+		string.format(
+			"%-13s %-21s %s%s",
+			usage,
+			table.concat(VfxConfig.uses[usage].roles, ","),
+			if texture then texture.key .. " (" .. texture.mode .. ")" else "NEON FALLBACK (" .. why(trace) .. ")",
+			if named[usage] then "" else "  [not drawn by any effect]"
+		)
+	)
+end
+local colors = {}
+for _, color in AnimationConfig.factionColors do
+	table.insert(colors, color)
+end
+for _, damage in { "PHYSICAL", "MAGIC", "TRUE" } do
+	table.insert(colors, AnimationConfig.impact[damage].color)
+	table.insert(colors, AnimationConfig.impact[damage].core)
+end
+table.insert(colors, AnimationConfig.hit.critFlashColor)
+for _, usage in usages do
+	for _, color in colors do
+		local texture = VfxResolve.resolve(usage, { color = color })
+		if texture then
+			chosen[texture.key] = true
+		end
+	end
+end
+print("unit variants (where a unit draws differently from the default):")
+local unitIds = {}
+for unitType in UnitConfig do
+	table.insert(unitIds, unitType)
+end
+table.sort(unitIds)
+for _, unitType in unitIds do
+	local entry = AbilityFxConfig.units[unitType]
+	local element = if entry then entry.element else AbilityFxConfig.default
+	local differs = {}
+	for _, usage in usages do
+		local base = VfxResolve.resolve(usage, nil)
+		local seen = {}
+		for _, color in { entry and entry.primary, entry and entry.secondary } do
+			local texture = VfxResolve.resolve(usage, { unit = unitType, element = element, color = color })
+			if texture then
+				chosen[texture.key] = true
+			end
+			local key = if texture then texture.key else "neon"
+			if key ~= (if base then base.key else "neon") and not seen[key] then
+				seen[key] = true
+				table.insert(differs, usage .. "=" .. key)
+			end
+		end
+	end
+	if #differs > 0 then
+		print(string.format("  %-18s %-9s %s", unitType, element, table.concat(differs, " ")))
+	end
+end
+
+-- Picks no effect draws with, and why.
+print("unused picks:")
+local unused = 0
+for _, role in VfxConfig.roles do
+	for _, pick in VfxConfig.picks[role] or {} do
+		local key = role .. ":" .. pick.rank
+		if not chosen[key] then
+			unused += 1
+			local reason
+			if pick.kind == "model" and not pick.textures then
+				reason = "model pack, needs Studio (scripts/studio/export-vfx.luau)"
+			else
+				local traits = VfxConfig.traits[pick.image or 0]
+				reason = if traits and traits.unusable
+					then traits.unusable
+					else "never the first fitting choice (assign it in VfxConfig `units` or `elements`)"
+			end
+			print(string.format("  %-13s %s  %s", key, pick.name or "?", reason))
+		end
+	end
+end
+if unused == 0 then
+	print("  none")
+end
+if vfxFailed > 0 then
 	failed += 1
 end
 table.sort(noFallback)

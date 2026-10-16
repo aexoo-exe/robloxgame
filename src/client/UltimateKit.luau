@@ -3,8 +3,15 @@
 -- composed pieces (an orb, particles drawn in or pushed out, a growing shell, a ground groove,
 -- drifting motes). All of them are pooled ImpactEffects shapes on the effects' clock, so they follow
 -- slow motion and fast-forward and cost nothing once finished. Presentation only.
+-- Textures (VfxConfig.uses, for the caster: Cinematic sets it with Vfx.within): orb halos, shells
+-- and aura spikes are textured sprites, pools soft discs, beam glows soft beams, zaps lightning,
+-- slash flashes textured blades. Without a texture each keeps its neon shape.
 
+local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local Vfx = require(script.Parent.Vfx)
+
+local textured = FxKit.textured
 
 local UltimateKit = {}
 
@@ -29,6 +36,7 @@ end
 
 -- A part that lives from design time `from` to `to` of `run` (compressed before the release like
 -- the rest of the anticipation). `step(part, u)` sets it each frame, `u` 0-1 across the span.
+-- `texture` (Vfx.texture) draws it textured (ImpactEffects.shape).
 function UltimateKit.live(
 	run: any,
 	from: number,
@@ -36,13 +44,14 @@ function UltimateKit.live(
 	shape: string,
 	color: Color3,
 	step: (BasePart, number) -> (),
-	material: Enum.Material?
+	material: Enum.Material?,
+	texture: Vfx.Texture?
 )
 	local now = run:now()
 	local startAt, endAt = run:time(from), run:time(to)
 	local delay = math.max(0, startAt - now)
 	local duration = math.max(0.03, endAt - math.max(startAt, now))
-	ImpactEffects.shape(shape, color, duration, step, delay, material)
+	ImpactEffects.shape(shape, color, duration, step, delay, material, texture)
 end
 
 -- A glowing orb at `where()` from `from` to `to`, `size(u)` studs across, pulsing a little: a
@@ -62,13 +71,15 @@ function UltimateKit.orb(
 		part.CFrame = CFrame.new(where())
 		part.Transparency = if transparency then transparency(u) else 0.05
 	end)
+	-- The halo: the picked energy sprite when there is one (VfxConfig.uses `halo`).
+	local halo = textured("halo", color, "billboard")
 	UltimateKit.live(run, from, to, "Ball", color, function(part, u)
 		local pulse = 1 + 0.15 * math.sin(run:now() * 23 + 1)
-		part.Size = Vector3.one * math.max(0.05, size(u) * 1.9 * pulse)
+		part.Size = Vector3.one * math.max(0.05, size(u) * (if halo then 2.6 else 1.9) * pulse)
 		part.CFrame = CFrame.new(where())
 		local base = if transparency then transparency(u) else 0.05
-		part.Transparency = 0.6 + 0.4 * base
-	end)
+		part.Transparency = (if halo then 0.15 else 0.6) + (if halo then 0.85 else 0.4) * base
+	end, nil, halo)
 end
 
 -- `count` small motes drawn in from `radius` studs around `center()` over the span (each takes
@@ -110,11 +121,14 @@ function UltimateKit.shell(
 	transparency: (number) -> number,
 	material: Enum.Material?
 )
+	-- A plain glowing shell takes the picked shockwave sprite (VfxConfig.uses `shell`); a shell of a
+	-- chosen material (force fields, glass) keeps it.
+	local sprite = if material then nil else textured("shell", color, "billboard")
 	UltimateKit.live(run, from, to, "Ball", color, function(part, u)
 		part.Size = Vector3.one * math.max(0.05, size(u))
 		part.CFrame = CFrame.new(center)
 		part.Transparency = transparency(u)
-	end, material)
+	end, material, sprite)
 end
 
 -- A glowing groove on the ground from `a` to `b` (ground points), `width` studs, held then faded.
@@ -145,12 +159,15 @@ function UltimateKit.pool(
 	transparency: (number) -> number,
 	material: Enum.Material?
 )
-	UltimateKit.live(run, from, to, "Cylinder", color, function(part, u)
-		local d = math.max(0.05, diameter(u))
+	-- A plain pool takes the picked soft disc (VfxConfig.uses `disc`), a little wider for its soft
+	-- edge; a pool of a chosen material keeps it.
+	local soft = if material then nil else textured("disc", color, "plane")
+	UltimateKit.live(run, from, to, if soft then "Block" else "Cylinder", color, function(part, u)
+		local d = math.max(0.05, diameter(u)) * (if soft then 1.25 else 1)
 		part.Size = Vector3.new(0.05, d, d)
 		part.CFrame = CFrame.new(center + Vector3.new(0, 0.05, 0)) * FLAT
 		part.Transparency = transparency(u)
-	end, material or Enum.Material.SmoothPlastic)
+	end, material or Enum.Material.SmoothPlastic, soft)
 end
 
 -- A block set each frame from `u`: its CFrame, size and transparency.
@@ -182,15 +199,20 @@ function UltimateKit.beam(
 	b: () -> Vector3,
 	width: (number) -> number
 )
+	-- The glow layer is the picked soft beam when there is one (VfxConfig.uses `beamGlow`).
+	local soft = textured("beamGlow", glow, "beam")
 	for layer = 1, 2 do
+		local texture = if layer == 2 then soft else nil
 		UltimateKit.live(run, from, to, "Cylinder", if layer == 1 then core else glow, function(part, u)
 			local p, q = a(), b()
 			local length = math.max((q - p).Magnitude, 0.05)
 			local w = math.max(0.05, width(u) * (if layer == 1 then 1 else 2.2))
 			part.Size = Vector3.new(length, w, w)
 			part.CFrame = CFrame.lookAt((p + q) / 2, q) * CFrame.Angles(0, math.pi / 2, 0)
-			part.Transparency = if layer == 1 then 0.05 + 0.9 * UltimateKit.easeIn(u) else 0.55 + 0.45 * u
-		end)
+			part.Transparency = if layer == 1
+				then 0.05 + 0.9 * UltimateKit.easeIn(u)
+				else (if texture then 0.3 else 0.55) + (if texture then 0.7 else 0.45) * u
+		end, nil, texture)
 	end
 end
 
@@ -218,17 +240,22 @@ function UltimateKit.slashes(
 			* CFrame.Angles(0, 0, (math.random() - 0.5) * 1.8)
 		local length = radius * (0.5 + math.random() * 0.6)
 		local color = colors[(i - 1) % #colors + 1]
+		-- A picked slash texture: each cut is a textured blade, deep enough for the texture to read.
+		local blade = textured("slash", color, "plane")
 		ImpactEffects.shape("Block", color, 0.12, function(part, u)
-			part.Size = Vector3.new(length * (0.6 + 0.4 * u), 0.08, 0.08)
+			local long = length * (0.6 + 0.4 * u)
+			part.Size = Vector3.new(long, if blade then long * 0.3 else 0.08, 0.08)
 			part.CFrame = frame
 			part.Transparency = u * 0.9
-		end, start + (i - 1) / count * span)
+		end, start + (i - 1) / count * span, nil, blade)
 	end
 end
 
 -- Spiky aura flames rising around the caster from `from` to `to`: `count` thin spikes at the waist,
 -- each licking up and fading in turn, `height(u)` studs tall.
+-- With a picked aura texture (VfxConfig.uses `aura`) each spike is a textured flame sprite.
 function UltimateKit.aura(run: any, from: number, to: number, color: Color3, count: number, height: (number) -> number)
+	local flame = textured("aura", color, "billboard")
 	for i = 1, count do
 		local angle = (i - 1) / count * 2 * math.pi
 		local phase = (i * 0.37) % 1
@@ -241,7 +268,7 @@ function UltimateKit.aura(run: any, from: number, to: number, color: Color3, cou
 			part.Size = Vector3.new(0.14, math.max(tall, 0.05), 0.14)
 			part.CFrame = CFrame.new(foot + Vector3.new(0, tall / 2, 0)) * CFrame.Angles(0, -angle, 0.12)
 			part.Transparency = 0.25 + 0.6 * flicker
-		end)
+		end, nil, flame)
 	end
 end
 
@@ -289,6 +316,19 @@ function UltimateKit.zap(
 	segments: number?,
 	delay: number?
 )
+	-- A picked lightning texture: one flickering textured bolt (VfxConfig.uses `lightning`).
+	local bolt = textured("lightning", color, "beam")
+	if bolt then
+		local length = math.max((b - a).Magnitude, 0.05)
+		local frame = CFrame.lookAt((a + b) / 2, b)
+		ImpactEffects.shape("Block", color, duration, function(part, u)
+			part.Size = Vector3.new(width, width, length)
+			part.CFrame = frame
+			local flicker = if math.floor(u * 10) % 2 == 0 then 0 else 0.4
+			part.Transparency = math.min(1, u * 0.8 + flicker * (1 - u))
+		end, delay, nil, bolt)
+		return
+	end
 	local count = segments or 3
 	local side = Vector3.new(-(b - a).Z, 0, (b - a).X)
 	side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis

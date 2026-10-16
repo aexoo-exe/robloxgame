@@ -16,6 +16,9 @@
 -- early from the precomputed event list; a short window after a previous cast compresses it);
 -- the release and everything after run at design speed on the cast's real events. Nothing here
 -- changes combat or event timing. Presentation only.
+-- Every beat, release, event and shift runs inside Vfx.within with the caster's id, element and
+-- color, so its effects take the caster's texture variants (VfxConfig). The release of a tier listed
+-- in VfxConfig.impactFrame flashes a full-screen impact frame (not with ReducedEffects).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -23,12 +26,14 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local UltimateConfig = require(Shared:WaitForChild("UltimateConfig"))
+local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
 
 local CameraCues = require(script.Parent.CameraCues)
 local EffectSettings = require(script.Parent.EffectSettings)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local Ultimates = require(script.Parent.Ultimates)
 local UnitView = require(script.Parent.UnitView)
+local Vfx = require(script.Parent.Vfx)
 
 local Cinematic = {}
 
@@ -273,6 +278,16 @@ function Methods.face(self: Run, target: any?)
 	end
 end
 
+-- The caster's texture context (Vfx.within): its id, element and color.
+local function vfxContext(run: Run): Vfx.Context
+	return { unit = run.unitType, element = run.style and run.style.element, color = run.style and run.style.primary }
+end
+
+-- Calls `fn(...)` protected, with the run's texture context.
+local function within(run: Run, fn: (...any) -> ...any, ...: any): (boolean, any)
+	return pcall(Vfx.within, vfxContext(run), fn, ...)
+end
+
 -- Runs a run's due beats; returns false once it has ended.
 local function step(run: Run): boolean
 	local now = run.context.now()
@@ -280,7 +295,7 @@ local function step(run: Run): boolean
 		local beat = run.pending[i]
 		if now >= beat.at then
 			table.remove(run.pending, i)
-			local ok, err = pcall(beat.run, run)
+			local ok, err = within(run, beat.run, run)
 			if not ok then
 				warn("[Cinematic] " .. run.unitType .. ": " .. tostring(err))
 			end
@@ -442,10 +457,22 @@ end
 -- The cast's release: the ultimate's own, if it has one. Returns true when it drew it.
 function Cinematic.release(unitIndex: number): boolean
 	local run = runs[unitIndex]
-	if not run or not run.def.release then
+	if not run then
 		return false
 	end
-	local ok, result = pcall(run.def.release, run)
+	-- The impact frame, once per cast (not again for follow-ups).
+	local frame = VfxConfig.impactFrame
+	if frame.tiers[run.tier] and not run.reduced and not run.memo.impactFrame then
+		run.memo.impactFrame = true
+		local ok, texture = within(run, Vfx.texture, "impactFrame")
+		if ok and texture then
+			ImpactEffects.impactFrame(texture, frame.duration, frame.transparency)
+		end
+	end
+	if not run.def.release then
+		return false
+	end
+	local ok, result = within(run, run.def.release, run)
 	if not ok then
 		warn("[Cinematic] " .. run.unitType .. " release: " .. tostring(result))
 		return false
@@ -460,7 +487,7 @@ function Cinematic.event(event): boolean
 	if not run or not run.def.event then
 		return false
 	end
-	local ok, result = pcall(run.def.event, run, event)
+	local ok, result = within(run, run.def.event, run, event)
 	if not ok then
 		warn("[Cinematic] " .. run.unitType .. " event: " .. tostring(result))
 		return false
@@ -496,7 +523,7 @@ function Cinematic.shift(context: Context, unitIndex: number, unitType: string, 
 		pending = {},
 		memo = {},
 	}, Methods) :: any
-	local ok, result = pcall(def.shift, run, event)
+	local ok, result = within(run, def.shift, run, event)
 	if not ok then
 		warn("[Cinematic] " .. unitType .. " shift: " .. tostring(result))
 		return false
