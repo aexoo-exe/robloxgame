@@ -7,16 +7,19 @@
 -- effect uses, so movement, animations, projectiles and numbers all follow the speed. The server
 -- times the Combat phase with the same schedule. A badge shows the speed while it is above 1x.
 --
--- The event list is known in full when the fight starts, so attacks are anticipated: melee
--- attackers start their lunge early so it peaks as the hit lands, and ranged attackers launch a
--- projectile that arrives as the hit lands. Damage types and area centers come from CastReader,
--- since events do not carry them.
+-- The event list is known in full when the fight starts, so attacks and casts are anticipated:
+-- each attack's motion (AnimationConfig.styles, timed to the unit's actual attack interval) starts
+-- early so a melee strike lands as the hit lands and a ranged shot leaves so its projectile arrives
+-- then, and a cast's wind-up starts before its Cast event so the release comes on it. CombatFx
+-- shows each moment (motion, impacts, numbers, shake, hit-stop). Damage types and area centers
+-- come from CastReader, since events do not carry them.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
 local BoardConfig = require(Shared:WaitForChild("BoardConfig"))
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local Forms = require(Shared:WaitForChild("Forms"))
@@ -27,6 +30,7 @@ local Pve = require(Shared:WaitForChild("Pve"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local SkinConfig = require(Shared:WaitForChild("SkinConfig"))
+local UltimateConfig = require(Shared:WaitForChild("UltimateConfig"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 -- Display name of an ability. Abilities are named by their character's internal id.
@@ -35,11 +39,17 @@ local function abilityName(abilityId: string): string
 	return if skin then skin.ability else abilityId
 end
 
+local AbilityFx = require(script.Parent.AbilityFx)
 local Arena = require(script.Parent.Arena)
+local CameraCues = require(script.Parent.CameraCues)
 local CastReader = require(script.Parent.CastReader)
+local Cinematic = require(script.Parent.Cinematic)
 local CharacterLook = require(script.Parent.CharacterLook)
 local CombatEffects = require(script.Parent.CombatEffects)
+local CombatFx = require(script.Parent.CombatFx)
 local FastForwardBadge = require(script.Parent.FastForwardBadge)
+local ImpactEffects = require(script.Parent.ImpactEffects)
+local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
 
 local CombatPlayback = {}
@@ -62,6 +72,11 @@ local function clear()
 	end
 	FastForwardBadge.setSpeed(1)
 	CombatEffects.setClock(nil)
+	ImpactEffects.setClock(nil)
+	ImpactEffects.clear()
+	CameraCues.setClock(nil)
+	CameraCues.clear()
+	Cinematic.clear()
 	for _, view in views do
 		UnitView.destroy(view)
 	end
@@ -77,9 +92,19 @@ local function clear()
 	CombatEffects.clear()
 end
 
-local function play(playback)
+-- Where a playback is drawn: by default the arena (CombatStarted); the dev preview passes its own
+-- place (CombatPlayback.preview).
+type Placement = {
+	parent: Instance, -- the views' parent
+	offset: Vector3, -- added to every arena cell position
+	clock: (() -> number)?, -- fight time (default: from server time since `startsAt`)
+}
+
+local function play(playback, placement: Placement?)
 	clear()
 	local result = playback.result
+	local parent: Instance = if placement then placement.parent else Arena.folder
+	local shift = if placement then placement.offset else Vector3.zero
 
 	-- Show the local player's side nearest the camera. Spectators see side 1's view.
 	local localSide = if playback.sideUserIds[2] == Players.LocalPlayer.UserId then 2 else 1
@@ -87,11 +112,15 @@ local function play(playback)
 		if localSide == 2 then
 			column, row = HexGrid.rotateHalfTurn(column, row, BoardConfig.columns, BoardConfig.rows * 2)
 		end
-		return Arena.cellPosition(column, row)
+		return Arena.cellPosition(column, row) + shift
 	end
 	-- Fight time: the moment of the fight on screen now, with fast-forward applied. Every view and
 	-- effect of this fight runs on it.
+	local clock = if placement then placement.clock else nil
 	local function fightNow(): number
+		if clock then
+			return clock()
+		end
 		return Playback.fightSeconds(workspace:GetServerTimeNow() - playback.startsAt)
 	end
 	local function fightTimeOf(tick: number): number
@@ -99,6 +128,11 @@ local function play(playback)
 	end
 	local fightEnd = fightTimeOf(result.endTick)
 	CombatEffects.setClock(fightNow)
+	ImpactEffects.setClock(fightNow)
+	-- The fight on screen is the one the local player watches (one playback at a time): its
+	-- ultimates may use camera cues.
+	CameraCues.setClock(fightNow)
+	CameraCues.setWatched(true)
 
 	-- A unit's form data by index (nil for units without forms).
 	local function formOf(unitType: string, formIndex: number?)
@@ -117,7 +151,7 @@ local function play(playback)
 		local look = CharacterLook.of(unit.unitType)
 		local character = UnitConfig[unit.unitType] ~= nil
 		views[unit.index] =
-			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), Arena.folder, {
+			UnitView.new(look.name, unit.starLevel, look.color, toWorld(unit.column, unit.row), parent, {
 				sizeScale = look.scale,
 				look = look.figure,
 				maxHealth = unit.maxHealth,
@@ -159,7 +193,13 @@ local function play(playback)
 			range = Forms.range(stats, form),
 			moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed"),
 			unitType = unit.unitType,
+			formName = if form then form.name else nil,
+			look = CharacterLook.of(unit.unitType).figure,
+			attacksPerSecond = stats.attacksPerSecond,
+			-- The ability style: element and colors (AbilityFxConfig); `color` is its primary.
+			style = AbilityFx.styleOf(unit.unitType, CombatFx.factionColor(unit.unitType)),
 		}
+		info[unit.index].color = info[unit.index].style.primary
 	end
 	for _, event in result.events do
 		if event.kind == "Summon" and info[event.unit] then
@@ -168,9 +208,81 @@ local function play(playback)
 				range = event.range,
 				moveSpeed = event.moveSpeed,
 				summoner = event.unit,
+				look = CharacterLook.summon,
+				color = info[event.unit].color,
+				style = info[event.unit].style,
 			}
 		end
 	end
+
+	-- Timing for the motion (presentation only), read from the event list: each attack's interval to
+	-- the unit's next attack (else its last one, else its attack rate), so its motion fits.
+	local events = result.events
+	local attackInterval: { [number]: number } = {}
+	do
+		local lastAttack: { [number]: number } = {}
+		for i, event in events do
+			if event.kind == "Attack" then
+				local previous = lastAttack[event.unit]
+				if previous then
+					attackInterval[previous] = fightTimeOf(event.tick - events[previous].tick)
+				end
+				lastAttack[event.unit] = i
+			end
+		end
+		local lastGap: { [number]: number } = {}
+		for i, event in events do
+			if event.kind == "Attack" then
+				local gap = attackInterval[i]
+				if gap then
+					lastGap[event.unit] = gap
+				else
+					local rate = info[event.unit] and info[event.unit].attacksPerSecond
+					attackInterval[i] = lastGap[event.unit] or (if rate and rate > 0 then 1 / rate else nil)
+				end
+			end
+		end
+	end
+
+	-- The attack style of a unit now (its range can change with its form).
+	local function styleOf(unitIndex: number): string
+		local unit = info[unitIndex]
+		if not unit then
+			return AnimationConfig.defaultMelee
+		end
+		return UnitMotion.styleFor(unit.unitType, unit.range, unit.look, unit.formName)
+	end
+	local function colorOf(unitIndex: number): Color3
+		return if info[unitIndex] then info[unitIndex].color else AnimationConfig.factionColors.summon
+	end
+	-- Fight time of each unit's last cast, and the last unit to hit each unit (its killer).
+	local lastCastAt: { [number]: number } = {}
+	local lastHitBy: { [number]: number } = {}
+	local function castRecently(unitIndex: number, now: number): boolean
+		local at = lastCastAt[unitIndex]
+		return at ~= nil and now - at <= AnimationConfig.cast.targetWindow
+	end
+
+	-- Ability effects generated from each ability's events, in each unit's element (AbilityFx).
+	local abilityFx = AbilityFx.newFight({
+		views = views,
+		toWorld = toWorld,
+		styleOf = function(unitIndex: number)
+			local unit = info[unitIndex]
+			return if unit and unit.style
+				then unit.style
+				else AbilityFx.styleOf(nil, AnimationConfig.factionColors.summon)
+		end,
+		unitTypeOf = function(unitIndex: number)
+			return if info[unitIndex] then info[unitIndex].unitType else nil
+		end,
+		summonerOf = function(unitIndex: number)
+			return if info[unitIndex] then info[unitIndex].summoner else nil
+		end,
+		now = fightNow,
+		ticksPerSecond = result.ticksPerSecond,
+		events = events,
+	})
 
 	local reading = CastReader.read(result.units, result.events, function(index, name)
 		local unit = unitsByIndex[index]
@@ -216,7 +328,7 @@ local function play(playback)
 		for i = 1, spec.count do
 			local angle = (i - 0.5) / spec.count * 2 * math.pi
 			local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * RenderConfig.hexRadius * 0.9
-			local clone = UnitView.new("clone", 1, view.color, ground + offset, Arena.folder, {
+			local clone = UnitView.new("clone", 1, view.color, ground + offset, parent, {
 				maxHealth = 1,
 				yaw = view.yaw,
 				summon = true,
@@ -240,6 +352,8 @@ local function play(playback)
 	-- Applies one CombatSim event (see the Event list in CombatSim) to the views. `fresh` is false
 	-- for events that happened a while ago, which skip their one-shot effects.
 	local function apply(index: number, event, fresh: boolean)
+		-- Ability effects first: they read where units are before the event moves them.
+		abilityFx:event(index, event, fresh)
 		local view = views[event.unit]
 		local targetView = if event.target then views[event.target] else nil
 		local kind = event.kind
@@ -261,45 +375,72 @@ local function play(playback)
 				UnitView.face(view, targetView)
 			end
 			if targetView then
+				local shieldBroken = targetView.shield > 0 and (event.shield or 0) <= 0
 				UnitView.setHealth(targetView, event.health)
 				UnitView.setShield(targetView, event.shield)
 				UnitView.setMana(targetView, event.targetMana)
 				if event.formHealth then
 					UnitView.setFormHealth(targetView, event.formHealth)
 				end
+				if not event.dot and not event.aura then
+					lastHitBy[event.target] = event.unit
+				end
 				if fresh and event.dot then
-					UnitView.dotNumber(targetView, event.damage, event.damageType)
+					CombatFx.dot(targetView, event.damage, event.damageType)
 				elseif fresh then
-					UnitView.flash(targetView, event.crit)
-					UnitView.damageNumber(targetView, event.damage, reading.damageTypes[index], event.crit)
+					-- Every non-attack hit (not an item's or a form's splash) comes from an ability.
+					local ability = kind == "Damage" and not event.item and not event.splash
+					CombatFx.hit(targetView, view, {
+						damage = event.damage,
+						damageType = reading.damageTypes[index],
+						crit = event.crit,
+						ability = ability,
+						abilityColor = if ability then colorOf(event.unit) else nil,
+						execute = event.execute,
+						shieldBroken = shieldBroken,
+						slam = kind == "Attack" and UnitMotion.style(styleOf(event.unit)).slam == true,
+					})
 				end
 			end
 		elseif kind == "Cast" and view then
 			UnitView.setMana(view, 0)
+			lastCastAt[event.unit] = fightTimeOf(event.tick)
 			if fresh then
-				UnitView.cast(view)
+				abilityFx:release(event.unit, view)
 				if isBoss(event.unit) then
 					UnitView.callout(view, abilityName(event.ability), RenderConfig.bossCastTextColor)
 				end
 				-- Areas the server described pulse with their Area events; only inferred ones here.
 				for _, area in reading.areas[index] or {} do
 					if area.inferred then
-						pulseArea(area)
+						pulseArea(area, colorOf(event.unit))
 					end
 				end
-				spawnClones(view, event.ability)
+				-- An ultimate that draws its own clones replaces the generic ones.
+				local ultimate = Cinematic.running(event.unit)
+				if not (ultimate and ultimate.def.ownClones) then
+					spawnClones(view, event.ability)
+				end
 			end
 		elseif kind == "FollowUp" and view and fresh then
-			UnitView.cast(view)
+			lastCastAt[event.unit] = fightTimeOf(event.tick)
+			abilityFx:release(event.unit, view)
 		elseif kind == "Area" and fresh then
-			pulseArea(reading.areaEvents[index] or CastReader.areaOf(event), nil, event.fromColumn, event.fromRow)
+			-- In the caster's element color (AbilityFx draws the shape's own effect on top).
+			pulseArea(
+				reading.areaEvents[index] or CastReader.areaOf(event),
+				colorOf(event.unit),
+				event.fromColumn,
+				event.fromRow
+			)
 		elseif kind == "Bounce" and fresh and targetView and views[event.from] then
 			local now = fightNow()
 			CombatEffects.projectile(
 				views[event.from],
 				targetView,
 				now + RenderConfig.bounceFlightTime,
-				RenderConfig.bounceColor
+				RenderConfig.bounceColor,
+				{ look = "bounce" }
 			)
 		elseif kind == "Vanish" and view then
 			UnitView.vanish(view, event.duration)
@@ -321,36 +462,51 @@ local function play(playback)
 		then
 			-- Debuffs and new damage over time float their status label.
 			showStatus(targetView, event.status)
+			if kind == "Buff" and castRecently(event.unit, fightTimeOf(event.tick)) then
+				CombatFx.abilityTouch(targetView, colorOf(event.unit))
+			end
+		elseif kind == "Buff" and fresh and targetView and not event.source then
+			-- A buff from a cast touches its target in the caster's color.
+			if castRecently(event.unit, fightTimeOf(event.tick)) then
+				CombatFx.abilityTouch(targetView, colorOf(event.unit))
+			end
 		elseif kind == "Heal" and targetView then
 			UnitView.setHealth(targetView, event.health)
 			if event.formHealth then
 				UnitView.setFormHealth(targetView, event.formHealth)
 			end
 			if fresh then
-				UnitView.healNumber(targetView, event.amount)
+				CombatFx.heal(targetView, event.amount)
 			end
 		elseif kind == "Shield" and targetView then
+			local grew = event.shield > targetView.shield
 			UnitView.setShield(targetView, event.shield)
+			if fresh and grew then
+				CombatFx.shield(targetView)
+			end
 		elseif kind == "ShieldEnd" and view then
 			UnitView.setShield(view, 0)
 		elseif kind == "Stun" and targetView then
-			UnitView.stun(targetView, event.duration)
+			CombatFx.stun(targetView, event.duration, fresh)
+			if fresh and castRecently(event.unit, fightTimeOf(event.tick)) and event.unit ~= event.target then
+				CombatFx.abilityTouch(targetView, colorOf(event.unit))
+			end
 		elseif kind == "MaxHealth" and view then
 			UnitView.setMaxHealth(view, event.maxHealth, event.health)
 		elseif kind == "AreaStun" and fresh then
-			pulseArea({ column = event.column, row = event.row, radius = event.radius }, RenderConfig.areaStunColor)
+			-- The field in the caster's element color; each stunned unit shows the stun halo.
+			pulseArea({ column = event.column, row = event.row, radius = event.radius }, colorOf(event.unit))
 		elseif kind == "Summon" and view then
 			local own = info[event.summon].side == localSide
-			views[event.summon] =
-				UnitView.new("summon", 1, view.color, toWorld(event.column, event.row), Arena.folder, {
-					maxHealth = event.maxHealth,
-					yaw = if own then 0 else math.pi,
-					healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
-					summon = true,
-					look = CharacterLook.summon,
-					starPips = false,
-					clock = fightNow,
-				})
+			views[event.summon] = UnitView.new("summon", 1, view.color, toWorld(event.column, event.row), parent, {
+				maxHealth = event.maxHealth,
+				yaw = if own then 0 else math.pi,
+				healthColor = if own then RenderConfig.healthBarColor else RenderConfig.enemyHealthBarColor,
+				summon = true,
+				look = CharacterLook.summon,
+				starPips = false,
+				clock = fightNow,
+			})
 		elseif (kind == "Pull" or kind == "Knockback") and targetView then
 			-- The pulled or knocked-back unit slides to its new cell, like a dash.
 			UnitView.dashTo(targetView, toWorld(event.column, event.row))
@@ -364,6 +520,7 @@ local function play(playback)
 			local stats = Pve.unitType(unit.unitType)
 			info[event.unit].moveSpeed = Forms.baseStat(stats, form, "MoveSpeed", "moveSpeed")
 			info[event.unit].range = Forms.range(stats, form)
+			info[event.unit].formName = if form then form.name else nil
 			if event.cleansed then
 				UnitView.stun(view, 0)
 			end
@@ -372,48 +529,78 @@ local function play(playback)
 				UnitView.callout(view, if look then look.label else event.form, RenderConfig.formChangeTextColor)
 			end
 		elseif (kind == "Death" or kind == "SummonEnd") and view then
-			-- Deaths and expiring summons fade out.
-			UnitView.kill(view)
+			-- Deaths stagger, crumple and fade; expiring summons just fade.
+			if kind == "Death" then
+				local killer = lastHitBy[event.unit]
+				CombatFx.death(view, if killer then views[killer] else nil)
+			else
+				UnitView.kill(view)
+			end
 			views[event.unit] = nil
 			dying[view] = true
 		end
 	end
 
-	local function isRanged(unitIndex: number): boolean
-		return info[unitIndex] ~= nil and info[unitIndex].range > 1
-	end
-	local function leadTime(unitIndex: number): number
-		return if isRanged(unitIndex) then RenderConfig.projectileFlightTime else RenderConfig.lungeDuration / 2
+	-- The motion of the attack at event `index` (AnimationConfig.styles), timed to the attacker's
+	-- interval to its next attack.
+	local function planOf(index: number): CombatFx.Plan
+		local event = events[index]
+		local unit = info[event.unit]
+		local ranged = unit ~= nil and unit.range > 1
+		return CombatFx.plan(styleOf(event.unit), attackInterval[index], ranged)
 	end
 
-	-- Starts the wind-up of an attack that lands at fight time `landsAt`.
-	local function anticipate(event, landsAt: number, now: number)
+	-- Starts the motion of an attack that lands at fight time `landsAt`.
+	local function anticipate(event, plan: CombatFx.Plan, landsAt: number, quiet: boolean?)
 		local attacker = views[event.unit]
 		local target = views[event.target]
 		if not attacker or not target then
 			return
 		end
-		UnitView.face(attacker, target)
-		local landsIn = landsAt - now
-		if isRanged(event.unit) then
-			local own = info[event.unit].side == localSide
-			local color = if own then RenderConfig.ownProjectileColor else RenderConfig.enemyProjectileColor
-			UnitView.shoot(attacker, target)
-			local tongue = RenderConfig.tongueAttacks[info[event.unit].unitType or ""] == true
-			if tongue then
-				color = RenderConfig.tongueColor
-			end
-			CombatEffects.projectile(attacker, target, now + landsIn, color, UnitView.launchPoint(attacker), tongue)
-		else
-			UnitView.lunge(attacker, target, now + landsIn - RenderConfig.lungeDuration / 2)
-		end
+		local projectiles = AnimationConfig.projectiles
+		local own = info[event.unit].side == localSide
+		local tongue = RenderConfig.tongueAttacks[info[event.unit].unitType or ""] == true
+		local color = if tongue
+			then RenderConfig.tongueColor
+			elseif own then projectiles.ownColor
+			else projectiles.enemyColor
+		CombatFx.attack(attacker, target, landsAt, plan, { color = color, tongue = tongue, noMotion = quiet })
 	end
 
-	local events = result.events
+	-- When the wind-up of the cast at event `index` starts: its wind-up length before it
+	-- (AbilityFx.windupLength: a signature's, else `cast.windup`).
+	-- An ultimate's anticipation (AbilityFx.windupLength) is squeezed (to AbilityFx.minWindup at the
+	-- least) so it starts after the unit's previous cast and a breath of room
+	-- (UltimateConfig.afterPreviousCast); the cast itself is never moved.
+	local previousCastAt: { [number]: number } = {}
+	do
+		local last: { [number]: number } = {}
+		for i, event in events do
+			if event.kind == "Cast" then
+				previousCastAt[i] = last[event.unit]
+				last[event.unit] = fightTimeOf(event.tick)
+			end
+		end
+	end
+	local function windupStartOf(index: number): number
+		local unit = info[events[index].unit]
+		local unitType = if unit then unit.unitType else nil
+		local at = fightTimeOf(events[index].tick)
+		local length = AbilityFx.windupLength(unitType)
+		local previous = previousCastAt[index]
+		if previous then
+			local room = at - previous - UltimateConfig.afterPreviousCast
+			length = math.clamp(room, AbilityFx.minWindup(unitType), length)
+		end
+		return at - length
+	end
+
 	local nextEvent = 1
 	local nextAnticipated = 1
-	local maxLead = math.max(RenderConfig.projectileFlightTime, RenderConfig.lungeDuration / 2)
-	local upcoming = {} -- indexes of attacks inside the lead window, not yet wound up
+	local maxLead = math.max(CombatFx.maxLead(), AbilityFx.maxWindup())
+	-- Attacks and casts inside the lead window, not yet started: { index, startsAt, plan }.
+	local upcoming: { { index: number, startsAt: number, plan: CombatFx.Plan?, quiet: boolean? } } = {}
+	local cheered = false
 	local lastFrame = fightNow()
 
 	-- Every time below is fight time: lead windows, durations and the frame step all scale with
@@ -425,18 +612,38 @@ local function play(playback)
 		FastForwardBadge.setSpeed(if now < fightEnd then Playback.speedAt(now) else 1)
 
 		while nextAnticipated <= #events and fightTimeOf(events[nextAnticipated].tick) - maxLead <= now do
-			if events[nextAnticipated].kind == "Attack" then
-				table.insert(upcoming, nextAnticipated)
+			local index = nextAnticipated
+			local kind = events[index].kind
+			if kind == "Attack" then
+				local plan = planOf(index)
+				local startsAt = fightTimeOf(events[index].tick) - CombatFx.leadTime(plan)
+				table.insert(upcoming, { index = index, startsAt = startsAt, plan = plan })
+			elseif kind == "Cast" then
+				-- Mana fills from attacks, so a cast usually comes right after the unit's last attack:
+				-- the wind-up takes over the motion of that unit's attacks that would overlap it (they
+				-- still land, with their numbers and projectiles).
+				local startsAt = windupStartOf(index)
+				local caster = events[index].unit
+				for _, entry in upcoming do
+					local other = events[entry.index]
+					if entry.plan and other.unit == caster and fightTimeOf(other.tick) > startsAt then
+						entry.quiet = true
+					end
+				end
+				table.insert(upcoming, { index = index, startsAt = startsAt })
 			end
 			nextAnticipated += 1
 		end
 		for i = #upcoming, 1, -1 do
-			local event = events[upcoming[i]]
-			local landsAt = fightTimeOf(event.tick)
-			if now >= landsAt - leadTime(event.unit) then
+			local entry = upcoming[i]
+			if now >= entry.startsAt then
 				table.remove(upcoming, i)
-				if landsAt > now then
-					anticipate(event, landsAt, now)
+				local event = events[entry.index]
+				local at = fightTimeOf(event.tick)
+				if at > now and entry.plan then
+					anticipate(event, entry.plan, at, entry.quiet)
+				elseif at > now and views[event.unit] then
+					abilityFx:windup(event.unit, views[event.unit], entry.startsAt, at, entry.index)
 				end
 			end
 		end
@@ -446,6 +653,20 @@ local function play(playback)
 			local event = events[nextEvent]
 			apply(nextEvent, event, now - fightTimeOf(event.tick) < STALE_SECONDS)
 			nextEvent += 1
+		end
+
+		-- The fight is over: the winning side's survivors cheer (not on a draw).
+		if not cheered and now >= fightEnd then
+			cheered = true
+			if result.winner and now - fightEnd < STALE_SECONDS then
+				local winners = {}
+				for unitIndex, view in views do
+					if info[unitIndex] and info[unitIndex].side == result.winner then
+						table.insert(winners, view)
+					end
+				end
+				CombatFx.victory(winners, fightEnd + AnimationConfig.victory.delay)
+			end
 		end
 
 		-- Survivors keep animating (turning, fading numbers) until the views are cleared.
@@ -469,6 +690,25 @@ local function play(playback)
 		end
 		CombatEffects.update(now)
 	end)
+end
+
+-- Dev preview (DevLineup): plays a fight `result` (CombatSim) the way a real fight plays, drawn at
+-- arena cell positions shifted by `offset` under `parent`, from fight time `from` on (earlier
+-- events apply without their one-shot effects, as for a client joining mid-fight). Side 1 is
+-- nearest the camera. `clock` (optional) gives the fight time instead of server time (the
+-- preview's slow motion and freeze). It replaces any playback in progress; CombatPlayback.stop
+-- ends it.
+function CombatPlayback.preview(result, parent: Instance, offset: Vector3, from: number, clock: (() -> number)?)
+	play({
+		result = result,
+		startsAt = workspace:GetServerTimeNow() - Playback.realSeconds(from),
+		sideUserIds = { Players.LocalPlayer.UserId },
+	}, { parent = parent, offset = offset, clock = clock })
+end
+
+-- Ends any playback and removes its views and effects.
+function CombatPlayback.stop()
+	clear()
 end
 
 function CombatPlayback.start()

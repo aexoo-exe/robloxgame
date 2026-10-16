@@ -28,6 +28,7 @@ end
 -- height. `hands`: the rider's resting hands in the body's space (left, right), for the reins.
 function HorseKit.build(look: any, c: any, h: number, hands: { Vector3 }?): Horse
 	local specs = {}
+	local swing = nil -- the loose set the parts added now belong to (LookKit Spec `swing`)
 	local function add(anchor: string, shape: string, size: Vector3, offset: CFrame, color: Color3, material: string?)
 		table.insert(specs, {
 			anchor = anchor,
@@ -38,6 +39,7 @@ function HorseKit.build(look: any, c: any, h: number, hands: { Vector3 }?): Hors
 			material = material or "SmoothPlastic",
 			tinted = false,
 			transparency = 0,
+			swing = swing,
 		})
 	end
 	local function segment(anchor: string, from: Vector3, to: Vector3, thickness: number, color: Color3)
@@ -67,9 +69,11 @@ function HorseKit.build(look: any, c: any, h: number, hands: { Vector3 }?): Hors
 	add("horse", "Block", V(nw * 0.85, upper, nw * 1.15), upperBase * CF(0, upper / 2, 0), coat)
 	local poll = upperBase * CF(0, upper, 0)
 
-	-- Mane along the crest, with two strands falling to the right.
+	-- Mane along the crest, with two strands falling to the right (they swing together about the
+	-- crest: AnimationConfig.secondary "mane").
 	add("horse", "Block", V(nw * 0.35, lower * 1.05, nw * 0.4), neckBase * CF(0, lower * 0.5, nw * 0.7), look.mane)
 	add("horse", "Block", V(nw * 0.35, upper * 1.05, nw * 0.35), upperBase * CF(0, upper * 0.5, nw * 0.6), look.mane)
+	swing = { group = "mane", pivot = (neckBase * CF(nw * 0.3, lower, nw * 0.5)).Position, facing = 0 }
 	add(
 		"horse",
 		"Block",
@@ -84,6 +88,7 @@ function HorseKit.build(look: any, c: any, h: number, hands: { Vector3 }?): Hors
 		upperBase * CF(nw * 0.42, upper * 0.5, nw * 0.4) * CFrame.Angles(0, 0, rad(-8)),
 		look.mane
 	)
+	swing = nil
 
 	-- The head points forward and down from the poll: skull, muzzle, cheek, nostrils, eyes, ears,
 	-- forelock and an optional blaze.
@@ -114,15 +119,18 @@ function HorseKit.build(look: any, c: any, h: number, hands: { Vector3 }?): Hors
 		add("horse", "Block", V(hw * 0.26, h * 0.008, hl * 0.62), head * CF(0, hw * 0.53, -hl * 0.42), look.blaze)
 	end
 
-	-- A tail in three segments, falling from the croup.
+	-- A tail in three segments, falling from the croup; it swings about its root
+	-- (AnimationConfig.secondary "tail").
 	local tw = c.tailWidth * h
 	local tail = CF(0, bh * 0.38, bl * 0.49) * turnX(-65)
+	swing = { group = "tail", pivot = tail.Position, facing = 1 }
 	for _, piece in { { 0.11, 1.2, 1, 0 }, { 0.13, 1.5, 1.1, 30 }, { 0.13, 1.7, 1, 20 } } do
 		local length = piece[1] * h
 		tail = tail * turnX(piece[4])
 		add("horse", "Block", V(tw * piece[2], length, tw * piece[3]), tail * CF(0, -length / 2, 0), look.mane)
 		tail = tail * CF(0, -length, 0)
 	end
+	swing = nil
 
 	-- Legs: a strong upper leg, a slim lower leg (white if it has a sock) and a hoof.
 	local joints = {}

@@ -4,24 +4,51 @@
 -- with task.delay or TweenService. Presentation only.
 -- Times come from CombatEffects.setClock (os.clock by default); combat playback sets a clock that
 -- runs in fight time, so effects follow the playback speed.
+-- Projectiles are pooled (each part keeps its trail), wait hidden until they launch, and look as
+-- AnimationConfig.projectiles says; trails show at quality levels that allow them (ImpactEffects).
+-- With picked textures (VfxConfig.uses, Vfx) a ball shot glows with an energy sprite around a
+-- smaller neon core (`halo`) and a slash wave flies as a textured blade (`slash`); without them
+-- they stay neon.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
+
+local ImpactEffects = require(script.Parent.ImpactEffects)
+local Vfx = require(script.Parent.Vfx)
 
 local CombatEffects = {}
 
 -- Anything with a `part` and a `base` (current body position): a UnitView.
 type Mover = { part: BasePart, base: Vector3 }
 
-type Projectile = {
+-- A pooled projectile part with its trail, and its texture objects (made on first use).
+type Shot = {
 	part: Part,
+	trail: Trail,
+	top: Attachment,
+	bottom: Attachment,
+	sprite: BillboardGui?, -- a ball's halo
+	glow: ParticleEmitter?, -- a ball's halo from a black-background texture (one additive particle)
+	blade: { SurfaceGui }?, -- a wave's two faces
+}
+
+type Projectile = {
+	shot: Shot,
 	from: Vector3,
+	origin: () -> Vector3, -- where it leaves from, read at launch (a hand, a fingertip)
 	target: Mover,
 	lastTargetPosition: Vector3,
 	launchedAt: number,
 	arrivesAt: number,
+	launched: boolean,
+	trailing: boolean,
 	tongue: boolean?,
+	arc: number,
+	size: number,
+	skin: string?, -- drawn with its texture: "sprite", "glow" or "blade"
 }
 
 type Pulse = {
@@ -33,6 +60,7 @@ type Pulse = {
 local folder: Folder? = nil
 local projectiles: { Projectile } = {}
 local pulses: { Pulse } = {}
+local spareShots: { Shot } = {}
 local clock: () -> number = os.clock
 
 -- Sets the time source for new effects (nil: os.clock).
@@ -45,14 +73,19 @@ local HEX_WIDTH = math.sqrt(3) * (RenderConfig.hexRadius - RenderConfig.cellGap)
 local PULSE_THICKNESS = 0.12
 -- A cylinder's axis is its X axis; this lays it flat.
 local FLAT = CFrame.Angles(0, 0, math.pi / 2)
+local WHITE = Color3.new(1, 1, 1)
 
-local function effectPart(color: Color3): Part
+local function getFolder(): Folder
 	if not folder then
 		local created = Instance.new("Folder")
 		created.Name = "CombatEffects"
 		created.Parent = workspace
 		folder = created
 	end
+	return folder :: Folder
+end
+
+local function effectPart(color: Color3): Part
 	local part = Instance.new("Part")
 	part.Anchored = true
 	part.CanCollide = false
@@ -61,8 +94,135 @@ local function effectPart(color: Color3): Part
 	part.CastShadow = false
 	part.Material = Enum.Material.Neon
 	part.Color = color
-	part.Parent = folder
+	part.Parent = getFolder()
 	return part
+end
+
+-- A projectile part from the pool, hidden, with its trail off and cleared.
+local function takeShot(color: Color3): Shot
+	local shot = table.remove(spareShots)
+	if not shot then
+		local part = effectPart(color)
+		local top = Instance.new("Attachment")
+		top.Parent = part
+		local bottom = Instance.new("Attachment")
+		bottom.Parent = part
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = top
+		trail.Attachment1 = bottom
+		trail.FaceCamera = true
+		trail.LightEmission = 1
+		trail.Transparency = NumberSequence.new(0.15, 1)
+		trail.WidthScale = NumberSequence.new(1, 0)
+		trail.Enabled = false
+		trail.Parent = part
+		shot = { part = part, trail = trail, top = top, bottom = bottom }
+	end
+	local taken = shot :: Shot
+	taken.part.Color = color
+	taken.part.Transparency = 1
+	taken.part.Parent = getFolder()
+	taken.trail.Enabled = false
+	taken.trail:Clear()
+	return taken
+end
+
+-- Hides a shot's texture objects.
+local function plain(shot: Shot)
+	if shot.sprite then
+		shot.sprite.Enabled = false
+	end
+	if shot.glow then
+		shot.glow:Clear()
+	end
+	for _, face in shot.blade or {} do
+		face.Enabled = false
+	end
+end
+
+local function label(parent: Instance, texture: Vfx.Texture, color: Color3): ImageLabel
+	local image = parent:FindFirstChildOfClass("ImageLabel")
+	if not image then
+		local made = Instance.new("ImageLabel")
+		made.BackgroundTransparency = 1
+		made.Size = UDim2.fromScale(1, 1)
+		made.Parent = parent
+		image = made
+	end
+	local found = image :: ImageLabel
+	found.Image = texture.image
+	found.ImageColor3 = Vfx.tint(texture, color)
+	return found
+end
+
+-- Readies a shot's texture: a halo sprite `across` studs wide (an additive glow particle for a
+-- black-background texture), or a blade on its two flat faces. It shows at launch. Returns which,
+-- or nil when the texture cannot dress this shot (a black-background blade).
+local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: number): string?
+	if texture.sprite and texture.mode == "billboard" then
+		if not shot.glow then
+			local glow = Instance.new("ParticleEmitter")
+			glow.Rate = 0
+			glow.Enabled = false
+			glow.LockedToPart = true
+			glow.LightInfluence = 0
+			glow.Speed = NumberRange.new(0)
+			glow.Lifetime = NumberRange.new(30) -- cleared when the shot lands
+			glow.Parent = shot.part
+			shot.glow = glow
+		end
+		local glow = shot.glow :: ParticleEmitter
+		glow.Texture = texture.image
+		glow.LightEmission = if texture.blend == "additive" then 1 else 0
+		glow.Size = NumberSequence.new(across)
+		glow.Color = ColorSequence.new(Vfx.tint(texture, color))
+		glow.Rotation = NumberRange.new(math.random() * 360)
+		return "glow"
+	elseif texture.sprite then
+		return nil
+	elseif texture.mode == "billboard" then
+		if not shot.sprite then
+			local sprite = Instance.new("BillboardGui")
+			sprite.LightInfluence = 0
+			sprite.Adornee = shot.part
+			sprite.Parent = shot.part
+			shot.sprite = sprite
+		end
+		local sprite = shot.sprite :: BillboardGui
+		sprite.Size = UDim2.fromScale(across, across)
+		sprite.Brightness = texture.brightness
+		sprite.Enabled = false
+		label(sprite, texture, color).Rotation = math.random() * 360
+		return "sprite"
+	else
+		if not shot.blade then
+			local faces = {}
+			for i, face in { Enum.NormalId.Top, Enum.NormalId.Bottom } do
+				local surface = Instance.new("SurfaceGui")
+				surface.LightInfluence = 0
+				surface.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+				surface.CanvasSize = Vector2.new(256, 256)
+				surface.Face = face
+				surface.Parent = shot.part
+				faces[i] = surface
+			end
+			shot.blade = faces
+		end
+		for _, surface in shot.blade :: { SurfaceGui } do
+			surface.Brightness = texture.brightness
+			surface.Enabled = false
+			label(surface, texture, color)
+		end
+		return "blade"
+	end
+end
+
+local function releaseShot(shot: Shot)
+	shot.trail.Enabled = false
+	shot.part.Transparency = 1
+	shot.part.Parent = nil
+	plain(shot)
+	table.insert(spareShots, shot)
 end
 
 local function targetPosition(projectile: Projectile): Vector3
@@ -73,30 +233,78 @@ local function targetPosition(projectile: Projectile): Vector3
 	return projectile.lastTargetPosition
 end
 
--- Fires a projectile from `from` (or from `start`, e.g. a fingertip) that reaches `target` at
--- `arrivesAt` (on the effects' clock). A `tongue` projectile is a thin bar that stretches straight
--- from the start to its tip instead of an arcing ball (a placeholder look for some attacks).
+export type ProjectileOptions = {
+	launchAt: number?, -- when it leaves (on the effects' clock; default now)
+	origin: (() -> Vector3)?, -- where it leaves from, read at launch (default the shooter's middle)
+	look: string?, -- an AnimationConfig.projectiles entry: "shot", "orb", "bounce" or "wave" (default "orb")
+	tongue: boolean?, -- a thin bar that stretches from the start to its tip instead of a ball
+	scale: number?, -- size multiplier (star level)
+}
+
+-- Fires a projectile from `from` that reaches `target` at `arrivesAt` (on the effects' clock), so
+-- it lands as the hit lands. It waits hidden until `launchAt`. A `tongue` projectile is a thin bar
+-- that stretches straight from the start to its tip instead of an arcing ball (a placeholder look
+-- for some attacks).
 function CombatEffects.projectile(
 	from: Mover,
 	target: Mover,
 	arrivesAt: number,
 	color: Color3,
-	start: Vector3?,
-	tongue: boolean?
+	options: ProjectileOptions?
 )
-	local origin = start or from.part.Position
-	local part = effectPart(color)
-	part.Shape = if tongue then Enum.PartType.Block else Enum.PartType.Ball
-	part.Size = Vector3.one * RenderConfig.projectileSize
-	part.Position = origin
+	local settings: ProjectileOptions = options or {}
+	local looks = AnimationConfig.projectiles
+	local look = if settings.tongue then looks.tongue else looks[settings.look or "orb"] or looks.orb
+	local size = look.size * (settings.scale or 1)
+	local shot = takeShot(color)
+	-- A flat look (a slash wave) is a wide, thin blade across its flight, its trail as wide.
+	local flat = not settings.tongue and look.flat == true
+	shot.part.Shape = if settings.tongue or flat then Enum.PartType.Block else Enum.PartType.Ball
+	shot.part.Size = if flat then Vector3.new(size * look.width, size * 0.12, size * 0.35) else Vector3.one * size
+	-- Textures: a ball's halo, a wave's blade (only where the quality level shows rings).
+	local skin = nil
+	if not settings.tongue and ImpactEffects.allows("rings") then
+		local wanted = if flat then Vfx.texture("slash", color, "plane") else Vfx.texture("halo", color, "billboard")
+		if wanted and wanted.mode == (if flat then "plane" else "billboard") then
+			skin = dress(shot, wanted, color, size * 3)
+			if skin == "blade" then
+				-- Deep enough for the blade texture to read.
+				shot.part.Size = Vector3.new(size * look.width, size * 0.12, size * look.width * 0.45)
+			end
+		end
+	end
+	local trailing = not settings.tongue and look.trail ~= nil and ImpactEffects.allows("trails")
+	if trailing and flat then
+		local half = size * look.width / 2
+		shot.top.Position = Vector3.new(half, 0, 0)
+		shot.bottom.Position = Vector3.new(-half, 0, 0)
+		shot.trail.Lifetime = look.trail
+		shot.trail.Color = ColorSequence.new(color:Lerp(WHITE, 0.35), color)
+	elseif trailing then
+		local half = size * (look.trailWidth or 1) / 2
+		shot.top.Position = Vector3.new(0, half, 0)
+		shot.bottom.Position = Vector3.new(0, -half, 0)
+		shot.trail.Lifetime = look.trail
+		shot.trail.Color = ColorSequence.new(color:Lerp(WHITE, 0.35), color)
+	end
+	local shooter = from.part
+	local now = clock()
 	table.insert(projectiles, {
-		part = part,
-		from = origin,
+		shot = shot,
+		from = shooter.Position,
+		origin = settings.origin or function()
+			return shooter.Position
+		end,
 		target = target,
 		lastTargetPosition = target.part.Position,
-		launchedAt = clock(),
+		launchedAt = math.max(settings.launchAt or now, now),
 		arrivesAt = arrivesAt,
-		tongue = tongue,
+		launched = false,
+		trailing = trailing,
+		tongue = settings.tongue,
+		arc = look.arc or 0,
+		size = size,
+		skin = skin,
 	})
 end
 
@@ -118,22 +326,59 @@ end
 function CombatEffects.update(now: number)
 	for i = #projectiles, 1, -1 do
 		local projectile = projectiles[i]
+		local shot = projectile.shot
+		if now < projectile.launchedAt then
+			continue
+		end
+		if not projectile.launched then
+			-- Leaves now, from wherever the hand (or fingertip) is at this moment.
+			projectile.launched = true
+			projectile.from = projectile.origin()
+			shot.part.Position = projectile.from
+			shot.part.Transparency = 0
+			shot.trail:Clear()
+			shot.trail.Enabled = projectile.trailing
+			local skin = projectile.skin
+			if skin then
+				-- A wave is all blade (its neon block hidden); a ball keeps a smaller bright core.
+				if skin == "blade" and shot.blade then
+					for _, face in shot.blade do
+						face.Enabled = true
+					end
+				elseif skin == "sprite" and shot.sprite then
+					shot.sprite.Enabled = true
+				elseif skin == "glow" and shot.glow then
+					shot.glow:Clear()
+					shot.glow:Emit(1)
+				end
+				if skin == "blade" then
+					shot.part.Transparency = 1
+				else
+					shot.part.Size = Vector3.one * projectile.size * 0.6
+				end
+			end
+		end
 		local duration = projectile.arrivesAt - projectile.launchedAt
 		local progress = if duration > 0 then (now - projectile.launchedAt) / duration else 1
 		if progress >= 1 then
-			projectile.part:Destroy()
+			releaseShot(shot)
 			table.remove(projectiles, i)
 		elseif projectile.tongue then
 			local tip = projectile.from:Lerp(targetPosition(projectile), progress)
 			local length = (tip - projectile.from).Magnitude
-			local thickness = RenderConfig.projectileSize * 0.4
-			projectile.part.Size = Vector3.new(thickness, thickness, math.max(thickness, length))
+			local thickness = projectile.size * 0.4
+			shot.part.Size = Vector3.new(thickness, thickness, math.max(thickness, length))
 			if length > 1e-3 then
-				projectile.part.CFrame = CFrame.lookAt((projectile.from + tip) / 2, tip)
+				shot.part.CFrame = CFrame.lookAt((projectile.from + tip) / 2, tip)
 			end
 		else
-			local arc = Vector3.new(0, RenderConfig.projectileArcHeight * math.sin(math.pi * progress), 0)
-			projectile.part.Position = projectile.from:Lerp(targetPosition(projectile), progress) + arc
+			local arc = Vector3.new(0, projectile.arc * math.sin(math.pi * progress), 0)
+			local position = projectile.from:Lerp(targetPosition(projectile), progress) + arc
+			local heading = position - shot.part.Position
+			-- Faces along its flight, so the trail's width stays across it.
+			shot.part.CFrame = if heading.Magnitude > 1e-3
+				then CFrame.lookAt(position, position + heading)
+				else CFrame.new(position)
 		end
 	end
 
@@ -156,7 +401,7 @@ end
 -- Removes every effect at once.
 function CombatEffects.clear()
 	for _, projectile in projectiles do
-		projectile.part:Destroy()
+		releaseShot(projectile.shot)
 	end
 	table.clear(projectiles)
 	for _, pulse in pulses do

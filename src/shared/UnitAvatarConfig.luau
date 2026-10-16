@@ -20,6 +20,7 @@
 --                  A weapon may also ride another anchor: `anchor` ("head", "hips" ...) with `at`
 --                  (height fractions) and `turn` (degrees) setting its grip. On an avatar, katana,
 --                  dagger and greatsword hilts default longer so they show past the blocky fist.
+--                  `drawn = true`: the weapon shows only while attacking or casting (a quick-draw).
 --     hand, arms   attack hand ("left", "right", "both") and resting arm angles { left, right }
 --                  in degrees, replacing the class's (presentation only)
 --     outfit       block-built pieces layered on the avatar (LookKit, UnitLookConfig fields: coat,
@@ -82,9 +83,23 @@ local tuning = {
 	},
 
 	-- Hunters --------------------------------------------------------------------------------
-	-- cinder_arc, horizon_cut, reelbreaker: their UnitLookConfig weapons (black katana, greatsword on
-	-- the back, fishing rod).
-	flashline = { weapons = false }, -- his Back accessory is already a sheathed katana
+	-- cinder_arc, horizon_cut, reelbreaker: their UnitLookConfig weapons (black katana, greatsword in
+	-- the right hand, fishing rod).
+	-- flashline: his Back accessory is the sheathed katana; a quick-draw katana (`drawn`) appears in
+	-- his right hand only for attacks and casts.
+	flashline = {
+		weapons = {
+			{
+				kind = "katana",
+				hand = "right",
+				drawn = true,
+				blade = STEEL,
+				hilt = rgb(240, 240, 240),
+				guard = rgb(210, 170, 60),
+				length = 0.5,
+			},
+		},
+	},
 
 	-- Corps ----------------------------------------------------------------------------------
 	-- The catalog uniforms show the harness straps but not the gear boxes on the hips.
@@ -189,6 +204,11 @@ local tuning = {
 			},
 		},
 		hand = "both",
+	},
+
+	-- The yellow collar-scarf the catalog suit lacks (his strongest identifier after the hair).
+	skybreaker = {
+		outfit = { scarf = { color = rgb(240, 200, 45) } },
 	},
 
 	-- zero_field: the round pink wrist pads (the catalog shirt only has thin pink stripes).

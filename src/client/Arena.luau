@@ -19,6 +19,9 @@ local BoardSkinConfig = require(Shared:WaitForChild("BoardSkinConfig"))
 local HexGrid = require(Shared:WaitForChild("HexGrid"))
 local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
+local CameraCues = require(script.Parent.CameraCues)
+local ImpactEffects = require(script.Parent.ImpactEffects)
+
 local Arena = {}
 
 -- A place on the field or bench, in view coordinates: { column, row } or { slot }.
@@ -509,7 +512,9 @@ local function lockCamera()
 		if current.CameraType ~= Enum.CameraType.Scriptable then
 			current.CameraType = Enum.CameraType.Scriptable
 		end
-		current.CFrame = cameraCFrame
+		-- Combat camera shake (ImpactEffects; identity when still or turned off) and ultimates'
+		-- camera cues (CameraCues; identity when none).
+		current.CFrame = cameraCFrame * ImpactEffects.shakeOffset() * CameraCues.offset(cameraCFrame)
 	end)
 end
 

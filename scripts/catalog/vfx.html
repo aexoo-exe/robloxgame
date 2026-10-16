@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VFX Picker</title>
+<!--
+  Template for the local Creator Store VFX picker. scripts/vfx-shortlist.luau copies it to
+  docs/references/catalog/vfx.html next to vfx-data.js and the thumbnails (vfx/<role>/).
+  Open that copy in a browser. Picks are kept in this browser until exported.
+-->
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d22; --dim: #6b6a70; --line: #dcd8d0;
+    --accent: #2f6fdb; --pick: #1f9d55; --pick-bg: #e6f6ec; --warn: #b5541c; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171b; --panel: #222228; --ink: #ececf0; --dim: #9a99a3; --line: #34343c;
+      --accent: #6aa0ff; --pick: #4cc483; --pick-bg: #1d3328; --warn: #f0a36b; --bad: #ff8a7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; }
+  header .counts { color: var(--dim); }
+  header a { color: var(--accent); }
+  header select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .help { color: var(--dim); font-size: 12px; flex-basis: 100%; }
+  nav.jump { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+  nav.jump a { text-decoration: none; }
+  nav.jump a.done::after { content: " ✓"; color: var(--pick); }
+  .errors { margin: 12px 16px 0; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 8px; background: #fdecea; color: #7a1c12; font-size: 13px; }
+  .errors ul { margin: 4px 0 0; padding-left: 18px; }
+  @media (prefers-color-scheme: dark) { .errors { background: #3a1a17; color: #f6b3aa; } }
+  main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+  .role { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 18px; padding: 14px; display: flex; gap: 16px; flex-wrap: wrap; scroll-margin-top: 120px; }
+  .role.broken { border-color: var(--bad); }
+  .side { width: 220px; max-width: 100%; }
+  .side h2 { margin: 0 0 2px; font-size: 17px; }
+  .side .key { font-family: ui-monospace, monospace; color: var(--dim); font-size: 12px; }
+  .side .sub { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  .side ol { margin: 10px 0 0; padding-left: 20px; font-size: 12px; }
+  .side ol li { margin-bottom: 6px; overflow-wrap: anywhere; }
+  .side ol select { font: inherit; font-size: 11px; margin-top: 2px; padding: 1px 4px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .cards { flex: 1; min-width: 260px; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; align-content: start; }
+  .card { border: 2px solid var(--line); border-radius: 8px; padding: 6px; cursor: pointer; background: var(--panel); position: relative; }
+  .card:hover { border-color: var(--accent); }
+  .card.on { border-color: var(--pick); background: var(--pick-bg); }
+  .rank { position: absolute; top: 8px; left: 8px; background: var(--pick); color: #fff; font-weight: 700; width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; z-index: 1; }
+  /* Textures are often white on transparent: a checkerboard keeps them visible in both themes. */
+  .card .thumb { width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden;
+    background-color: #555; background-image: conic-gradient(#3c3c44 25%, #5a5a64 0 50%, #3c3c44 0 75%, #5a5a64 0); background-size: 20px 20px; }
+  .card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .card .missing { width: 100%; height: 100%; display: grid; place-items: center; color: #ddd; font-size: 12px; }
+  .card .title { font-size: 12px; font-weight: 600; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .meta { font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
+  .card a { color: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); margin: 2px 4px 0 0; }
+  .tag.ok { color: var(--pick); border-color: var(--pick); }
+  .tag.warn { color: var(--warn); border-color: var(--warn); }
+  .tag.kind { font-weight: 600; }
+  .empty { color: var(--dim); font-style: italic; }
+  @media (max-width: 520px) { .side { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>VFX picker</h1>
+  <span class="counts" id="counts"></span>
+  <label><input type="checkbox" id="unpicked"> Only roles with no picks</label>
+  <label>Show <select id="kindFilter"><option value="all">images and models</option><option value="image">images only</option><option value="model">model packs only</option></select></label>
+  <button class="primary" id="export">Export picks</button>
+  <button id="reset" title="Forget the picks made in this browser">Clear picks</button>
+  <a href="models.html">Model picker</a>
+  <nav class="jump" id="jump"></nav>
+  <div class="help">Free Creator Store textures (decals) and VFX model packs, grouped by the role they would play. Click up to 3 per role; the click order is the rank (click again to drop one).
+    A flipbook is a grid sheet of frames (ParticleEmitter.FlipbookLayout): the guess comes from the name, so check the thumbnail and set the grid on each pick.
+    Model packs with scripts are never run: their scripts are deleted when a pick is vetted in Studio.
+    <b>Export picks</b> saves vfx-picks.json (usually to Downloads).</div>
+</header>
+<div id="errors" class="errors" hidden></div>
+<main id="main"></main>
+<script src="vfx-data.js"></script>
+<script>
+(function () {
+  "use strict";
+  var STORE = "vfxPicker.picks.v1";
+  var MAX_PICKS = 3;
+  var LAYOUTS = ["none", "2x2", "4x4", "8x8"];
+  var main = document.getElementById("main");
+  var errorBox = document.getElementById("errors");
+  var problems = [];
+  function report(message) {
+    if (problems.indexOf(message) !== -1) return;
+    problems.push(message);
+    errorBox.hidden = false;
+    errorBox.innerHTML = "";
+    var title = document.createElement("b");
+    title.textContent = problems.length === 1 ? "Problem:" : problems.length + " problems:";
+    errorBox.appendChild(title);
+    var ul = document.createElement("ul");
+    problems.forEach(function (p) { var li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
+    errorBox.appendChild(ul);
+  }
+  window.addEventListener("error", function (e) {
+    report("Script error" + (e.filename ? " in " + e.filename.split("/").pop() : "") + (e.lineno ? " line " + e.lineno : "") + ": " + e.message);
+  });
+  // A list from the data: an array, an object of values (Lune writes an empty list as {}), or nothing.
+  function list(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") return Object.keys(value).map(function (k) { return value[k]; });
+    return [];
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  var data = window.VFX;
+  if (!data) {
+    report("vfx-data.js did not load (missing next to vfx.html, or a syntax error). Rebuild it: lune run scripts/vfx-shortlist --page");
+    main.appendChild(el("p", "empty", "No data to show."));
+    return;
+  }
+  var roles = list(data.roles).filter(function (r) { return r && typeof r.key === "string"; });
+  if (roles.length === 0) {
+    report("vfx-data.js has no roles. Rebuild it: lune run scripts/vfx-shortlist --page");
+    return;
+  }
+  var byId = {};
+  roles.forEach(function (r) { list(r.candidates).forEach(function (c) { if (c && c.id) byId[r.key + ":" + c.id] = c; }); });
+
+  // picks[role] = [{ id, layout }] in rank order. `layout` is the flipbook grid set on the pick.
+  var picks = {};
+  try { picks = JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch (e) { picks = {}; }
+  roles.forEach(function (r) {
+    picks[r.key] = list(picks[r.key])
+      .filter(function (p) { return p && Number(p.id); })
+      .map(function (p) { return { id: Number(p.id), layout: LAYOUTS.indexOf(p.layout) !== -1 ? p.layout : "none" }; })
+      .slice(0, MAX_PICKS);
+  });
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(picks)); } catch (e) { /* private window */ } }
+  function rankOf(role, id) {
+    var p = picks[role];
+    for (var i = 0; i < p.length; i++) if (p[i].id === id) return i;
+    return -1;
+  }
+
+  function toggle(role, it) {
+    var id = Number(it.id);
+    var p = picks[role];
+    var at = rankOf(role, id);
+    if (at !== -1) p.splice(at, 1);
+    else if (p.length < MAX_PICKS) p.push({ id: id, layout: it.flipbook && it.layout ? it.layout : "none" });
+    else { report("Up to " + MAX_PICKS + " picks per role: drop one first (" + role + ")."); return; }
+    save();
+    render();
+  }
+
+  function thumb(role, id) {
+    var box = el("div", "thumb");
+    var img = el("img"); img.loading = "lazy"; img.alt = String(id);
+    img.src = "vfx/" + role + "/" + id + ".png";
+    img.onerror = function () { img.replaceWith(el("div", "missing", "no thumbnail")); };
+    box.appendChild(img);
+    return box;
+  }
+
+  function card(role, it) {
+    var rank = rankOf(role.key, Number(it.id));
+    var c = el("div", "card" + (rank !== -1 ? " on" : ""));
+    c.title = "Click to pick (the click order is the rank) or to drop";
+    if (rank !== -1) c.appendChild(el("div", "rank", String(rank + 1)));
+    c.appendChild(thumb(role.key, it.id));
+    c.appendChild(el("div", "title", it.name || "?"));
+    var meta = el("div", "meta");
+    var a = el("a", null, String(it.id)); a.href = "https://create.roblox.com/store/asset/" + it.id; a.target = "_blank"; a.rel = "noopener";
+    a.onclick = function (e) { e.stopPropagation(); };
+    meta.appendChild(a);
+    meta.appendChild(document.createTextNode(" · by " + (it.creator || "?")));
+    if (it.kind === "image" && it.textureId) meta.appendChild(document.createTextNode(" · image " + it.textureId));
+    c.appendChild(meta);
+    var tags = el("div");
+    tags.appendChild(el("span", "tag kind", it.kind === "model" ? "model pack" : "image"));
+    if (it.verified) tags.appendChild(el("span", "tag ok", "verified"));
+    tags.appendChild(el("span", "tag", "▲ " + (it.upVotes || 0) + (it.upPercent ? " (" + it.upPercent + "%)" : "")));
+    if (it.flipbook) tags.appendChild(el("span", "tag ok", "flipbook" + (it.layout ? " " + it.layout : "?")));
+    if (it.kind === "model") {
+      tags.appendChild(el("span", "tag" + (it.hasScripts ? " warn" : " ok"), it.hasScripts ? (it.scripts || "has") + " scripts (stripped unrun)" : "no scripts"));
+      if (it.category) tags.appendChild(el("span", "tag", it.category));
+    }
+    if (it.updated) tags.appendChild(el("span", "tag", String(it.updated).slice(0, 10)));
+    c.appendChild(tags);
+    c.onclick = function () { toggle(role.key, it); };
+    return c;
+  }
+
+  function pickList(role) {
+    var chosen = picks[role.key];
+    if (!chosen.length) return el("p", "empty", "No picks yet.");
+    var ol = el("ol");
+    chosen.forEach(function (p) {
+      var it = byId[role.key + ":" + p.id] || {};
+      var li = el("li", null, (it.name || p.id) + " ");
+      li.appendChild(el("span", "key", "(" + (it.kind === "model" ? "model " : "image ") + p.id + ")"));
+      var label = el("label", null, " ");
+      var select = el("select");
+      LAYOUTS.forEach(function (layout) {
+        var option = el("option", null, layout === "none" ? "not a flipbook" : "flipbook " + layout);
+        option.value = layout;
+        if (p.layout === layout) option.selected = true;
+        select.appendChild(option);
+      });
+      select.onchange = function () { p.layout = select.value; save(); };
+      label.appendChild(document.createElement("br"));
+      label.appendChild(select);
+      li.appendChild(label);
+      ol.appendChild(li);
+    });
+    return ol;
+  }
+
+  function renderRole(role, filter) {
+    var section = el("section", "role"); section.id = role.key;
+    var side = el("div", "side");
+    side.appendChild(el("h2", null, role.title || role.key));
+    side.appendChild(el("div", "key", role.key));
+    if (role.use) side.appendChild(el("div", "sub", "For: " + role.use));
+    side.appendChild(pickList(role));
+    section.appendChild(side);
+    var cards = el("div", "cards");
+    var candidates = list(role.candidates).filter(function (it) { return it && it.id && (filter === "all" || it.kind === filter); });
+    if (candidates.length === 0) {
+      cards.appendChild(el("p", "empty", !role.fetched ? "Not searched yet: lune run scripts/vfx-shortlist " + role.key
+        : list(role.candidates).length ? "Nothing of this type in the shortlist." : "No free assets found for these terms."));
+    }
+    candidates.forEach(function (it) { cards.appendChild(card(role, it)); });
+    section.appendChild(cards);
+    return section;
+  }
+
+  var unpickedBox = document.getElementById("unpicked");
+  var kindFilter = document.getElementById("kindFilter");
+  var jump = document.getElementById("jump");
+  function render() {
+    var scroll = window.scrollY;
+    main.innerHTML = "";
+    jump.innerHTML = "";
+    var withPicks = 0;
+    roles.forEach(function (role) {
+      var has = picks[role.key].length > 0;
+      if (has) withPicks++;
+      var link = el("a", has ? "done" : null, role.title || role.key); link.href = "#" + role.key;
+      jump.appendChild(link);
+      if (unpickedBox.checked && has) return;
+      try {
+        main.appendChild(renderRole(role, kindFilter.value));
+      } catch (e) {
+        report("Role " + role.key + " failed to render: " + (e && e.message ? e.message : e));
+        var broken = el("section", "role broken");
+        broken.appendChild(el("h2", null, role.key));
+        main.appendChild(broken);
+      }
+    });
+    document.getElementById("counts").textContent = withPicks + " of " + roles.length + " roles picked · data from " + (data.generated || "?");
+    window.scrollTo(0, scroll);
+  }
+  unpickedBox.onchange = render;
+  kindFilter.onchange = render;
+
+  // vfx-picks.json: per role, the picks in rank order with what integration needs: the asset id, for
+  // an image the image id (Texture properties take it), and the flipbook grid.
+  document.getElementById("export").onclick = function () {
+    var out = { generated: new Date().toISOString().slice(0, 10), roles: {} };
+    roles.forEach(function (role) {
+      if (!picks[role.key].length) return;
+      out.roles[role.key] = picks[role.key].map(function (p, i) {
+        var it = byId[role.key + ":" + p.id] || {};
+        return {
+          rank: i + 1,
+          id: p.id,
+          kind: it.kind || "image",
+          textureId: it.textureId || null,
+          name: it.name || null,
+          creator: it.creator || null,
+          flipbook: p.layout === "none" ? null : p.layout,
+          hasScripts: !!it.hasScripts
+        };
+      });
+    });
+    var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "vfx-picks.json";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  };
+  document.getElementById("reset").onclick = function () {
+    if (!confirm("Forget the VFX picks made in this browser?")) return;
+    try { localStorage.removeItem(STORE); } catch (e) { /* ignore */ }
+    roles.forEach(function (r) { picks[r.key] = []; });
+    render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>

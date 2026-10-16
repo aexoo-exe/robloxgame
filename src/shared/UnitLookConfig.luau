@@ -32,7 +32,8 @@
 --   gearBoxes   { color }: boxes on both hips
 --   tendrils    { color }: four segmented tendrils from the lower back
 --   weapons     { { kind, hand?, ... } }: katana, sheathedKatana, greatsword, greatswordBack,
---               dagger, thinBlade, staff, rod, ball, vial, basket (see LookKit.WEAPONS)
+--               dagger, thinBlade, staff, rod, ball, vial, basket (see LookKit.WEAPONS).
+--               `drawn = true`: held only while attacking or casting (a quick-draw)
 --   extras      raw parts { anchor, shape, size, at, turn?, color, material?, fine?, plain?,
 --               transparency? }. `to` (instead of turn) makes a segment from `at` to `to` (size X
 --               and Y are its thickness). `mirror = true` adds a copy mirrored to the other side;
@@ -166,13 +167,15 @@ return deepFreeze({
 		face = { eyes = "sharp", eyeColor = rgb(110, 70, 40) },
 		coat = { color = rgb(18, 18, 22), length = 0.9, flare = 9, sides = true, cross = WHITE },
 		sash = { color = WHITE },
+		-- The black cleaver held in the right hand: he swings it to throw slash waves
+		-- (AnimationConfig.unitStyles).
 		weapons = {
 			{
-				kind = "greatswordBack",
+				kind = "greatsword",
+				hand = "right",
 				blade = rgb(22, 22, 26),
 				edge = rgb(195, 200, 210),
 				hilt = WHITE,
-				cloth = WHITE,
 			},
 		},
 	},
@@ -1394,13 +1397,13 @@ return deepFreeze({
 				at = v(0, 0.07, -0.27),
 				color = rgb(240, 238, 230),
 			},
-			-- the head: heavy brow ridges, yellow eyes with slit pupils, a wide mouth, stripes on top,
-			-- cheek pouches, warts
+			-- the head: big yellow eyes bulging from the top of the head with slit pupils, heavy brow
+			-- ridges over them like lids, a wide mouth, stripes on top, cheek pouches, warts
 			{
 				anchor = "head",
 				shape = "Block",
-				size = v(0.14, 0.05, 0.13),
-				at = v(0.12, 0.095, -0.1),
+				size = v(0.15, 0.07, 0.12),
+				at = v(0.12, 0.135, -0.105),
 				turn = v(0, 0, -12),
 				color = rgb(140, 42, 46),
 				mirror = true,
@@ -1408,8 +1411,8 @@ return deepFreeze({
 			{
 				anchor = "head",
 				shape = "Ball",
-				size = v(0.09, 0.09, 0.09),
-				at = v(0.13, 0.085, -0.135),
+				size = v(0.11, 0.11, 0.11),
+				at = v(0.13, 0.1, -0.14),
 				color = rgb(236, 200, 60),
 				plain = true,
 				mirror = true,
@@ -1417,8 +1420,8 @@ return deepFreeze({
 			{
 				anchor = "head",
 				shape = "Block",
-				size = v(0.05, 0.014, 0.01),
-				at = v(0.13, 0.085, -0.18),
+				size = v(0.06, 0.016, 0.01),
+				at = v(0.13, 0.095, -0.196),
 				color = rgb(20, 18, 18),
 				plain = true,
 				mirror = true,
@@ -1569,7 +1572,7 @@ return deepFreeze({
 				shape = "Block",
 				size = v(0.1, 0.1),
 				at = v(0.1, -0.1, 0),
-				to = v(0.06, -0.18, -0.04),
+				to = v(0.06, -0.165, -0.04),
 				color = rgb(196, 98, 98),
 			},
 			{
@@ -1585,22 +1588,14 @@ return deepFreeze({
 				limbs = "Leg",
 				shape = "Block",
 				size = v(0.22, 0.025, 0.25),
-				at = v(0.07, -0.19, -0.09),
+				at = v(0.07, -0.17, -0.09),
 				color = rgb(196, 98, 98),
 			},
 			{
 				limbs = "Leg",
 				shape = "Block",
 				size = v(0.03, 0.02, 0.1),
-				at = v(0, -0.193, -0.22),
-				color = rgb(196, 98, 98),
-				fine = true,
-			},
-			{
-				limbs = "Leg",
-				shape = "Block",
-				size = v(0.03, 0.02, 0.1),
-				at = v(0.07, -0.193, -0.23),
+				at = v(0, -0.173, -0.22),
 				color = rgb(196, 98, 98),
 				fine = true,
 			},
@@ -1608,7 +1603,15 @@ return deepFreeze({
 				limbs = "Leg",
 				shape = "Block",
 				size = v(0.03, 0.02, 0.1),
-				at = v(0.14, -0.193, -0.22),
+				at = v(0.07, -0.173, -0.23),
+				color = rgb(196, 98, 98),
+				fine = true,
+			},
+			{
+				limbs = "Leg",
+				shape = "Block",
+				size = v(0.03, 0.02, 0.1),
+				at = v(0.14, -0.173, -0.22),
 				color = rgb(196, 98, 98),
 				fine = true,
 			},

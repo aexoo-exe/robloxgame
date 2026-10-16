@@ -94,6 +94,9 @@ return table.freeze({
 		selectColor = Color3.fromRGB(255, 255, 255),
 		selectFill = 0.75,
 		selectOutline = 0.1,
+		-- A cast glow (Figure.setTint with a blend): fill opacity at full blend, and the rim.
+		glowFill = 0.55,
+		glowOutline = 0.15,
 	}),
 
 	-- Units with a hand-built look (UnitLookConfig) keep their own colors in a tinted form
@@ -254,7 +257,10 @@ return table.freeze({
 		riderLegSplay = 22, -- and spread to straddle the body
 	}),
 
-	-- Animations. Durations are in seconds; none of them change fight timing.
+	-- Idle, walking and riding animations. Durations are in seconds; none of them change fight
+	-- timing. Combat motion (attacks, hits, casts, stuns, deaths, victory) is in AnimationConfig, and
+	-- so are the layers on top of these cycles (AnimationConfig.living: breathing, weight shifts,
+	-- looking, heel-to-toe walking, landings; AnimationConfig.secondary: swinging loose parts).
 	animation = table.freeze({
 		idlePeriod = 2.4,
 		idleBob = 0.012, -- fraction of height
@@ -263,19 +269,7 @@ return table.freeze({
 		walkLegSwing = 32,
 		walkArmSwing = 26,
 		walkBob = 0.02,
-		attackArm = 95, -- extra raise of the attacking arm at the peak of a melee lunge
-		attackLean = 14,
-		shootDuration = 0.3, -- ranged attack recoil
-		shootArm = 25,
-		shootLean = -8,
-		pointDuration = 0.45, -- ranged attack that points (attackPose "point")
-		pointArm = 88, -- the pointing arm, raised forward to about level
 		fingertip = 0.06, -- fraction of height past the end of the arm, where projectiles start
-		castDuration = 0.5,
-		castArms = 150, -- both arms thrown up
-		hitDuration = 0.2,
-		hitLean = -16, -- knocked back
-		defeatFall = 80, -- falls backward as it fades
 		horseLegSwing = 30,
 	}),
 })

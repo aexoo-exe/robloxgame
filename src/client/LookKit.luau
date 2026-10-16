@@ -23,6 +23,11 @@ export type Spec = {
 	tinted: boolean,
 	transparency: number, -- 0 for most parts (auras and steam are see-through)
 	emitter: any?, -- a soft particle stream from this (invisible) part: { rate, color, size } (steam)
+	drawn: boolean?, -- part of a weapon with `drawn`: shown only while it is out (Figure.setDrawn)
+	-- A loose part (long hair, coat tails, a scarf end): { group, pivot, facing } shared by the parts
+	-- that swing together about `pivot` (anchor space), in AnimationConfig.secondary.groups[group]'s
+	-- way; `facing` 1 hangs behind the body, -1 in front, 0 beside it (Figure).
+	swing: any?,
 }
 
 type Options = { material: string?, fine: boolean?, plain: boolean?, transparency: number?, emitter: any? }
@@ -37,6 +42,7 @@ type Context = {
 	thin: number, -- overlay thickness
 	grip: CFrame?, -- the current held weapon's grip, when it rides an anchor other than a hand
 	fists: boolean?, -- held by a catalog avatar: hilts reach past its blocky 0.2-thick fists
+	swing: any?, -- the loose set the parts added now belong to (Spec `swing`), if any
 }
 
 local rad = math.rad
@@ -77,7 +83,21 @@ local function add(
 		tinted = not o.plain,
 		transparency = o.transparency or 0,
 		emitter = o.emitter,
+		swing = ctx.swing,
 	})
+end
+
+-- A loose set: parts swinging together about `pivot` (anchor space) as `group` (Spec `swing`).
+local function swingSet(group: string, pivot: Vector3, facing: number): any
+	return { group = group, pivot = pivot, facing = facing }
+end
+
+-- Adds the parts of `build` to the loose set `set`.
+local function loose(ctx: Context, set: any, build: () -> ())
+	local outer = ctx.swing
+	ctx.swing = set
+	build()
+	ctx.swing = outer
 end
 
 -- Body ------------------------------------------------------------------------------------------
@@ -493,13 +513,30 @@ local function hair(ctx: Context)
 		add(ctx, "head", "Block", size * hs, offset, color, options)
 	end
 
+	-- Hair that hangs (a long back, long sides) swings as one loose set about the top of the back of
+	-- the head; panels hanging below the head (twintails) each swing about their own top; front
+	-- strands swing together (AnimationConfig.secondary "hair"). Caps, fringes and spikes stay put.
+	local LONG = 0.6
 	if style.cap then
 		block(V(1.1, style.cap, 1.1), V(0, 0.55 - style.cap / 2, 0.02))
 	end
-	if style.back then
-		block(V(1.06, style.back, 0.22), V(0, 0.5 - style.back / 2, 0.46))
+	local function hanging()
+		if style.back then
+			block(V(1.06, style.back, 0.22), V(0, 0.5 - style.back / 2, 0.46))
+		end
+		if style.sides and style.sides >= LONG then
+			local width = style.sideWidth or 0.1
+			for _, side in SIDES do
+				block(V(width, style.sides, 0.8), V(SIGN[side] * (0.49 + width / 2), 0.45 - style.sides / 2, 0.08))
+			end
+		end
 	end
-	if style.sides then
+	if (style.back or 0) >= LONG or (style.sides or 0) >= LONG then
+		loose(ctx, swingSet("hair", V(0, 0.5, 0.3) * hs, 1), hanging)
+	else
+		hanging()
+	end
+	if style.sides and style.sides < LONG then
 		local width = style.sideWidth or 0.1
 		for _, side in SIDES do
 			block(V(width, style.sides, 0.8), V(SIGN[side] * (0.49 + width / 2), 0.45 - style.sides / 2, 0.08))
@@ -509,7 +546,14 @@ local function hair(ctx: Context)
 		block(V(1.08, style.fringe, 0.12), V(0, 0.5 - style.fringe / 2, -0.5))
 	end
 	for _, panel in style.panels or {} do
-		block(panel.size, panel.at, panel.turn)
+		if panel.at.Y < 0 then
+			local top = panel.at + Vector3.new(0, panel.size.Y / 2, 0)
+			loose(ctx, swingSet("hair", top * hs, 0), function()
+				block(panel.size, panel.at, panel.turn)
+			end)
+		else
+			block(panel.size, panel.at, panel.turn)
+		end
 	end
 	for _, roll in style.rolls or {} do
 		add(ctx, "head", "Cylinder", V(roll.length, roll.diameter, roll.diameter) * hs, CF(roll.at * hs), color)
@@ -523,9 +567,14 @@ local function hair(ctx: Context)
 	for _, r in config.rings or {} do
 		ring(ctx, r, color, config.tip, config.lift)
 	end
-	for _, strand in config.strands or {} do
-		local width = strand.width or 0.11
-		block(V(width, strand.length, 0.1), V(strand.x, 0.45 - strand.length / 2, strand.z or -0.53))
+	local strands = config.strands
+	if strands and #strands > 0 then
+		loose(ctx, swingSet("hair", V(0, 0.45, -0.5) * hs, -1), function()
+			for _, strand in strands do
+				local width = strand.width or 0.11
+				block(V(width, strand.length, 0.1), V(strand.x, 0.45 - strand.length / 2, strand.z or -0.53))
+			end
+		end)
 	end
 end
 
@@ -695,8 +744,9 @@ local function coat(ctx: Context)
 	end
 
 	-- Tails below the hips: back, front (two halves when open) and optionally the sides. Each hangs
-	-- from a little above the hips and flares out by `flare` degrees.
-	local tails: { { frame: CFrame, width: number, length: number, facing: number } } = {}
+	-- from a little above the hips and flares out by `flare` degrees, and swings about its top as a
+	-- loose set (AnimationConfig.secondary "coat"), with its band and pattern.
+	local tails: { { frame: CFrame, width: number, length: number, facing: number, swing: any } } = {}
 	local length = (c.length or 0) * b.legLength
 	if length > 0 then
 		local depth = h * 0.03
@@ -705,19 +755,22 @@ local function coat(ctx: Context)
 		local flare = c.flare or 4
 		local function tail(width: number, at: CFrame, angles: CFrame, facing: number)
 			local frame = at * angles * CF(0, -full / 2, 0)
-			add(ctx, "hips", "Block", V(width, full, depth), frame, c.tail or c.color)
-			table.insert(tails, { frame = frame, width = width, length = full, facing = facing })
-			if c.band then
-				local bandLength = full * c.band.fraction
-				add(
-					ctx,
-					"hips",
-					"Block",
-					V(width * 1.01, bandLength, depth * 1.3),
-					frame * CF(0, -full / 2 + bandLength / 2, 0),
-					c.band.color
-				)
-			end
+			local set = swingSet("coat", at.Position, facing)
+			table.insert(tails, { frame = frame, width = width, length = full, facing = facing, swing = set })
+			loose(ctx, set, function()
+				add(ctx, "hips", "Block", V(width, full, depth), frame, c.tail or c.color)
+				if c.band then
+					local bandLength = full * c.band.fraction
+					add(
+						ctx,
+						"hips",
+						"Block",
+						V(width * 1.01, bandLength, depth * 1.3),
+						frame * CF(0, -full / 2 + bandLength / 2, 0),
+						c.band.color
+					)
+				end
+			end)
 		end
 		local outset = h * 0.006
 		tail(tW * 1.04, CF(0, top, tD / 2 - depth / 2 + outset), turn(-flare, 0, 0), 1)
@@ -730,10 +783,11 @@ local function coat(ctx: Context)
 		end
 		if c.sides then
 			for _, x in { -1, 1 } do
-				local frame = CF(x * (tW / 2 - depth / 2 + outset), top, 0)
-					* turn(0, 0, flare * x)
-					* CF(0, -full / 2, 0)
-				add(ctx, "hips", "Block", V(depth, full, tD * 0.96), frame, c.tail or c.color)
+				local at = CF(x * (tW / 2 - depth / 2 + outset), top, 0)
+				local frame = at * turn(0, 0, flare * x) * CF(0, -full / 2, 0)
+				loose(ctx, swingSet("coat", at.Position, 0), function()
+					add(ctx, "hips", "Block", V(depth, full, tD * 0.96), frame, c.tail or c.color)
+				end)
 			end
 		end
 	end
@@ -761,7 +815,19 @@ local function coat(ctx: Context)
 		end
 		for _, t in tails do
 			local cols = if t.width > tW then 3 else 1
-			checker(ctx, "hips", t.frame * CF(0, 0, t.facing * h * 0.022), t.width, t.length, cols, 1, pattern.color, 1)
+			loose(ctx, t.swing, function()
+				checker(
+					ctx,
+					"hips",
+					t.frame * CF(0, 0, t.facing * h * 0.022),
+					t.width,
+					t.length,
+					cols,
+					1,
+					pattern.color,
+					1
+				)
+			end)
 		end
 		-- bands around the sleeves, alternating between the arms
 		for i, side in SIDES do
@@ -785,17 +851,19 @@ local function coat(ctx: Context)
 		triangle(ctx, "hips", CF(tW * 0.2, tH * 0.35, tD / 2 + thin * 0.7), size, pattern.color)
 		for index, t in tails do
 			local y = -t.length * 0.2 + (index % 2) * t.length * 0.25
-			triangle(ctx, "hips", t.frame * CF(t.width * 0.15, y, t.facing * h * 0.022), size, pattern.color)
-			if t.width > tW then
-				triangle(
-					ctx,
-					"hips",
-					t.frame * CF(-t.width * 0.25, -y, t.facing * h * 0.022),
-					size,
-					pattern.color,
-					FINE
-				)
-			end
+			loose(ctx, t.swing, function()
+				triangle(ctx, "hips", t.frame * CF(t.width * 0.15, y, t.facing * h * 0.022), size, pattern.color)
+				if t.width > tW then
+					triangle(
+						ctx,
+						"hips",
+						t.frame * CF(-t.width * 0.25, -y, t.facing * h * 0.022),
+						size,
+						pattern.color,
+						FINE
+					)
+				end
+			end)
 		end
 		for _, side in SIDES do
 			local x = SIGN[side] * (b.armWidth / 2 + thin * 0.5)
@@ -881,14 +949,17 @@ local function accessories(ctx: Context)
 	end
 	if look.scarf then
 		add(ctx, "hips", "Block", V(tW * 0.72, h * 0.075, tD * 1.4), CF(0, tH + h * 0.01, 0), look.scarf.color)
-		add(
-			ctx,
-			"hips",
-			"Block",
-			V(h * 0.07, h * 0.2, h * 0.03),
-			CF(h * 0.05, tH - h * 0.1, front - h * 0.02) * turn(0, 0, -6),
-			look.scarf.color
-		)
+		-- The hanging end swings about its top (AnimationConfig.secondary "scarf").
+		loose(ctx, swingSet("scarf", V(h * 0.05, tH, front - h * 0.02), -1), function()
+			add(
+				ctx,
+				"hips",
+				"Block",
+				V(h * 0.07, h * 0.2, h * 0.03),
+				CF(h * 0.05, tH - h * 0.1, front - h * 0.02) * turn(0, 0, -6),
+				look.scarf.color
+			)
+		end)
 	end
 	if look.tie then
 		add(ctx, "hips", "Block", V(h * 0.045, h * 0.2, h * 0.015), CF(0, tH - h * 0.12, front - h * 0.008), look.tie)
@@ -1326,10 +1397,13 @@ LookKit.WEAPONS = {
 	end,
 }
 
+-- A weapon with `drawn = true` is held only while attacking or casting (a quick-draw from a sheath
+-- drawn elsewhere); its specs are marked `drawn`.
 local function weapons(ctx: Context)
 	for _, w in ctx.look.weapons or {} do
 		local build = LookKit.WEAPONS[w.kind]
 		assert(build, "unknown weapon kind " .. tostring(w.kind))
+		local first = #ctx.specs + 1
 		if w.anchor then
 			local angles = w.turn or Vector3.zero
 			ctx.grip = CF((w.at or Vector3.zero) * ctx.h) * turn(angles.X, angles.Y, angles.Z)
@@ -1340,6 +1414,11 @@ local function weapons(ctx: Context)
 			build(ctx, w, "rightHand")
 		else
 			build(ctx, w, (w.hand or "right") .. "Hand")
+		end
+		if w.drawn then
+			for i = first, #ctx.specs do
+				ctx.specs[i].drawn = true
+			end
 		end
 	end
 end

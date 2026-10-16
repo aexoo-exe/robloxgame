@@ -11,8 +11,12 @@
 -- moves every piece at once with one BulkMoveTo, so a figure costs one call per frame.
 -- A figure stands on its root (the ground point under the unit) and faces -Z.
 
+-- Loose parts (hair, back accessories, scarves, coat tails, a horse's mane and tail) hang from a
+-- pivot and swing on a small spring each (AnimationConfig.secondary), worked out in Figure.place.
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local AnimationConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AnimationConfig"))
 local FigureConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FigureConfig"))
 local HorseLookConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("HorseLookConfig"))
 
@@ -55,7 +59,38 @@ export type Pose = {
 	leftLeg: number,
 	rightLeg: number,
 	stride: number, -- horse legs
+	-- Optional (nil: 0), for combat motion (UnitMotion):
+	twist: number?, -- upper body turned about the vertical (positive: the right shoulder forward)
+	crouch: number?, -- hips dropped by this fraction of leg length, legs splayed to match (a squash)
+	tilt: number?, -- sideways, about the feet (positive: toward the figure's right)
+	leftArmOut: number?, -- each arm raised out to its side (radians; attack arcs, ultimate pose keys)
+	rightArmOut: number?,
+	spin: number?, -- the whole body turned about the vertical (radians; ultimate pose keys)
+	headPitch: number?, -- the head on the neck: nodded forward (radians; negative: thrown back)
+	headYaw: number?, -- turned about the vertical (same sense as `twist`)
+	headRoll: number?, -- tipped toward the figure's right
+	shift: number?, -- hips moved toward the figure's right, a fraction of its height; feet stay put
+	roll: number?, -- upper body rolled toward the figure's right about the hips (radians)
 }
+
+-- A loose set of parts swinging about a pivot on its anchor (AnimationConfig.secondary).
+type Swing = {
+	anchor: string,
+	pivot: CFrame, -- in the anchor's space (a position only)
+	group: any, -- an AnimationConfig.secondary.groups entry
+	facing: number, -- 1: hangs behind the body (+Z), -1: in front, 0: beside it
+	horse: boolean?,
+	pitch: number, -- radians about the pivot's X (negative swings the bottom backward, +Z)
+	roll: number, -- radians about its Z (positive swings the bottom toward the figure's right)
+	pitchSpeed: number,
+	rollSpeed: number,
+	last: Vector3?, -- the pivot's world position at the last placement
+	frame: CFrame, -- anchor * pivot * swing, at the last placement
+}
+
+-- A loose set as LookKit and HorseKit describe it on their specs (spec.swing): specs sharing one
+-- table swing together.
+export type SwingSpec = { group: string, pivot: Vector3, facing: number? }
 
 type Piece = {
 	part: BasePart,
@@ -63,6 +98,9 @@ type Piece = {
 	offset: CFrame,
 	transparency: number, -- the part's own transparency (models), faded on top of
 	horse: boolean?,
+	drawn: boolean?, -- part of a weapon drawn only while it is out (Figure.setDrawn)
+	swing: Swing?, -- a loose part: placed from its swing's frame
+	swingOffset: CFrame?, -- its offset from the swing's pivot
 }
 
 export type Figure = {
@@ -71,6 +109,10 @@ export type Figure = {
 	lean: number, -- resting lean (radians)
 	restArms: { number }, -- resting arm angles { left, right } (radians)
 	headOffset: CFrame,
+	neckOffset: CFrame, -- the neck joint above the hips anchor (the head turns about it)
+	neckToHead: CFrame, -- from the neck joint to the head anchor
+	swings: { Swing }, -- loose sets (at most AnimationConfig.secondary.maxPerFigure)
+	swingOn: boolean, -- loose sets swing (false: they hang rigid; Figure.setSwinging)
 	pieces: { Piece },
 	parts: { BasePart }, -- the pieces' parts, in order, for BulkMoveTo
 	cframes: { CFrame },
@@ -90,6 +132,7 @@ export type Figure = {
 	unitType: string?, -- the roster unit drawn (its horse's colors: HorseLookConfig)
 	color: Color3,
 	transparency: number,
+	weaponOut: boolean, -- drawn weapons (LookKit `drawn`) show only while this is on
 	isModel: boolean,
 	horse: { seat: number, bodyY: number, joints: { Vector3 } }?,
 	anchors: { [string]: CFrame },
@@ -156,21 +199,98 @@ local function specPart(parent: Instance, spec: LookKit.Spec, figure: any?): Bas
 	return part
 end
 
-local function addPiece(figure: Figure, part: BasePart, anchor: string, offset: CFrame, horse: boolean?)
-	local transparency = part.Transparency
-	table.insert(figure.pieces, {
+-- A piece's transparency as shown: its own, faded by the figure's; a drawn weapon's is hidden while
+-- the weapon is put away.
+local function shownTransparency(figure: Figure, piece: Piece): number
+	if piece.drawn and not figure.weaponOut then
+		return 1
+	end
+	return 1 - (1 - piece.transparency) * (1 - figure.transparency)
+end
+
+local function addPiece(
+	figure: Figure,
+	part: BasePart,
+	anchor: string,
+	offset: CFrame,
+	horse: boolean?,
+	drawn: boolean?,
+	swing: Swing?
+)
+	local loose = if swing and swing.anchor == anchor then swing else nil
+	local piece = {
 		part = part,
 		anchor = anchor,
 		offset = offset,
-		transparency = transparency,
+		transparency = part.Transparency,
 		horse = horse,
-	})
+		drawn = drawn,
+		swing = loose,
+		swingOffset = if loose then loose.pivot:Inverse() * offset else nil,
+	}
+	table.insert(figure.pieces, piece)
 	table.insert(figure.parts, part)
 	table.insert(figure.cframes, CFrame.identity)
 	if anchor ~= "hitbox" then
-		part.Transparency = 1 - (1 - transparency) * (1 - figure.transparency)
+		part.Transparency = shownTransparency(figure, piece)
 	end
 end
+
+-- A new loose set on `anchor`, swinging about `pivot` (anchor space) in `groupName`'s way
+-- (AnimationConfig.secondary.groups), or nil once the figure has its fill of them.
+local function newSwing(
+	figure: Figure,
+	anchor: string,
+	groupName: string,
+	pivot: Vector3,
+	facing: number?,
+	horse: boolean?
+): Swing?
+	local config = AnimationConfig.secondary
+	local group = config.groups[groupName]
+	if not group or #figure.swings >= config.maxPerFigure then
+		return nil
+	end
+	local swing: Swing = {
+		anchor = anchor,
+		pivot = CFrame.new(pivot),
+		group = group,
+		facing = facing or 0,
+		horse = horse,
+		pitch = 0,
+		roll = 0,
+		pitchSpeed = 0,
+		rollSpeed = 0,
+		last = nil,
+		frame = CFrame.identity,
+	}
+	table.insert(figure.swings, swing)
+	return swing
+end
+
+-- The swing of a spec's loose set (spec.swing), made on its first part; `sets` remembers the sets
+-- made during one build.
+local function swingFor(figure: Figure, sets: { [any]: Swing | false }, spec: any, horse: boolean?): Swing?
+	local key: SwingSpec? = spec.swing
+	if not key then
+		return nil
+	end
+	local known = sets[key]
+	if known == nil then
+		known = newSwing(figure, spec.anchor, key.group, key.pivot, key.facing, horse) or false
+		sets[key] = known
+	end
+	return known or nil
+end
+
+-- Avatar accessories that swing, by the name of the attachment that holds them on (AvatarService
+-- places each handle by it): hair, capes and other back items, tails, scarves.
+local ACCESSORY_SWINGS = {
+	HairAttachment = { group = "hairWrap", facing = 1 },
+	BodyBackAttachment = { group = "cape", facing = 1 },
+	WaistBackAttachment = { group = "tail", facing = 1 },
+	NeckAttachment = { group = "scarf", facing = 0 },
+}
 
 local function findModel(name: string): Model?
 	local folder = ReplicatedStorage:FindFirstChild("CharacterModels")
@@ -322,7 +442,16 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 			local bodyPart = AVATAR_ANCHORS[descendant.Name]
 			local anchor = bodyPart or AVATAR_ANCHORS[descendant:GetAttribute("AvatarBodyPart") or ""] or "hips"
 			local at = torsoRest * torsoFrame:ToObjectSpace(descendant.CFrame)
-			addPiece(figure, descendant, anchor, rest[anchor]:ToObjectSpace(at))
+			-- A loose accessory swings about the point where it is attached.
+			local swing = nil
+			local attachment = if bodyPart then nil else descendant:FindFirstChildOfClass("Attachment")
+			local loose = attachment and ACCESSORY_SWINGS[attachment.Name]
+			if attachment and loose then
+				local hold = torsoRest * torsoFrame:ToObjectSpace(descendant.CFrame * attachment.CFrame)
+				swing =
+					newSwing(figure, anchor, loose.group, rest[anchor]:PointToObjectSpace(hold.Position), loose.facing)
+			end
+			addPiece(figure, descendant, anchor, rest[anchor]:ToObjectSpace(at), nil, nil, swing)
 			if bodyPart then
 				table.insert(figure.tinted, descendant)
 				figure.baseColors[descendant] = descendant.Color
@@ -338,9 +467,10 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	-- catalog shirt or pants). Its parts go inside the avatar's model so its Highlight (flashes,
 	-- glows, selection) covers them too, and they take form tints like the body.
 	if look.avatarOutfit then
+		local sets = {}
 		for _, spec in LookKit.outfitSpecs(look.avatarOutfit, figure.body, figure.height, look.detail == "low") do
 			local part = specPart(model, spec, figure)
-			addPiece(figure, part, spec.anchor, spec.offset)
+			addPiece(figure, part, spec.anchor, spec.offset, nil, nil, swingFor(figure, sets, spec))
 			if spec.tinted then
 				table.insert(figure.tinted, part)
 				figure.baseColors[part] = spec.color
@@ -354,7 +484,7 @@ local function buildAvatar(figure: Figure, look: Look, template: Model, parent: 
 	-- LookKit weapons worn with the avatar (UnitAvatarConfig `weapons`), on the same anchors.
 	if look.avatarWeapons then
 		for _, spec in LookKit.weaponSpecs(look.avatarWeapons, figure.body, figure.height, look.detail == "low") do
-			addPiece(figure, specPart(parent, spec, figure), spec.anchor, spec.offset)
+			addPiece(figure, specPart(parent, spec, figure), spec.anchor, spec.offset, nil, spec.drawn)
 		end
 	end
 end
@@ -363,9 +493,10 @@ end
 -- marks the front) and no class prop (the look carries its own weapons).
 local function buildLook(figure: Figure, look: Look, parent: Instance)
 	local specs = LookKit.specs(look.unitLook, figure.body, figure.height, look.detail == "low")
+	local sets = {}
 	for _, spec in specs do
 		local part = specPart(parent, spec, figure)
-		addPiece(figure, part, spec.anchor, spec.offset)
+		addPiece(figure, part, spec.anchor, spec.offset, nil, spec.drawn, swingFor(figure, sets, spec))
 		if spec.tinted then
 			table.insert(figure.tinted, part)
 			figure.baseColors[part] = spec.color
@@ -473,9 +604,10 @@ local function buildModelData(figure: Figure, look: Look, data: any, parent: Ins
 		end
 	end
 	if look.modelOutfit then
+		local sets = {}
 		for _, spec in LookKit.outfitSpecs(look.modelOutfit, figure.body, figure.height, look.detail == "low") do
 			local part = specPart(model, spec, figure)
-			addPiece(figure, part, spec.anchor, spec.offset)
+			addPiece(figure, part, spec.anchor, spec.offset, nil, nil, swingFor(figure, sets, spec))
 		end
 	end
 	figure.avatar = model
@@ -527,6 +659,10 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 			rad(if classLook then classLook.arms[2] else 0),
 		},
 		headOffset = CFrame.new(0, body.torsoHeight + body.neck + body.headSize / 2, 0),
+		neckOffset = CFrame.new(0, body.torsoHeight + body.neck, 0),
+		neckToHead = CFrame.new(0, body.headSize / 2, 0),
+		swings = {},
+		swingOn = true,
 		pieces = {},
 		parts = {},
 		cframes = {},
@@ -542,6 +678,7 @@ function Figure.new(look: Look, color: Color3, height: number, hitbox: BasePart,
 		emitters = {},
 		color = color,
 		transparency = transparency or 0,
+		weaponOut = false,
 		isModel = false,
 		horse = nil,
 		anchors = {},
@@ -616,6 +753,7 @@ local function mountModel(figure: Figure, look: any, data: any)
 		hoof = look.hooves,
 	}
 	local parent = figure.parts[1]
+	local loose: { [string]: Swing | false } = {} -- the mane's and the tail's swings, once made
 	for _, item in data.parts do
 		local part, pose = dataPart(parent, item, scale)
 		if colors[item.r] then
@@ -628,7 +766,20 @@ local function mountModel(figure: Figure, look: any, data: any)
 			end
 		end
 		local anchor = if rests[item.a] then item.a else "horse"
-		addPiece(figure, part, anchor, rests[anchor]:ToObjectSpace(pose), true)
+		local offset = rests[anchor]:ToObjectSpace(pose)
+		-- Mane pieces swing together about the top of the first one; a piece behind the body (+Z) is
+		-- the tail and swings about its own top.
+		local swing = nil
+		if item.r == "mane" then
+			local group = if offset.Position.Z > 0 then "tail" else "mane"
+			if loose[group] == nil then
+				local top = offset * CFrame.new(0, part.Size.Y / 2, 0)
+				loose[group] = newSwing(figure, anchor, group, top.Position, if group == "tail" then 1 else 0, true)
+					or false
+			end
+			swing = loose[group] or nil
+		end
+		addPiece(figure, part, anchor, offset, true, nil, swing)
 	end
 
 	local function piece(shape: string, size: Vector3, cframe: CFrame, pieceColor: Color3)
@@ -689,6 +840,11 @@ function Figure.setMount(figure: Figure, color: Color3?)
 			table.remove(figure.cframes, i)
 		end
 	end
+	for i = #figure.swings, 1, -1 do
+		if figure.swings[i].horse then
+			table.remove(figure.swings, i)
+		end
+	end
 	figure.horse = nil
 	if not color then
 		return
@@ -712,16 +868,27 @@ function Figure.setMount(figure: Figure, color: Color3?)
 	local hands = riderHands(figure, c.bodyHeight * h / 2)
 	local horse = HorseKit.build(look, c, h, hands)
 	local parent = figure.parts[1]
+	local sets = {}
 	for _, spec in horse.specs do
-		addPiece(figure, specPart(parent, spec), spec.anchor, spec.offset, true)
+		addPiece(
+			figure,
+			specPart(parent, spec),
+			spec.anchor,
+			spec.offset,
+			true,
+			nil,
+			swingFor(figure, sets, spec, true)
+		)
 	end
 	figure.horse = { seat = horse.seat, bodyY = horse.bodyY, joints = horse.joints }
 end
 
 -- Recolors the body (not the props, weapons, face, ring, visor or horse). nil restores the body
 -- color: a placeholder's one body color, or each part of a look its own color, blended toward the
--- form tint while a tinted form is on (FigureConfig.lookTintBlend).
-function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?)
+-- form tint while a tinted form is on (FigureConfig.lookTintBlend). `blend` (0-1) only tints part of
+-- the way and keeps the figure readable (a cast glow: FigureConfig.glow); without it a color covers
+-- the body (a hit flash).
+function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?, blend: number?)
 	local formTint = figure.formTint
 	local avatar = figure.avatar
 	if avatar then
@@ -741,9 +908,15 @@ function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?
 			end
 			local h = highlight :: Highlight
 			h.FillColor = color or look.selectColor
-			h.FillTransparency = if color then look.flashFill else look.selectFill
 			h.OutlineColor = color or look.selectColor
-			h.OutlineTransparency = if color then 1 else look.selectOutline
+			if color and blend then
+				-- A glow: a light fill and a bright rim, so the avatar still reads.
+				h.FillTransparency = 1 - blend * look.glowFill
+				h.OutlineTransparency = look.glowOutline
+			else
+				h.FillTransparency = if color then look.flashFill else look.selectFill
+				h.OutlineTransparency = if color then 1 else look.selectOutline
+			end
 			h.Enabled = true
 		elseif highlight then
 			highlight.Enabled = false
@@ -756,7 +929,9 @@ function Figure.setTint(figure: Figure, color: Color3?, material: Enum.Material?
 	end
 	for _, part in figure.tinted do
 		local base = figure.baseColors[part]
-		if color then
+		if color and blend then
+			part.Color = (base or figure.color):Lerp(color, blend)
+		elseif color then
 			part.Color = color
 		elseif base then
 			part.Color = if formTint then base:Lerp(formTint, FigureConfig.lookTintBlend) else base
@@ -772,7 +947,7 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 	figure.transparency = transparency
 	for _, piece in figure.pieces do
 		if piece.anchor ~= "hitbox" then
-			piece.part.Transparency = 1 - (1 - piece.transparency) * (1 - transparency)
+			piece.part.Transparency = shownTransparency(figure, piece)
 		end
 	end
 	for _, entry in figure.decals do
@@ -783,6 +958,20 @@ function Figure.setTransparency(figure: Figure, transparency: number)
 	end
 	if figure.highlight and transparency >= 1 then
 		figure.highlight.Enabled = false
+	end
+end
+
+-- Shows (`out`) or hides the figure's drawn weapons (LookKit weapons with `drawn`): a sword drawn
+-- for a strike and put away after.
+function Figure.setDrawn(figure: Figure, out: boolean)
+	if figure.weaponOut == out then
+		return
+	end
+	figure.weaponOut = out
+	for _, piece in figure.pieces do
+		if piece.drawn then
+			piece.part.Transparency = shownTransparency(figure, piece)
+		end
 	end
 end
 
@@ -807,21 +996,65 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 	local anchors = figure.anchors
 	local horse = figure.horse
 	anchors.root = root
-	local feet = if pose.fall ~= 0 then root * CFrame.Angles(pose.fall, 0, 0) else root
+	local tilt = pose.tilt or 0
+	local feet = if pose.fall ~= 0 or tilt ~= 0 then root * CFrame.Angles(pose.fall, 0, -tilt) else root
+	-- A whole-body spin about the vertical (an ultimate's spinning attack).
+	local spin = pose.spin or 0
+	if spin ~= 0 then
+		feet *= CFrame.Angles(0, spin, 0)
+	end
+	local twist = pose.twist or 0
+	-- Riders stay seated: no crouch on a horse.
+	local crouch = if horse then 0 else math.clamp(pose.crouch or 0, 0, 0.9)
 
 	local lean = figure.lean + pose.lean
+	-- The hips moved sideways (weight on one leg); a rider stays in the saddle.
+	local shift = if horse then 0 else (pose.shift or 0) * figure.height
+	local roll = pose.roll or 0
 	if figure.isModel then
+		-- A model cannot bend its legs: a crouch is a smaller dip of the whole model.
 		local lift = if horse then horse.seat * 0.75 else 0
-		anchors.model = feet * CFrame.new(0, pose.bob + lift, 0) * CFrame.Angles(-lean, 0, 0)
+		local dip = crouch * figure.height * 0.12
+		anchors.model = feet
+			* CFrame.new(shift, pose.bob + lift - dip, 0)
+			* CFrame.Angles(0, twist, 0)
+			* CFrame.Angles(-lean, 0, 0)
 	else
-		local seat = if horse then horse.seat else b.legLength
-		local hips = feet * CFrame.new(0, seat + pose.bob, 0) * CFrame.Angles(-lean, 0, 0)
+		local seat = if horse then horse.seat else b.legLength * (1 - crouch)
+		-- The legs hang from the pelvis; the upper body (torso, head, arms) also turns with `twist`
+		-- and rolls with `roll`.
+		local pelvis = feet * CFrame.new(shift, seat + pose.bob, 0) * CFrame.Angles(-lean, 0, 0)
+		local hips = if twist ~= 0 or roll ~= 0
+			then feet
+				* CFrame.new(shift, seat + pose.bob, 0)
+				* CFrame.Angles(0, twist, 0)
+				* CFrame.Angles(-lean, 0, 0)
+				* CFrame.Angles(0, 0, -roll)
+			else pelvis
 		anchors.hips = hips
-		anchors.head = hips * figure.headOffset
+		-- The head turns on the neck: yaw, then nod and tip.
+		local headPitch, headYaw, headRoll = pose.headPitch or 0, pose.headYaw or 0, pose.headRoll or 0
+		anchors.head = if headPitch ~= 0
+				or headYaw ~= 0
+				or headRoll ~= 0
+			then hips
+				* figure.neckOffset
+				* CFrame.Angles(0, headYaw, 0)
+				* CFrame.Angles(-headPitch, 0, -headRoll)
+				* figure.neckToHead
+			else hips * figure.headOffset
 		local shoulderX = (b.torsoWidth + b.armWidth) / 2
 		local shoulderY = b.torsoHeight - b.armWidth / 2
-		local leftArm = hips * CFrame.new(-shoulderX, shoulderY, 0) * CFrame.Angles(pose.leftArm, 0, 0)
-		local rightArm = hips * CFrame.new(shoulderX, shoulderY, 0) * CFrame.Angles(pose.rightArm, 0, 0)
+		-- An arm raised out to the side turns about the shoulder's front axis first (out: away from
+		-- the body), then forward.
+		local leftArm = hips
+			* CFrame.new(-shoulderX, shoulderY, 0)
+			* CFrame.Angles(0, 0, -(pose.leftArmOut or 0))
+			* CFrame.Angles(pose.leftArm, 0, 0)
+		local rightArm = hips
+			* CFrame.new(shoulderX, shoulderY, 0)
+			* CFrame.Angles(0, 0, pose.rightArmOut or 0)
+			* CFrame.Angles(pose.rightArm, 0, 0)
 		anchors.leftArm = leftArm
 		anchors.rightArm = rightArm
 		local reach = b.handReach or b.armLength
@@ -830,11 +1063,15 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 		if horse then
 			-- Astride: legs raised forward and spread.
 			local raise, splay = rad(FigureConfig.horse.riderLegs), rad(FigureConfig.horse.riderLegSplay)
-			anchors.leftLeg = hips * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, -splay)
-			anchors.rightLeg = hips * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, splay)
+			anchors.leftLeg = pelvis * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, -splay)
+			anchors.rightLeg = pelvis * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(raise, 0, splay)
 		else
-			anchors.leftLeg = hips * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(pose.leftLeg, 0, 0)
-			anchors.rightLeg = hips * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(pose.rightLeg, 0, 0)
+			-- A crouch splays the legs so the feet stay on the ground under the lowered hips; a hip
+			-- shift angles both legs back under them, so the feet stay planted.
+			local splay = if crouch > 0 then math.acos(1 - crouch) else 0
+			local plant = if shift ~= 0 then math.asin(math.clamp(-shift / math.max(seat, 1e-3), -0.5, 0.5)) else 0
+			anchors.leftLeg = pelvis * CFrame.new(-b.legSpacing, 0, 0) * CFrame.Angles(pose.leftLeg, 0, plant - splay)
+			anchors.rightLeg = pelvis * CFrame.new(b.legSpacing, 0, 0) * CFrame.Angles(pose.rightLeg, 0, plant + splay)
 		end
 	end
 	if horse then
@@ -848,15 +1085,90 @@ computeAnchors = function(figure: Figure, root: CFrame, pose: Pose)
 	end
 end
 
+local DOWN = Vector3.new(0, -1, 0)
+local TAU = 2 * math.pi
+
+-- Advances every loose set by `dt` seconds from where its pivot is now (the anchors are worked out)
+-- and works out its frame. Each set is a damped spring per axis: it trails the pivot's movement
+-- (`drag`) and keeps hanging toward the ground as the body tilts (`hang`), within its limits.
+local function updateSwings(figure: Figure, dt: number)
+	local config = AnimationConfig.secondary
+	local height = figure.height
+	local anchors = figure.anchors
+	for _, swing in figure.swings do
+		local anchor = anchors[swing.anchor]
+		if not anchor then
+			continue
+		end
+		local base = anchor * swing.pivot
+		local at = base.Position
+		if not figure.swingOn then
+			swing.pitch, swing.roll, swing.pitchSpeed, swing.rollSpeed = 0, 0, 0, 0
+			swing.last = nil
+		elseif dt > 0 then
+			local last = swing.last
+			if last and (at - last).Magnitude < config.teleport * height then
+				local g = swing.group
+				local velocity = base:VectorToObjectSpace(at - last) / (dt * height)
+				local down = base:VectorToObjectSpace(DOWN)
+				local pitchGoal = g.drag * velocity.Z + g.hang * math.atan2(-down.Z, -down.Y)
+				local rollGoal = -g.drag * velocity.X + g.hang * math.atan2(down.X, -down.Y)
+				local omega = TAU * g.frequency
+				local stiffness, damping = omega * omega, 2 * g.damping * omega
+				local steps = math.min(4, math.ceil(dt / config.maxStep))
+				local step = math.min(dt, config.maxStep * 4) / steps
+				for _ = 1, steps do
+					swing.pitchSpeed += (stiffness * (pitchGoal - swing.pitch) - damping * swing.pitchSpeed) * step
+					swing.pitch += swing.pitchSpeed * step
+					swing.rollSpeed += (stiffness * (rollGoal - swing.roll) - damping * swing.rollSpeed) * step
+					swing.roll += swing.rollSpeed * step
+				end
+				-- Limits: away from the body `back`, toward it `front` (a part hanging behind swings
+				-- back with negative pitch), sideways `side`. At a limit the swing stops there.
+				local away, toward = math.rad(g.back), math.rad(g.front)
+				local low, high = -away, away
+				if swing.facing > 0 then
+					high = toward
+				elseif swing.facing < 0 then
+					low = -toward
+				end
+				if swing.pitch < low or swing.pitch > high then
+					swing.pitch = math.clamp(swing.pitch, low, high)
+					swing.pitchSpeed = 0
+				end
+				local side = math.rad(g.side)
+				if math.abs(swing.roll) > side then
+					swing.roll = math.clamp(swing.roll, -side, side)
+					swing.rollSpeed = 0
+				end
+			end
+			swing.last = at
+		end
+		swing.frame = if swing.pitch ~= 0 or swing.roll ~= 0
+			then base * CFrame.Angles(swing.pitch, 0, swing.roll)
+			else base
+	end
+end
+
+-- Turns the loose parts' swinging on or off (off: they hang rigid; for low effect quality).
+function Figure.setSwinging(figure: Figure, on: boolean)
+	figure.swingOn = on
+end
+
 -- Places every piece: the hitbox at `hitboxCFrame`, the figure standing on `root` in `pose`.
-function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: Pose)
+-- `dt` (seconds since the last placement; 0 or nil: none) advances the loose parts' swinging.
+function Figure.place(figure: Figure, hitboxCFrame: CFrame, root: CFrame, pose: Pose, dt: number?)
 	local anchors = figure.anchors
 	anchors.hitbox = hitboxCFrame
 	computeAnchors(figure, root, pose)
+	if #figure.swings > 0 then
+		updateSwings(figure, dt or 0)
+	end
 
 	local cframes = figure.cframes
 	for i, piece in figure.pieces do
-		cframes[i] = anchors[piece.anchor] * piece.offset
+		local swing = piece.swing
+		cframes[i] = if swing then swing.frame * (piece.swingOffset :: CFrame) else anchors[piece.anchor] * piece.offset
 	end
 	workspace:BulkMoveTo(figure.parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 end
