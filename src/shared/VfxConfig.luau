@@ -85,9 +85,21 @@ return deepFreeze({
 	-- next pick is used) and is never tinted.
 	hue = { strict = false, bakedTint = 0.5, maxGap = 0.09, minSaturation = 0.3 },
 
-	-- requireLoaded = false: an image is used as soon as it is chosen (it pops in when it arrives)
-	-- and only one that failed to load falls back to neon. true: only images already loaded.
-	loading = { requireLoaded = false },
+	-- Loading. Images are preloaded one at a time `stagger` seconds apart; a failed or unanswered
+	-- preload is tried again after each of `retryDelays` (seconds), and only when every try has failed
+	-- does the image fall back to neon. Images given up on are asked about again every `recheck`
+	-- seconds when an effect would draw with them. requireLoaded = false: an image is drawn while it
+	-- loads (it pops in when it arrives); true: only once loaded.
+	loading = { requireLoaded = false, stagger = 0.15, retryDelays = { 2, 6, 12 }, recheck = 2 },
+
+	-- Filters, each a switch:
+	--   sprites       true: a black-background (additive) or flipbook texture asked to draw as a plane
+	--                 or billboard draws as one additive particle sprite of the same size, place and fade
+	--                 (flat on the ground for planes) instead of being passed over
+	--   burstAnywhere true: a whole-burst image may also be a stream particle (sparks); false: only
+	--                 single flashes
+	--   beamAlong     true: a texture marked `beam = false` is passed over for beams (the next fits)
+	filters = { sprites = true, burstAnywhere = true, beamAlong = true },
 
 	-- How each kind of effect draws. `roles` in order (the first with a fitting texture wins), `modes`
 	-- in order of preference:
@@ -117,7 +129,8 @@ return deepFreeze({
 		bolt = { roles = { "lightning" }, modes = { "billboard" }, brightness = 2, upright = true }, -- a bolt striking down
 		halo = { roles = { "energy" }, modes = { "billboard" }, brightness = 1.6 }, -- orbs and orb projectiles
 		shell = { roles = { "rings" }, modes = { "billboard" }, brightness = 1.3 }, -- growing shockwave shells
-		aura = { roles = { "auras" }, modes = { "billboard" }, brightness = 1.6, upright = true }, -- aura spikes
+		-- aura spikes: an aura pack once exported, until then the fire flipbook (as sprites)
+		aura = { roles = { "auras", "fire" }, modes = { "billboard" }, brightness = 1.6, upright = true },
 		lightning = { roles = { "lightning" }, modes = { "beam" }, speed = 3, width = 3 }, -- jagged beams, zaps
 		beamGlow = { roles = { "energy", "smoke" }, modes = { "beam" }, width = 1.4 }, -- the soft glow around beams, columns
 		impactFrame = { roles = { "flashes" }, modes = { "screen" } }, -- ultimate releases (below)

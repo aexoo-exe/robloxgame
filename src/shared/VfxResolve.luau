@@ -24,6 +24,8 @@ export type Texture = {
 	speed: number, -- beam texture scroll
 	width: number, -- a beam's width, times the neon bar's
 	upright: boolean, -- a billboard keeps the image upright (no random turn)
+	-- a plane or billboard drawn as one additive particle sprite (a black background or a flipbook)
+	sprite: boolean,
 }
 
 export type Context = { unit: string?, element: string?, color: Color3? }
@@ -101,32 +103,36 @@ local function imageOf(role: string, rank: number): (number?, any?, string?)
 end
 
 -- Whether a texture with `traits` can draw in `mode` for `usage`, and why not.
-local function fits(traits: any, mode: string, usage: any): (boolean, string?)
+-- Whether a texture with `traits` can draw in `mode` for `usage`, and why not. The third result is
+-- true when it draws as an additive particle sprite in place of a plane or billboard (a black
+-- background or a flipbook; VfxConfig.filters.sprites).
+local function fits(traits: any, mode: string, usage: any): (boolean, string?, boolean)
+	local filters = VfxConfig.filters
 	if traits.unusable then
-		return false, traits.unusable
+		return false, traits.unusable, false
 	end
 	if traits.frame or mode == "screen" then
-		return traits.frame == true and mode == "screen", "only a full-screen frame draws as a screen"
+		return traits.frame == true and mode == "screen", "only a full-screen frame draws as a screen", false
 	end
-	if traits.burst and not usage.burst then
-		return false, "a whole burst image: only for single flashes"
+	if traits.burst and not usage.burst and not filters.burstAnywhere then
+		return false, "a whole burst image: only for single flashes (filters.burstAnywhere)", false
 	end
 	if mode == "plane" or mode == "billboard" then
-		if traits.blend ~= "alpha" then
-			return false, "black background: planes and billboards cannot hide it"
-		end
-		if traits.flipbook then
-			return false, "a flipbook: only particles play it"
+		if traits.blend ~= "alpha" or traits.flipbook then
+			if filters.sprites then
+				return true, nil, true
+			end
+			return false, "black background or flipbook: needs filters.sprites", false
 		end
 	elseif mode == "beam" then
 		if traits.flipbook then
-			return false, "a flipbook: only particles play it"
+			return false, "a flipbook: beams cannot play it", false
 		end
-		if traits.beam == false then
-			return false, "does not read along a beam"
+		if traits.beam == false and filters.beamAlong then
+			return false, "does not read along a beam (filters.beamAlong)", false
 		end
 	end
-	return true, nil
+	return true, nil, false
 end
 
 local function split(key: string): (string?, number?)
@@ -194,15 +200,15 @@ function VfxResolve.resolve(
 			table.insert(trace, { key = key, reason = missing or "no texture" })
 			continue
 		end
-		local chosen, why = nil, nil
+		local chosen, why, sprite = nil, nil, false
 		for _, way in usage.modes do
 			if mode and way ~= mode then
 				why = why or ("this effect draws only as a " .. mode)
 				continue
 			end
-			local ok, reason = fits(traits, way, usage)
+			local ok, reason, asSprite = fits(traits, way, usage)
 			if ok then
-				chosen = way
+				chosen, sprite = way, asSprite
 				break
 			end
 			why = why or reason
@@ -252,6 +258,7 @@ function VfxResolve.resolve(
 			speed = usage.speed or 0,
 			width = usage.width or 1,
 			upright = usage.upright == true,
+			sprite = sprite,
 		},
 			trace
 	end

@@ -113,11 +113,15 @@ function VfxDebug.report(): string
 	)
 	line(
 		string.format(
-			"loading: requireLoaded=%s, preload finished=%s | hue.strict=%s bakedTint=%.2f",
+			"loading: requireLoaded=%s, first pass done=%s, retries after %s s | hue.strict=%s bakedTint=%.2f | filters: sprites=%s burstAnywhere=%s beamAlong=%s",
 			tostring(VfxConfig.loading.requireLoaded),
 			tostring(Vfx.preloaded()),
+			table.concat(VfxConfig.loading.retryDelays, "/"),
 			tostring(VfxConfig.hue.strict),
-			VfxConfig.hue.bakedTint
+			VfxConfig.hue.bakedTint,
+			tostring(VfxConfig.filters.sprites),
+			tostring(VfxConfig.filters.burstAnywhere),
+			tostring(VfxConfig.filters.beamAlong)
 		)
 	)
 
@@ -161,6 +165,7 @@ function VfxDebug.report(): string
 	end
 	table.sort(usages)
 	local sampleUnits = samples()
+	local allTextured, someTextured, allNeon = 0, 0, 0
 	for _, usage in usages do
 		local config = VfxConfig.uses[usage]
 		-- Group the elements by result.
@@ -173,7 +178,10 @@ function VfxDebug.report(): string
 			)
 			local result
 			if texture then
-				result = texture.key .. " " .. texture.mode
+				result = texture.key
+					.. " "
+					.. texture.mode
+					.. (if texture.sprite then " (as an additive sprite)" else "")
 				local shaped = texture.mode == "plane" or texture.mode == "billboard" or texture.mode == "beam"
 				if shaped and not quality.shapes then
 					result ..= " (but shapes are off at this quality: neon/none)"
@@ -189,12 +197,34 @@ function VfxDebug.report(): string
 			end
 			table.insert(groups[result], sample.element .. (if sample.unit then "/" .. sample.unit else ""))
 		end
+		local neon = 0
+		for _, result in order do
+			if string.sub(result, 1, 4) == "NEON" then
+				neon += #groups[result]
+			end
+		end
+		if neon == 0 then
+			allTextured += 1
+		elseif neon == #sampleUnits then
+			allNeon += 1
+		else
+			someTextured += 1
+		end
 		line(string.format("  %s [%s; %s]:", usage, table.concat(config.roles, ","), table.concat(config.modes, ",")))
 		for _, result in order do
 			line("      " .. result .. " <- " .. table.concat(groups[result], " "))
 		end
 	end
 
+	line(
+		string.format(
+			"usages: %d of %d textured for every element, %d for some, %d neon for all",
+			allTextured,
+			#usages,
+			someTextured,
+			allNeon
+		)
+	)
 	line("-- draws since the fight/preview started (texture requests: textured / neon fallback):")
 	local counts = Vfx.counts()
 	local names = {}

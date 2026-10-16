@@ -1255,6 +1255,7 @@ for _, file in { "ImpactEffects", "FxKit", "UltimateKit", "CombatEffects", "Comb
 			'usage = "(%a+)"',
 			'usage or "(%a+)"',
 			'ballDuration, "(%a+)"',
+			'then "(%a+Flash)"',
 		}
 	do
 		for usage in string.gmatch(text, pattern) do

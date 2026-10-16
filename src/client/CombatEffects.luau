@@ -31,6 +31,7 @@ type Shot = {
 	top: Attachment,
 	bottom: Attachment,
 	sprite: BillboardGui?, -- a ball's halo
+	glow: ParticleEmitter?, -- a ball's halo from a black-background texture (one additive particle)
 	blade: { SurfaceGui }?, -- a wave's two faces
 }
 
@@ -47,7 +48,7 @@ type Projectile = {
 	tongue: boolean?,
 	arc: number,
 	size: number,
-	textured: boolean, -- drawn with its texture (sprite or blade)
+	skin: string?, -- drawn with its texture: "sprite", "glow" or "blade"
 }
 
 type Pulse = {
@@ -131,6 +132,9 @@ local function plain(shot: Shot)
 	if shot.sprite then
 		shot.sprite.Enabled = false
 	end
+	if shot.glow then
+		shot.glow:Clear()
+	end
 	for _, face in shot.blade or {} do
 		face.Enabled = false
 	end
@@ -151,10 +155,32 @@ local function label(parent: Instance, texture: Vfx.Texture, color: Color3): Ima
 	return found
 end
 
--- Readies a shot's texture: a halo sprite `across` studs wide, or a blade on its two flat faces.
--- It shows at launch.
-local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: number)
-	if texture.mode == "billboard" then
+-- Readies a shot's texture: a halo sprite `across` studs wide (an additive glow particle for a
+-- black-background texture), or a blade on its two flat faces. It shows at launch. Returns which,
+-- or nil when the texture cannot dress this shot (a black-background blade).
+local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: number): string?
+	if texture.sprite and texture.mode == "billboard" then
+		if not shot.glow then
+			local glow = Instance.new("ParticleEmitter")
+			glow.Rate = 0
+			glow.Enabled = false
+			glow.LockedToPart = true
+			glow.LightInfluence = 0
+			glow.Speed = NumberRange.new(0)
+			glow.Lifetime = NumberRange.new(30) -- cleared when the shot lands
+			glow.Parent = shot.part
+			shot.glow = glow
+		end
+		local glow = shot.glow :: ParticleEmitter
+		glow.Texture = texture.image
+		glow.LightEmission = if texture.blend == "additive" then 1 else 0
+		glow.Size = NumberSequence.new(across)
+		glow.Color = ColorSequence.new(Vfx.tint(texture, color))
+		glow.Rotation = NumberRange.new(math.random() * 360)
+		return "glow"
+	elseif texture.sprite then
+		return nil
+	elseif texture.mode == "billboard" then
 		if not shot.sprite then
 			local sprite = Instance.new("BillboardGui")
 			sprite.LightInfluence = 0
@@ -167,6 +193,7 @@ local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: nu
 		sprite.Brightness = texture.brightness
 		sprite.Enabled = false
 		label(sprite, texture, color).Rotation = math.random() * 360
+		return "sprite"
 	else
 		if not shot.blade then
 			local faces = {}
@@ -186,6 +213,7 @@ local function dress(shot: Shot, texture: Vfx.Texture, color: Color3, across: nu
 			surface.Enabled = false
 			label(surface, texture, color)
 		end
+		return "blade"
 	end
 end
 
@@ -234,16 +262,15 @@ function CombatEffects.projectile(
 	shot.part.Shape = if settings.tongue or flat then Enum.PartType.Block else Enum.PartType.Ball
 	shot.part.Size = if flat then Vector3.new(size * look.width, size * 0.12, size * 0.35) else Vector3.one * size
 	-- Textures: a ball's halo, a wave's blade (only where the quality level shows rings).
-	local texture = nil
+	local skin = nil
 	if not settings.tongue and ImpactEffects.allows("rings") then
 		local wanted = if flat then Vfx.texture("slash", color, "plane") else Vfx.texture("halo", color, "billboard")
 		if wanted and wanted.mode == (if flat then "plane" else "billboard") then
-			texture = wanted
-			if flat then
+			skin = dress(shot, wanted, color, size * 3)
+			if skin == "blade" then
 				-- Deep enough for the blade texture to read.
 				shot.part.Size = Vector3.new(size * look.width, size * 0.12, size * look.width * 0.45)
 			end
-			dress(shot, texture, color, size * 3)
 		end
 	end
 	local trailing = not settings.tongue and look.trail ~= nil and ImpactEffects.allows("trails")
@@ -277,7 +304,7 @@ function CombatEffects.projectile(
 		tongue = settings.tongue,
 		arc = look.arc or 0,
 		size = size,
-		textured = texture ~= nil,
+		skin = skin,
 	})
 end
 
@@ -311,17 +338,20 @@ function CombatEffects.update(now: number)
 			shot.part.Transparency = 0
 			shot.trail:Clear()
 			shot.trail.Enabled = projectile.trailing
-			if projectile.textured then
+			local skin = projectile.skin
+			if skin then
 				-- A wave is all blade (its neon block hidden); a ball keeps a smaller bright core.
-				if shot.blade then
+				if skin == "blade" and shot.blade then
 					for _, face in shot.blade do
 						face.Enabled = true
 					end
-				end
-				if shot.sprite then
+				elseif skin == "sprite" and shot.sprite then
 					shot.sprite.Enabled = true
+				elseif skin == "glow" and shot.glow then
+					shot.glow:Clear()
+					shot.glow:Emit(1)
 				end
-				if shot.part.Shape == Enum.PartType.Block then
+				if skin == "blade" then
 					shot.part.Transparency = 1
 				else
 					shot.part.Size = Vector3.one * projectile.size * 0.6

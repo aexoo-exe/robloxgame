@@ -176,6 +176,7 @@ type Shape = {
 	texture: Vfx.Texture?,
 	shown: number, -- the transparency its step last set (the neon part itself is hidden)
 	spin: number, -- a billboard's turn, degrees (varies so repeats do not look stamped)
+	emitted: boolean, -- a sprite's particle is out
 }
 local spareShapes: { [string]: { BasePart } } = {}
 local madeShapes = 0
@@ -190,6 +191,7 @@ type Skin = {
 	sprite: ImageLabel?,
 	ends: { Attachment }?,
 	beam: Beam?,
+	sprite: ParticleEmitter?, -- a black-background or flipbook plane/billboard (one particle)
 }
 local skins: { [BasePart]: Skin } = {}
 local FACES = {
@@ -326,6 +328,9 @@ local function hideSkin(part: BasePart)
 	if skin.beam then
 		skin.beam.Enabled = false
 	end
+	if skin.sprite then
+		skin.sprite:Clear()
+	end
 end
 
 local function image(parent: Instance): ImageLabel
@@ -393,6 +398,77 @@ local function beamOf(part: BasePart, skin: Skin): (Beam, { Attachment })
 	return skin.beam :: Beam, skin.ends :: { Attachment }
 end
 
+-- A sprite: one particle locked to the part, made on first use. Emitter properties (size, fade,
+-- color) apply to a particle already out, so it follows the shape's step every frame.
+local SPRITE_FACES = { X = Enum.NormalId.Right, Y = Enum.NormalId.Top, Z = Enum.NormalId.Front }
+local function spriteOf(part: BasePart, skin: Skin): ParticleEmitter
+	if not skin.sprite then
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Rate = 0
+		emitter.Enabled = false
+		emitter.LockedToPart = true
+		emitter.LightInfluence = 0
+		emitter.Speed = NumberRange.new(0.001) -- a heading for flat sprites, no visible movement
+		emitter.SpreadAngle = Vector2.zero
+		emitter.Drag = 0
+		emitter.Acceleration = Vector3.zero
+		emitter.RotSpeed = NumberRange.new(0)
+		emitter.ZOffset = 0.5
+		emitter.Parent = part
+		skin.sprite = emitter
+	end
+	return skin.sprite :: ParticleEmitter
+end
+
+-- Draws a black-background or flipbook texture as one additive particle in place of a plane (flat,
+-- across the part's thinnest side) or a billboard (facing the camera).
+local function drawSprite(entry: Shape, skin: Skin, color: Color3, size: Vector3, seen: number)
+	local texture = entry.texture :: Vfx.Texture
+	local emitter = spriteOf(entry.part, skin)
+	local across
+	if texture.mode == "plane" then
+		local axis = if size.X <= size.Y and size.X <= size.Z then "X" elseif size.Y <= size.Z then "Y" else "Z"
+		across = if axis == "X"
+			then math.max(size.Y, size.Z)
+			elseif axis == "Y" then math.max(size.X, size.Z)
+			else math.max(size.X, size.Y)
+		if not entry.emitted then
+			emitter.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+			emitter.EmissionDirection = SPRITE_FACES[axis]
+		end
+	else
+		across = math.max(size.X, size.Y, size.Z)
+		if not entry.emitted then
+			emitter.Orientation = Enum.ParticleOrientation.FacingCamera
+		end
+	end
+	emitter.Size = NumberSequence.new(across)
+	emitter.Transparency = NumberSequence.new(math.clamp(seen, 0, 1))
+	emitter.Color = ColorSequence.new(color)
+	if not entry.emitted then
+		entry.emitted = true
+		emitter.Texture = texture.image
+		emitter.LightEmission = if texture.blend == "additive" then 1 else 0
+		emitter.Brightness = texture.brightness
+		emitter.Rotation = NumberRange.new(if texture.upright then 0 else entry.spin)
+		local flipbook = texture.flipbook
+		if flipbook then
+			emitter.FlipbookLayout = (Enum.ParticleFlipbookLayout :: any)["Grid" .. flipbook.layout]
+			emitter.FlipbookMode = (Enum.ParticleFlipbookMode :: any)[flipbook.mode]
+				or Enum.ParticleFlipbookMode.OneShot
+			emitter.FlipbookFramerate = NumberRange.new(flipbook.fps or 24)
+			-- A one-shot sheet plays over the particle's life: the shape's.
+			emitter.Lifetime =
+				NumberRange.new(if flipbook.mode == "OneShot" then math.max(entry.duration, 0.05) else 30)
+		else
+			emitter.FlipbookLayout = Enum.ParticleFlipbookLayout.None
+			emitter.Lifetime = NumberRange.new(30) -- cleared when the shape ends
+		end
+		emitter:Clear()
+		emitter:Emit(1)
+	end
+end
+
 -- Draws a textured shape over what its step just set (size, place, color, `shown` transparency).
 local function drawSkin(entry: Shape)
 	local part = entry.part
@@ -401,7 +477,9 @@ local function drawSkin(entry: Shape)
 	local color = Vfx.tint(texture, part.Color)
 	local size = part.Size
 	local seen = entry.shown
-	if texture.mode == "plane" then
+	if texture.sprite then
+		drawSprite(entry, skin, color, size, seen)
+	elseif texture.mode == "plane" then
 		local axis = if size.X <= size.Y and size.X <= size.Z then "X" elseif size.Y <= size.Z then "Y" else "Z"
 		local surfaces, labels = surfacesOf(part, skin)
 		for i, surface in surfaces do
@@ -741,6 +819,7 @@ function ImpactEffects.shape(
 		texture = texture,
 		shown = 1,
 		spin = math.random() * 360,
+		emitted = false,
 	})
 end
 
