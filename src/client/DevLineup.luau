@@ -123,6 +123,7 @@ local stage: Stage? = nil
 -- (DevLineup QA handle, below).
 local stageTime = 0
 local timeScale = 1
+local frozenScale: number? = nil -- the time scale before O froze the effects
 local function stageClock(): number
 	return stageTime
 end
@@ -143,7 +144,7 @@ local OVERVIEW_HELP = "L close   . / ] / Right: next   , / [ / Left: previous"
 local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
-	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate",
+	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate   O freeze + dump",
 }, "\n")
 
 -- Shows the key help and the title (the unit in a close-up) on the lineup's on-screen panel.
@@ -1166,6 +1167,19 @@ function DevLineup.start()
 		end
 		if key == Enum.KeyCode.L then
 			toggle()
+		elseif key == Enum.KeyCode.O then
+			-- Freeze every live effect (time 0, particles too) and print each instance; O again resumes.
+			if timeScale ~= 0 then
+				frozenScale = timeScale
+				timeScale = 0
+				ImpactEffects.setTimeScale(0)
+				VfxDebug.dumpLive()
+				print("[DevLineup] effects frozen (O again to resume)")
+			else
+				timeScale = frozenScale or 1
+				ImpactEffects.setTimeScale(timeScale)
+				print("[DevLineup] effects resumed")
+			end
 		elseif key == Enum.KeyCode.S and stage then
 			-- Judge an ultimate: replay it (as key 3) at 0.25x, particles included, then back to 1x.
 			local slow = 0.25

@@ -533,6 +533,7 @@ local function drawSkin(entry: Shape)
 			beam.TextureLength = 1
 		end
 		beam.LightEmission = texture.light or (if texture.blend == "additive" then 1 else 0)
+		beam.Brightness = texture.brightness
 		beam.Width0 = width * texture.width
 		beam.Width1 = width * texture.width
 		beam.Color = ColorSequence.new(color)
@@ -920,6 +921,7 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 	part.CFrame = CFrame.lookAt(position, position + aim)
 	emitter.EmissionDirection = Enum.NormalId.Front
 	emitter.TimeScale = particleTimeScale
+	emitter:SetAttribute("vfx", (spec.usage or "fallback") .. (if texture then " " .. texture.key else " (no texture)"))
 	emitter.Color = spec.color
 	if scale ~= 1 then
 		local points = {}
@@ -1076,6 +1078,8 @@ function ImpactEffects.shape(
 		skinnedDrawn += 1
 	end
 	local p = part :: BasePart
+	-- What it draws, for the live-effects dump (VfxDebug.dumpLive, the dev lineup's O key).
+	p:SetAttribute("vfx", if texture then texture.key .. " " .. texture.mode else "neon")
 	ensureRunning()
 	p.Color = color
 	p.Material = material or Enum.Material.Neon

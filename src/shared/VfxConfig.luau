@@ -143,7 +143,15 @@ return deepFreeze({
 		-- the soft glow around beams, columns and glowing bars (over their neon core)
 		beamGlow = { on = true, roles = { "glow" }, modes = { "beam" }, width = 1.6, light = 1 },
 		-- a lightning arc's colored outer glow (VfxRecipe.arc): the lightning strip, wide, half light
-		boltGlow = { on = true, roles = { "lightning" }, modes = { "beam" }, speed = 6, width = 2.4, light = 0.5 },
+		boltGlow = {
+			on = true,
+			roles = { "lightning" },
+			modes = { "beam" },
+			speed = 6,
+			width = 2.4,
+			light = 0.5,
+			brightness = 2.5,
+		},
 		-- motes drawn in or pushed out, spiral orbs: twinkling star sparks
 		mote = {
 			on = true,

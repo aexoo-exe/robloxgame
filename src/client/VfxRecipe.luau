@@ -122,7 +122,8 @@ local LIGHTNING = {
 	segments = { 3, 6 },
 	segmentLength = 1.1, -- studs per segment, within `segments`
 	push = 0.22, -- sideways push of a kink, share of the arc's length
-	coreWidth = 0.22, -- the bright core, share of the width (0.45 without the kit's glow)
+	coreWidth = 0.14, -- the bright core, share of the width (0.4 without the kit's glow)
+	coreWhite = 0.5, -- how far the core's color goes toward white (the glow keeps the full color)
 	strands = { 2, 2, 3, 4, 5 }, -- VfxRecipe.arcs by tier
 	light = { brightness = 2.5, seconds = 0.15 },
 }
@@ -209,8 +210,9 @@ function VfxRecipe.energy(color: Color3, accent: Color3?): Theme
 	local hot = accent or color:Lerp(WHITE, 0.5)
 	local deep = color:Lerp(BLACK, 0.55)
 	return {
-		core = colors({ { 0, WHITE }, { 1, hot:Lerp(WHITE, 0.4) } }),
-		blast = colors({ { 0, hot:Lerp(WHITE, 0.35) }, { 0.3, color:Lerp(WHITE, 0.15) }, { 0.7, color }, { 1, deep } }),
+		-- white only at the very start, then the theme's color
+		core = colors({ { 0, WHITE }, { 0.12, hot }, { 0.5, color }, { 1, color } }),
+		blast = colors({ { 0, hot }, { 0.25, color }, { 0.7, color:Lerp(BLACK, 0.25) }, { 1, deep } }),
 		blastBig = colors({
 			{ 0, hot },
 			{ 0.25, color },
@@ -317,17 +319,19 @@ end
 function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?, usage: string?, light: number?)
 	local config = D.explosion
 	local glow = usage == "glow" or usage == "smoke"
+	-- A glow sheet adds light everywhere it covers: smaller than a fireball so units stay readable.
+	local scale = if usage == "glow" then size * 0.6 else size
 	ImpactEffects.emit(at, {
 		usage = usage or "explosion",
 		count = 1,
 		color = palette or P.explosion,
-		size = curve({ { 0, size * config.size[1] }, { 0.2, size * config.size[2] }, { 1, size * config.size[3] } }),
+		size = curve({ { 0, scale * config.size[1] }, { 0.2, scale * config.size[2] }, { 1, scale * config.size[3] } }),
 		-- a glow sheet has no frames of its own: it thins out sooner
 		transparency = if glow
 			then curve({ { 0, 0.15 }, { 0.4, 0.35 }, { 1, 1 } })
 			else curve({ { 0, 0.1 }, { 0.7, 0.2 }, { 1, 1 } }),
 		lifetime = { config.lifetime, config.lifetime },
-		lightEmission = light or (if usage == "glow" then 1 else config.lightEmission),
+		lightEmission = light or (if usage == "glow" then 0.6 else config.lightEmission),
 		brightness = config.brightness,
 		rotSpeed = if glow then { -40, 40 } else nil,
 	})
@@ -656,7 +660,7 @@ function VfxRecipe.arc(
 	lit: boolean?
 )
 	local glow = FxKit.textured("boltGlow", color, "beam")
-	local core = color:Lerp(WHITE, 0.8)
+	local core = color:Lerp(WHITE, LIGHTNING.coreWhite)
 	local length = (b - a).Magnitude
 	local segments =
 		math.clamp(math.floor(length / LIGHTNING.segmentLength), LIGHTNING.segments[1], LIGHTNING.segments[2])
@@ -671,7 +675,7 @@ function VfxRecipe.arc(
 		end
 		return state.points
 	end
-	local coreShare = if glow then LIGHTNING.coreWidth else 0.45
+	local coreShare = if glow then LIGHTNING.coreWidth else 0.4
 	for i = 1, segments do
 		for layer = 1, 2 do
 			local isCore = layer == 1
@@ -679,6 +683,14 @@ function VfxRecipe.arc(
 				local points = strandAt(progress)
 				local p, q = points[i], points[i + 1]
 				local w = width * (if isCore then coreShare else 1) * (1 - 0.3 * progress)
+				-- A camera-facing glow seen end-on collapses into a fat oval: thin it the more the
+				-- segment points at the camera.
+				local camera = workspace.CurrentCamera
+				local along = q - p
+				if not isCore and camera and along.Magnitude > 1e-3 then
+					local facing = math.abs(along.Unit:Dot(camera.CFrame.LookVector))
+					w *= math.clamp(math.sqrt(1 - facing * facing), 0.15, 1)
+				end
 				part.Size = Vector3.new(w, w, math.max((q - p).Magnitude, 0.05))
 				part.CFrame = CFrame.lookAt((p + q) / 2, q)
 				-- On/off with every other re-jitter for the first 70% (2-4 flickers), then a fade.
@@ -691,7 +703,7 @@ function VfxRecipe.arc(
 		ImpactEffects.later(delay, function()
 			ImpactEffects.light(
 				a:Lerp(b, 0.5),
-				core,
+				color:Lerp(WHITE, 0.25),
 				LIGHTNING.light.brightness,
 				math.max(4, length * 0.8),
 				LIGHTNING.light.seconds

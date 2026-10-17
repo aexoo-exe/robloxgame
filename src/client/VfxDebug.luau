@@ -378,4 +378,144 @@ function VfxDebug.test(seconds: number?)
 	return text
 end
 
+-- Every live effect instance, printed to Output (the dev lineup's O key freezes them first): its
+-- path, class, what it draws (the `vfx` attribute: usage and pick, or "neon"), and for particles
+-- the orientation, size, ZOffset, transparency and color; world position and height above the floor.
+local function floorBelow(at: Vector3, ignore: { Instance }): number?
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(at + Vector3.new(0, 0.5, 0), Vector3.new(0, -200, 0), params)
+	return if hit then hit.Position.Y else nil
+end
+
+local function first(sequence: any): string
+	local keys = sequence.Keypoints
+	local values = {}
+	for _, key in keys do
+		local value = key.Value
+		if typeof(value) == "Color3" then
+			table.insert(
+				values,
+				string.format("%.2f:(%d,%d,%d)", key.Time, value.R * 255, value.G * 255, value.B * 255)
+			)
+		else
+			table.insert(values, string.format("%.2f:%.2f", key.Time, value))
+		end
+	end
+	return table.concat(values, " ")
+end
+
+function VfxDebug.dumpLive(): string
+	local roots = {}
+	for _, name in { "ImpactEffects", "CombatEffects" } do
+		local found = workspace:FindFirstChild(name)
+		if found then
+			table.insert(roots, found)
+		end
+	end
+	local lines = { "==== LIVE EFFECTS ====" }
+	local count = 0
+	for _, root in roots do
+		for _, item in root:GetDescendants() do
+			local holder = if item:IsA("BasePart") then item else item:FindFirstAncestorWhichIsA("BasePart")
+			local where = if holder then holder.Position else nil
+			local live = false
+			local detail = ""
+			if item:IsA("ParticleEmitter") then
+				-- emitters keep their particles until they die; an emitter whose part is parked has none
+				live = holder ~= nil and holder.Parent ~= nil
+				detail = string.format(
+					"orientation=%s zoffset=%.2f lightEmission=%.2f brightness=%.2f timeScale=%.2f size=[%s] transparency=[%s] color=[%s] texture=%s",
+					item.Orientation.Name,
+					item.ZOffset,
+					item.LightEmission,
+					item.Brightness,
+					item.TimeScale,
+					first(item.Size),
+					first(item.Transparency),
+					first(item.Color),
+					item.Texture
+				)
+			elseif item:IsA("Beam") then
+				live = item.Enabled
+				local a, b = item.Attachment0, item.Attachment1
+				detail = string.format(
+					"faceCamera=%s width=%.2f/%.2f length=%.2f textureMode=%s textureLength=%.2f lightEmission=%.2f brightness=%.2f transparency=[%s] color=[%s] texture=%s",
+					tostring(item.FaceCamera),
+					item.Width0,
+					item.Width1,
+					if a and b then (a.WorldPosition - b.WorldPosition).Magnitude else -1,
+					item.TextureMode.Name,
+					item.TextureLength,
+					item.LightEmission,
+					item.Brightness,
+					first(item.Transparency),
+					first(item.Color),
+					item.Texture
+				)
+			elseif item:IsA("SurfaceGui") or item:IsA("BillboardGui") then
+				live = item.Enabled
+				local label = item:FindFirstChildWhichIsA("ImageLabel")
+				detail = string.format(
+					"%s image=%s imageTransparency=%.2f color=(%d,%d,%d) brightness=%.2f",
+					if item:IsA("SurfaceGui") then "face=" .. item.Face.Name else "size=" .. tostring(item.Size),
+					if label then label.Image else "-",
+					if label then label.ImageTransparency else -1,
+					if label then label.ImageColor3.R * 255 else 0,
+					if label then label.ImageColor3.G * 255 else 0,
+					if label then label.ImageColor3.B * 255 else 0,
+					item.Brightness
+				)
+			elseif item:IsA("Decal") then
+				live = item.Transparency < 1
+				detail = string.format(
+					"face=%s texture=%s transparency=%.2f",
+					item.Face.Name,
+					item.Texture,
+					item.Transparency
+				)
+			elseif item:IsA("PointLight") then
+				live = item.Enabled
+				detail = string.format("brightness=%.2f range=%.2f", item.Brightness, item.Range)
+			elseif item:IsA("BasePart") then
+				live = item.Transparency < 1
+				detail = string.format(
+					"shape=%s material=%s size=(%.2f,%.2f,%.2f) transparency=%.2f color=(%d,%d,%d)",
+					if item:IsA("Part") then item.Shape.Name else item.ClassName,
+					item.Material.Name,
+					item.Size.X,
+					item.Size.Y,
+					item.Size.Z,
+					item.Transparency,
+					item.Color.R * 255,
+					item.Color.G * 255,
+					item.Color.B * 255
+				)
+			end
+			if live then
+				count += 1
+				local floor = if where then floorBelow(where, roots) else nil
+				local tag = item:GetAttribute("vfx") or (holder and holder:GetAttribute("vfx")) or "?"
+				table.insert(
+					lines,
+					string.format(
+						"%s [%s] vfx=%s pos=%s height=%s %s",
+						item:GetFullName(),
+						item.ClassName,
+						tostring(tag),
+						if where then string.format("(%.1f,%.1f,%.1f)", where.X, where.Y, where.Z) else "-",
+						if where and floor then string.format("%.2f", where.Y - floor) else "?",
+						detail
+					)
+				)
+			end
+		end
+	end
+	table.insert(lines, string.format("==== %d live effect instances ====", count))
+	local text = table.concat(lines, "\n")
+	print(text)
+	return text
+end
+
 return VfxDebug
