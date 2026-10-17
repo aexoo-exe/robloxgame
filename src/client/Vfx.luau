@@ -1,4 +1,4 @@
--- Effect textures on the client: preloads every picked image, staggered and retried (Vfx.start),
+-- Effect textures on the client: preloads every picked image in one batch, retried once (Vfx.start),
 -- keeps the unit whose effects are being drawn (Vfx.within: its id, element and color pick its
 -- variants), and answers which texture a usage draws with (Vfx.texture; VfxResolve with VfxConfig).
 -- An image is drawn while it loads; only one whose every retry failed falls back to neon (one
@@ -25,7 +25,7 @@ export type Context = VfxResolve.Context
 type Load = { status: string, attempts: number, failed: boolean, checkedAt: number }
 local loads: { [number]: Load } = {}
 local started = false
-local preloaded = false -- the staggered first pass has gone through every image
+local preloaded = false -- the preload (and its retry pass) has finished
 local current: Context? = nil
 local cache: { [string]: Texture | false } = {}
 local recheckedAt = 0
@@ -83,46 +83,48 @@ local function record(id: number, status: string)
 	end
 end
 
--- One preload attempt of an image. A failure (or no answer) is retried after
--- VfxConfig.loading.retryDelays; only when every attempt has failed is it given up on (and drawn
--- neon), with one warning naming its pick and id.
-local function preload(id: number)
-	local entry = loadOf(id)
-	entry.attempts += 1
-	local reported: string? = nil
-	local ok = pcall(function()
-		game:GetService("ContentProvider"):PreloadAsync({ contentOf(id) }, function(_, status: Enum.AssetFetchStatus)
-			reported = status.Name
+-- One preload pass over `ids` in a single ContentProvider:PreloadAsync call: the callback records
+-- each image's status as it arrives (the callback is the source of truth; GetAssetFetchStatus only
+-- fills in images the callback never reported).
+local function preloadAll(ids: { number })
+	local content = {}
+	for _, id in ids do
+		loadOf(id).attempts += 1
+		table.insert(content, contentOf(id))
+	end
+	local reported: { [number]: boolean } = {}
+	local ok, err = pcall(function()
+		game:GetService("ContentProvider"):PreloadAsync(content, function(asset: string, status: Enum.AssetFetchStatus)
+			local id = tonumber(string.match(asset, "(%d+)%s*$"))
+			if id and loads[id] then
+				reported[id] = true
+				record(id, status.Name)
+			end
 		end)
 	end)
-	local status = fetchStatus(id) or reported or (if ok then "Loading" else "Failure")
-	if status == "Success" or (reported == "Success" and not FAILED[status]) then
-		record(id, "Success")
-		return
+	if not ok then
+		warn("[Vfx] PreloadAsync failed: " .. tostring(err))
 	end
-	record(id, status)
-	local delays = LOADING.retryDelays
-	if entry.attempts <= #delays then
-		task.delay(delays[entry.attempts], preload, id)
-	elseif FAILED[status] then
-		entry.failed = true
-		table.clear(cache)
-		warn(
-			string.format(
-				"[Vfx] texture %s (id %d) failed to load after %d tries (%s): its effects use the neon fallback",
-				keysOf(id),
-				id,
-				entry.attempts,
-				status
-			)
-		)
+	for _, id in ids do
+		if not reported[id] then
+			record(id, fetchStatus(id) or (if ok then "Loading" else "Failure"))
+		end
 	end
 end
 
--- One warning in Output once every picked image has loaded or given up (or after `wait` seconds):
--- each pick's key, name, image id and result, so a texture that silently draws neon shows up.
-local SUMMARY_WAIT = 45
-local function summarize()
+local function notLoaded(ids: { number }): { number }
+	local out = {}
+	for _, id in ids do
+		if loads[id].status ~= "Success" then
+			table.insert(out, id)
+		end
+	end
+	return out
+end
+
+-- One warning in Output: each pick's key, name, image id and load result, so a texture that
+-- silently draws neon shows up. `when` says which summary it is.
+local function summarize(when: string)
 	local lines, loaded, total = {}, 0, 0
 	for _, role in VfxConfig.roles do
 		for _, pick in VfxConfig.picks[role] or {} do
@@ -155,7 +157,8 @@ local function summarize()
 	end
 	warn(
 		string.format(
-			"[Vfx] texture load summary (VfxPicks generated %s): %d of %d loaded\n%s",
+			"[Vfx] texture load summary, %s (VfxPicks generated %s): %d of %d loaded\n%s",
+			when,
 			tostring(VfxPicks.generated),
 			loaded,
 			total,
@@ -164,38 +167,45 @@ local function summarize()
 	)
 end
 
--- Preloads every picked image, a few at a time (VfxConfig.loading.stagger seconds apart), retrying
--- failures. Images are drawn while they load (Roblox loads them on first use anyway).
+-- Preloads every picked image in one PreloadAsync call, then once more (after
+-- VfxConfig.loading.retryDelays[1] seconds) for any that did not load; images that still report
+-- Failure or TimedOut are given up on (drawn neon, and asked about again at draw time). Images are
+-- drawn while they load. Prints the load summary when preloading finishes, and again at
+-- `LATE_SUMMARY` seconds if anything had not loaded by then.
+local LATE_SUMMARY = 60
 function Vfx.start()
 	if started then
 		return
 	end
 	started = true
 	task.spawn(function()
+		local began = os.clock()
 		local ids = VfxResolve.images()
-		for _, id in ids do
-			loadOf(id)
-			task.spawn(preload, id)
-			task.wait(LOADING.stagger)
+		preloadAll(ids)
+		local retry = notLoaded(ids)
+		if #retry > 0 then
+			task.wait(LOADING.retryDelays[1] or 2)
+			preloadAll(retry)
+		end
+		for _, id in notLoaded(ids) do
+			local entry = loads[id]
+			if FAILED[entry.status] then
+				entry.failed = true
+				table.clear(cache)
+			end
 		end
 		preloaded = true
-		-- Wait until every image has loaded or been given up on (retries included), then report once.
-		local deadline = os.clock() + SUMMARY_WAIT
-		while os.clock() < deadline do
-			local settled = true
-			for _, id in ids do
-				local entry = loads[id]
-				if not (entry and (entry.status == "Success" or entry.failed)) then
-					settled = false
-					break
+		summarize(string.format("preload finished in %.1f s", os.clock() - began))
+		if #notLoaded(ids) > 0 then
+			task.wait(math.max(0, LATE_SUMMARY - (os.clock() - began)))
+			for _, id in notLoaded(ids) do
+				local status = fetchStatus(id)
+				if status then
+					record(id, status)
 				end
 			end
-			if settled then
-				break
-			end
-			task.wait(1)
+			summarize(string.format("at %d s", LATE_SUMMARY))
 		end
-		summarize()
 	end)
 end
 
@@ -209,7 +219,7 @@ function Vfx.status(id: number): string
 	return if entry.failed then "GAVE UP: " .. text else text
 end
 
--- Whether the staggered first pass has started every image.
+-- Whether the preload (and its retry pass) has finished.
 function Vfx.preloaded(): boolean
 	return preloaded
 end
