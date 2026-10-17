@@ -862,6 +862,7 @@ export type Emit = {
 	rotation: { number }?, -- { min, max } degrees (default random all around)
 	rotSpeed: { number }?, -- { min, max } degrees/s
 	flat: boolean?, -- lies flat, facing up (ground shockwaves, scorches)
+	stretch: boolean?, -- turns along its velocity (streak sparks read as arcs)
 	zOffset: number?,
 }
 
@@ -938,6 +939,7 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 	emitter.SpreadAngle = Vector2.new(spread, spread)
 	emitter.Orientation = if spec.flat
 		then Enum.ParticleOrientation.VelocityPerpendicular
+		elseif spec.stretch then Enum.ParticleOrientation.VelocityParallel
 		else Enum.ParticleOrientation.FacingCamera
 	emitter.Drag = spec.drag or 0
 	emitter.Acceleration = spec.acceleration or Vector3.zero
