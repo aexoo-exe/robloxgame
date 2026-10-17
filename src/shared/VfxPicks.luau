@@ -8,146 +8,46 @@ return {
 	generated = "2026-10-17",
 	roles = {
 		slash = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "slash_thin",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "slash_wide",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 3,
-				kind = "image",
-				name = "slash_double",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "slash_thin", image = 106612806680342, asset = 70403912553608 },
+			{ rank = 2, kind = "image", name = "slash_wide", image = 104321071780647, asset = 83697156725776 },
+			{ rank = 3, kind = "image", name = "slash_double", image = 76586209165151, asset = 78263128108417 },
 		},
 		rings = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "ring_thin",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "ring_thick",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 3,
-				kind = "image",
-				name = "ring_segmented",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "ring_thin", image = 138826448816113, asset = 107112895371713 },
+			{ rank = 2, kind = "image", name = "ring_thick", image = 131054830681910, asset = 111213609656924 },
+			{ rank = 3, kind = "image", name = "ring_segmented", image = 80988473898594, asset = 78445550821950 },
 		},
 		glow = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "glow_soft",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "glow_hard_core",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "glow_soft", image = 116183652114173, asset = 116587419814594 },
+			{ rank = 2, kind = "image", name = "glow_hard_core", image = 128111644974822, asset = 79755996760867 },
 		},
 		sparks = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "spark_streak",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "spark_star",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "spark_streak", image = 114255327879283, asset = 86204695143165 },
+			{ rank = 2, kind = "image", name = "spark_star", image = 119200103842228, asset = 88930646920257 },
 		},
 		smoke = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "smoke_puff",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "smoke_flipbook",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "smoke_puff", image = 116066464917693, asset = 90331219087340 },
+			{ rank = 2, kind = "image", name = "smoke_flipbook", image = 85357674602934, asset = 91663801724691 },
 		},
 		explosions = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "explosion_flipbook",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "explosion_flipbook", image = 133998332368759, asset = 89030019360098 },
 		},
 		fire = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fire_flipbook",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fire_flipbook", image = 116438165758858, asset = 84685272359774 },
 		},
 		lightning = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "lightning_strip",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "lightning_strip", image = 77817360799122, asset = 117954751908478 },
 		},
 		energy = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "energy_orb",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "energy_swirl",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "energy_orb", image = 89717349175202, asset = 81134502901405 },
+			{ rank = 2, kind = "image", name = "energy_swirl", image = 109090102601766, asset = 121243815977967 },
 		},
 		cracks = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "ground_crack",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "ground_scorch",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "ground_crack", image = 85890440741652, asset = 136059659663365 },
+			{ rank = 2, kind = "image", name = "ground_scorch", image = 123509366868020, asset = 124015570961525 },
 		},
 		impact = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "impact_starburst",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "impact_starburst", image = 89446325997439, asset = 113459028571259 },
 		},
 	},
 }
