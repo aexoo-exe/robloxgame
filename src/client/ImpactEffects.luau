@@ -450,13 +450,13 @@ local function drawSprite(entry: Shape, skin: Skin, color: Color3, size: Vector3
 			emitter.Orientation = Enum.ParticleOrientation.FacingCamera
 		end
 	end
-	emitter.Size = NumberSequence.new(across)
+	emitter.Size = NumberSequence.new(across * (texture.scale or 1))
 	emitter.Transparency = NumberSequence.new(math.clamp(seen, 0, 1))
 	emitter.Color = ColorSequence.new(color)
 	if not entry.emitted then
 		entry.emitted = true
 		emitter.Texture = texture.image
-		emitter.LightEmission = if texture.blend == "additive" then 1 else 0
+		emitter.LightEmission = texture.light or (if texture.blend == "additive" then 1 else 0)
 		emitter.Brightness = texture.brightness
 		emitter.Rotation = NumberRange.new(if texture.upright then 0 else entry.spin)
 		local flipbook = texture.flipbook
@@ -523,7 +523,15 @@ local function drawSkin(entry: Shape)
 		ends[2].Position = -along * (length / 2)
 		beam.Texture = texture.image
 		beam.TextureSpeed = texture.speed
-		beam.LightEmission = if texture.blend == "additive" then 1 else 0
+		-- Tiling textures repeat every `tile` studs (a pooled beam may have tiled before).
+		if texture.tile then
+			beam.TextureMode = Enum.TextureMode.Wrap
+			beam.TextureLength = texture.tile
+		else
+			beam.TextureMode = Enum.TextureMode.Stretch
+			beam.TextureLength = 1
+		end
+		beam.LightEmission = texture.light or (if texture.blend == "additive" then 1 else 0)
 		beam.Width0 = width * texture.width
 		beam.Width1 = width * texture.width
 		beam.Color = ColorSequence.new(color)
@@ -781,9 +789,11 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	else
 		emitter.Color = ColorSequence.new(burst.color, burst.color2 or burst.color)
 	end
+	-- Textures whose art sits small in its frame (fire) are drawn bigger (traits `scale`).
+	local size = burst.size * (if texture then texture.scale or 1 else 1)
 	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, burst.size),
-		NumberSequenceKeypoint.new(1, burst.size * (config.growth or 0)),
+		NumberSequenceKeypoint.new(0, size),
+		NumberSequenceKeypoint.new(1, size * (config.growth or 0)),
 	})
 	local transparency = burst.transparency or 0
 	emitter.Transparency = NumberSequence.new(transparency, 1)

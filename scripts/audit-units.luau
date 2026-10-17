@@ -1378,8 +1378,10 @@ for _, role in VfxConfig.roles do
 			local reason
 			if pick.kind == "model" and not pick.textures then
 				reason = "model pack, needs Studio (scripts/studio/export-vfx.luau)"
+			elseif pick.kind == "image" and not pick.image then
+				reason = pick.pending or "no image id"
 			else
-				local traits = VfxConfig.traits[pick.image or 0]
+				local traits = VfxConfig.traits[pick.name] or VfxConfig.traits[pick.image or 0]
 				reason = if traits and traits.unusable
 					then traits.unusable
 					else "never the first fitting choice (assign it in VfxConfig `units` or `elements`)"

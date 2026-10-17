@@ -1,7 +1,8 @@
 -- Chooses the texture an effect draws with (VfxConfig): for a usage (VfxConfig.uses) and the unit
 -- drawing it (its id, element and color), the first candidate that is usable, fits the way the
 -- effect draws (particle, plane, billboard, beam, screen), takes the color, and (on the client) has
--- loaded. Candidates in order: the unit's variant, its element's variant, then the role's ranks.
+-- loaded. Candidates in order: the unit's variant, its element's variant, the usage's `first`
+-- picks, then the role's ranks. A usage switched off (`on = false`) draws neon.
 -- Pure: no instances or services, so the audit (scripts/audit-units) runs the same choice.
 
 local VfxConfig = require(script.Parent:WaitForChild("VfxConfig"))
@@ -26,6 +27,10 @@ export type Texture = {
 	upright: boolean, -- a billboard keeps the image upright (no random turn)
 	-- a plane or billboard drawn as one additive particle sprite (a black background or a flipbook)
 	sprite: boolean,
+	scale: number, -- particles and sprites drawn this many times bigger (traits `scale`)
+	tile: number?, -- a beam repeats the texture every this many studs (traits `tile`); nil: stretched
+	light: number?, -- LightEmission for beams and sprites (traits `light`); nil: by blend
+	shade: Color3?, -- always drawn in this color (traits `shade`)
 }
 
 export type Context = { unit: string?, element: string?, color: Color3? }
@@ -83,7 +88,10 @@ local function imageOf(role: string, rank: number): (number?, any?, string?)
 		return nil, nil, "no such pick"
 	end
 	if pick.kind == "image" then
-		return pick.image, VfxConfig.traits[pick.image] or { blend = "alpha" }, nil
+		if not pick.image then
+			return nil, nil, pick.pending or "no image id"
+		end
+		return pick.image, VfxConfig.traits[pick.name] or VfxConfig.traits[pick.image] or { blend = "alpha" }, nil
 	end
 	local textures = pick.textures
 	if not textures or #textures == 0 then
@@ -159,6 +167,11 @@ function VfxResolve.candidates(usageName: string, context: Context?): { { key: s
 	for _, role in usage.roles do
 		add(unitVariants and unitVariants[role], true)
 		add(elementVariants and elementVariants[role], true)
+	end
+	for _, key in usage.first or {} do
+		add(key, false)
+	end
+	for _, role in usage.roles do
 		local ranks = {}
 		for _, pick in VfxConfig.picks[role] or {} do
 			table.insert(ranks, pick.rank)
@@ -185,6 +198,10 @@ function VfxResolve.resolve(
 	local usage = VfxConfig.uses[usageName]
 	if not usage then
 		table.insert(trace, { key = usageName, reason = "unknown usage" })
+		return nil, trace
+	end
+	if usage.on == false then
+		table.insert(trace, { key = usageName, reason = "switched off (VfxConfig.uses " .. usageName .. ".on)" })
 		return nil, trace
 	end
 	local color = context and context.color
@@ -235,7 +252,7 @@ function VfxResolve.resolve(
 		-- Tinting: full for plain textures; a baked texture only part of the way (or not at all
 		-- when its color already suits the effect, or with hue.strict); none with tint = false.
 		local share = 1
-		if traits.tint == false then
+		if traits.tint == false or traits.shade then
 			share = 0
 		elseif traits.baked then
 			share = if VfxConfig.hue.strict
@@ -259,6 +276,10 @@ function VfxResolve.resolve(
 			width = usage.width or 1,
 			upright = usage.upright == true,
 			sprite = sprite,
+			scale = traits.scale or 1,
+			tile = traits.tile,
+			light = traits.light,
+			shade = traits.shade,
 		},
 			trace
 	end
@@ -268,6 +289,9 @@ end
 -- The color to draw `texture` in for an effect of `color`: white (its own colors) blended toward
 -- `color` by its tint share.
 function VfxResolve.tint(texture: Texture, color: Color3): Color3
+	if texture.shade then
+		return texture.shade
+	end
 	local share = texture.tintShare
 	if share >= 1 then
 		return color

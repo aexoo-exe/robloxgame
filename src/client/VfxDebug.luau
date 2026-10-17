@@ -139,16 +139,19 @@ function VfxDebug.report(): string
 						else "pending (" .. tostring(pick.pending) .. ")"
 				)
 			)
+		elseif not pick.image then
+			line(string.format("  %-13s %s: %s", entry.key, tostring(pick.name), tostring(pick.pending)))
 		else
-			local traits = VfxConfig.traits[pick.image]
+			local traits = VfxConfig.traits[pick.name] or VfxConfig.traits[pick.image]
 			line(
 				string.format(
-					"  %-13s image %d [%s] (decal %d [%s]) | vfx status %s | fetch status %s | usable %s%s",
+					"  %-13s %s image %d [%s] (decal %s [%s]) | vfx status %s | fetch status %s | usable %s%s",
 					entry.key,
+					tostring(pick.name),
 					pick.image,
 					assetType(pick.image),
-					pick.asset,
-					assetType(pick.asset),
+					tostring(pick.asset),
+					if pick.asset then assetType(pick.asset) else "-",
 					Vfx.status(pick.image),
 					fetchStatus(pick.image),
 					tostring(Vfx.usable(pick.image)),
@@ -269,7 +272,7 @@ function VfxDebug.test(seconds: number?)
 	folder.Name = "VfxTest"
 	local images = {}
 	for _, entry in picks() do
-		if entry.pick.kind == "image" then
+		if entry.pick.kind == "image" and entry.pick.image then
 			table.insert(images, entry)
 		end
 	end
@@ -325,7 +328,7 @@ function VfxDebug.test(seconds: number?)
 		holder.Size = Vector3.one * 0.2
 		holder.CFrame = origin * CFrame.new(x + spacing * 0.3, y, -distance)
 		holder.Parent = folder
-		local traits = VfxConfig.traits[entry.pick.image] or {}
+		local traits = VfxConfig.traits[entry.pick.name] or VfxConfig.traits[entry.pick.image] or {}
 		local emitter = Instance.new("ParticleEmitter")
 		emitter.Texture = image
 		emitter.LightEmission = if traits.blend == "additive" then 1 else 0

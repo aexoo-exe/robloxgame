@@ -1,213 +1,116 @@
--- Turns the VFX picks into game data: reads docs/references/catalog/vfx-picks.json (exported by the
--- VFX picker, scripts/catalog/vfx.html), checks every image pick's texture id against the shortlist
--- cache (docs/references/catalog/vfx/<role>/search.json), adds what Studio extracted from model
--- packs (docs/references/catalog/vfx/dumps/<role>_<rank>.json, scripts/studio/export-vfx.luau), and
--- writes src/shared/VfxPicks.luau, a GENERATED pure-data module (do not edit it by hand: the next run
--- rewrites it; hand-tuned settings go in src/shared/VfxConfig.luau). Run from the repository root:
+-- Puts the VFX kit (assets/vfx/textures, made by scripts/blender/vfx_textures.py, uploaded by
+-- scripts/vfx-upload) into the game: reads assets/vfx/ids.json (texture name -> image id) and
+-- assets/vfx/decals.json (texture name -> decal id), and writes src/shared/VfxPicks.luau, a GENERATED
+-- pure-data module (do not edit it by hand: the next run rewrites it; hand-tuned settings, traits and
+-- usages go in src/shared/VfxConfig.luau). Run from the repository root:
 --   lune run scripts/vfx-apply
 --
--- Nothing here downloads, inserts or runs an asset. An image pick is a texture id; a model pack is
--- only usable once it has been exported in Studio (scripts deleted unrun), and only the data the
--- export kept (texture ids and emitter, beam, trail, decal and mesh settings) reaches the game.
+-- Each kit texture becomes a pick "<role>:<rank>" by the mapping below (KIT). A texture not uploaded
+-- yet is still listed (so variants naming it stay valid) but has no image: effects pass over it and
+-- keep their neon look until it is uploaded and this is run again.
 
 local fs = require("@lune/fs")
 local process = require("@lune/process")
 local serde = require("@lune/serde")
 
-local ROOT = "docs/references/catalog"
-local PICKS = ROOT .. "/vfx-picks.json"
-local DUMPS = ROOT .. "/vfx/dumps"
+local IDS = "assets/vfx/ids.json"
+local DECALS = "assets/vfx/decals.json"
+local TEXTURES = "assets/vfx/textures"
 local OUT = "src/shared/VfxPicks.luau"
+
+-- Role -> kit texture names, in rank order (rank 1 is a role's default). VfxConfig.uses says which
+-- roles each effect draws from.
 local ROLES =
-	{ "slash", "smoke", "sparks", "rings", "flashes", "lightning", "energy", "fire", "explosions", "cracks", "auras" }
-local MAX_PACK_TEXTURES = 8 -- distinct emitter textures kept per pack, most used first
+	{ "slash", "rings", "glow", "sparks", "smoke", "explosions", "fire", "lightning", "energy", "cracks", "impact" }
+local KIT = {
+	slash = { "slash_thin", "slash_wide", "slash_double" },
+	rings = { "ring_thin", "ring_thick", "ring_segmented" },
+	glow = { "glow_soft", "glow_hard_core" },
+	sparks = { "spark_streak", "spark_star" },
+	smoke = { "smoke_puff", "smoke_flipbook" },
+	explosions = { "explosion_flipbook" },
+	fire = { "fire_flipbook" },
+	lightning = { "lightning_strip" },
+	energy = { "energy_orb", "energy_swirl" },
+	cracks = { "ground_crack", "ground_scorch" },
+	impact = { "impact_starburst" },
+}
 
-local function readJson(path: string): any?
+local function readMap(path: string): { [string]: number }
 	if not fs.isFile(path) then
-		return nil
-	end
-	local ok, value = pcall(serde.decode, "json", fs.readFile(path))
-	return if ok then value else nil
-end
-
--- Lune writes an empty list as {}; any table of values is read as a list.
-local function list(value: any): { any }
-	if type(value) ~= "table" then
 		return {}
 	end
+	local ok, value = pcall(serde.decode, "json", fs.readFile(path))
+	if not ok or type(value) ~= "table" then
+		print("Unreadable " .. path)
+		process.exit(1)
+	end
 	local out = {}
-	for _, item in value do
-		table.insert(out, item)
+	for name, id in value do
+		out[name] = tonumber(id) :: number
 	end
 	return out
 end
 
-local function quote(text: string?): string
-	return string.format("%q", text or "")
-end
-
-local picks = readJson(PICKS)
-if not picks or type(picks.roles) ~= "table" then
-	print("Missing or unreadable " .. PICKS .. " (export it from the VFX picker). Run from the repository root.")
-	process.exit(1)
-end
-
--- The textures the shortlist cache recorded, by asset id.
-local cached: { [number]: any } = {}
+local ids = readMap(IDS)
+local decals = readMap(DECALS)
+local known = {}
 for _, role in ROLES do
-	local cache = readJson(ROOT .. "/vfx/" .. role .. "/search.json")
-	for _, search in (cache and cache.searches) or {} do
-		for _, item in list(search) do
-			if item.id then
-				cached[item.id] = item
-			end
+	for _, name in KIT[role] do
+		known["vfx_" .. name] = true
+		if not fs.isFile(TEXTURES .. "/vfx_" .. name .. ".png") then
+			print("WARNING: " .. TEXTURES .. "/vfx_" .. name .. ".png is missing")
 		end
 	end
 end
-
--- A pack's extracted textures, most used first: { texture, flipbook, mode, fps, lightEmission, count }.
-local function packTextures(dump: any): { any }
-	local byTexture: { [string]: any } = {}
-	for _, emitter in list(dump.emitters) do
-		local id = tonumber(string.match(tostring(emitter.texture or ""), "(%d+)%s*$"))
-		if id then
-			local key = tostring(id)
-			local entry = byTexture[key]
-			if not entry then
-				entry = {
-					texture = id,
-					flipbook = emitter.flipbookLayout,
-					mode = emitter.flipbookMode,
-					fps = emitter.flipbookFramerate,
-					lightEmission = emitter.lightEmission,
-					count = 0,
-				}
-				byTexture[key] = entry
-			end
-			entry.count += 1
-		end
+for name in ids do
+	if not known[name] then
+		print("WARNING: " .. IDS .. " has " .. name .. ", which no role uses (add it to KIT)")
 	end
-	local sorted = {}
-	for _, entry in byTexture do
-		table.insert(sorted, entry)
-	end
-	table.sort(sorted, function(a, b)
-		if a.count ~= b.count then
-			return a.count > b.count
-		end
-		return a.texture < b.texture
-	end)
-	local kept = {}
-	for i = 1, math.min(MAX_PACK_TEXTURES, #sorted) do
-		kept[i] = sorted[i]
-	end
-	return kept
 end
 
 local lines = {
-	"-- GENERATED by scripts/vfx-apply.luau from docs/references/catalog/vfx-picks.json (the VFX picker)",
-	"-- and the Studio exports of model packs. Do not edit by hand: the next run rewrites it. Hand-tuned",
-	"-- settings (traits, variants, usages) are in VfxConfig, which reads this.",
-	'-- Per role, the picks in rank order: `kind` "image" (`image` is the texture id Texture',
-	'-- properties take; `asset` the decal) or "model" (a pack: `textures` once exported in Studio,',
-	"-- else `pending` says why it is not usable yet).",
+	"-- GENERATED by scripts/vfx-apply.luau from assets/vfx/ids.json (scripts/vfx-upload). Do not edit",
+	"-- by hand: the next run rewrites it. Hand-tuned settings (traits by `name`, usages, variants) are",
+	"-- in VfxConfig, which reads this.",
+	"-- Per role, the VFX kit textures in rank order: `image` is the texture id Texture properties take",
+	"-- (`asset` the decal it came in); a texture without one is not uploaded yet (`pending`).",
 	"",
 	"return {",
-	"\tgenerated = " .. quote(picks.generated) .. ",",
+	string.format("\tgenerated = %q,", os.date("%Y-%m-%d")),
 	"\troles = {",
 }
-local report = {}
+local report, uploaded, pending = {}, 0, 0
 for _, role in ROLES do
-	local entries = list(picks.roles[role])
-	table.sort(entries, function(a, b)
-		return (a.rank or 99) < (b.rank or 99)
-	end)
 	table.insert(lines, "\t\t" .. role .. " = {")
-	for _, pick in entries do
-		local name = string.gsub(pick.name or "", "[%c]", " ")
-		if pick.kind == "model" then
-			local dump = readJson(string.format("%s/%s_%d.json", DUMPS, role, pick.rank))
-			local textures = if dump then packTextures(dump) else {}
-			local fields = {
-				"rank = " .. pick.rank,
-				'kind = "model"',
-				"asset = " .. string.format("%d", pick.id),
-				"name = " .. quote(name),
-				"creator = " .. quote(pick.creator),
-				"scripts = " .. tostring(pick.hasScripts == true),
-			}
-			if #textures > 0 then
-				local items = {}
-				for _, t in textures do
-					table.insert(
-						items,
-						string.format(
-							"{ texture = %d, flipbook = %s, mode = %s, fps = %s, lightEmission = %s }",
-							t.texture,
-							if t.flipbook then quote(t.flipbook) else "nil",
-							if t.mode then quote(t.mode) else "nil",
-							if t.fps then tostring(t.fps) else "nil",
-							if t.lightEmission then tostring(t.lightEmission) else "nil"
-						)
-					)
-				end
-				table.insert(fields, "textures = { " .. table.concat(items, ", ") .. " }")
-				table.insert(
-					report,
-					string.format("  %-10s %d  model %-16d exported: %d textures", role, pick.rank, pick.id, #textures)
-				)
-			else
-				table.insert(
-					fields,
-					'pending = "needs Studio: asset delivery needs a login, so packs are extracted in Studio"'
-				)
-				table.insert(
-					report,
-					string.format(
-						"  %-10s %d  model %-16d NEEDS STUDIO%s  %s",
-						role,
-						pick.rank,
-						pick.id,
-						if pick.hasScripts then " (has scripts: deleted unrun on export)" else "",
-						name
-					)
-				)
+	for rank, name in KIT[role] do
+		local file = "vfx_" .. name
+		local fields = {
+			"rank = " .. rank,
+			'kind = "image"',
+			string.format("name = %q", name),
+		}
+		local image = ids[file]
+		if image then
+			table.insert(fields, string.format("image = %d", image))
+			if decals[file] then
+				table.insert(fields, string.format("asset = %d", decals[file]))
 			end
-			table.insert(lines, "\t\t\t{ " .. table.concat(fields, ", ") .. " },")
+			uploaded += 1
 		else
-			local item = cached[pick.id]
-			local image = pick.textureId or (item and item.textureId)
-			local note = ""
-			if item and item.textureId and pick.textureId and item.textureId ~= pick.textureId then
-				note = " (picks file and cache disagree; the cache's id is used)"
-				image = item.textureId
-			elseif not item then
-				note = " (not in the shortlist cache)"
-			end
-			if not image then
-				table.insert(
-					report,
-					string.format("  %-10s %d  image %-16d NO TEXTURE ID%s", role, pick.rank, pick.id, note)
-				)
-				continue
-			end
-			local fields = {
-				"rank = " .. pick.rank,
-				'kind = "image"',
-				"asset = " .. string.format("%d", pick.id),
-				"image = " .. string.format("%d", image),
-				"name = " .. quote(name),
-				"creator = " .. quote(pick.creator),
-			}
-			if pick.flipbook then
-				table.insert(fields, "flipbook = " .. quote(pick.flipbook))
-			end
-			table.insert(lines, "\t\t\t{ " .. table.concat(fields, ", ") .. " },")
-			table.insert(
-				report,
-				string.format("  %-10s %d  image %-16d texture %d%s  %s", role, pick.rank, pick.id, image, note, name)
-			)
+			table.insert(fields, 'pending = "not uploaded yet (lune run scripts/vfx-upload)"')
+			pending += 1
 		end
+		table.insert(lines, "\t\t\t{ " .. table.concat(fields, ", ") .. " },")
+		table.insert(
+			report,
+			string.format(
+				"  %-12s %-20s %s",
+				role .. ":" .. rank,
+				name,
+				if image then string.format("image %d", image) else "NOT UPLOADED"
+			)
+		)
 	end
 	table.insert(lines, "\t\t},")
 end
@@ -220,6 +123,6 @@ local spawned, result = pcall(run, "stylua", { OUT }, { shell = true })
 if not (spawned and result.ok) then
 	print("(stylua not found: " .. OUT .. " is left unformatted)")
 end
-print("Vetted picks:")
+print("VFX kit picks:")
 print(table.concat(report, "\n"))
-print("Wrote " .. OUT)
+print(string.format("Wrote %s: %d uploaded, %d not uploaded yet", OUT, uploaded, pending))

@@ -1,12 +1,13 @@
--- Effect textures (client visuals only): which picked texture (VfxPicks, from the VFX picker) each
--- effect draws with, per role, element and unit, and how. Read by src/shared/VfxResolve.luau (the
--- choice) and src/client/Vfx.luau (loading and the current unit). Nothing here changes fight timing
--- or results; an effect whose texture is missing or fails to load keeps its plain neon look.
+-- Effect textures (client visuals only): which VFX kit texture (VfxPicks, generated from
+-- assets/vfx/ids.json by scripts/vfx-apply) each effect draws with, per role, element and unit, and
+-- how. Read by src/shared/VfxResolve.luau (the choice) and src/client/Vfx.luau (loading and the
+-- current unit). Nothing here changes fight timing or results; an effect whose usage is switched off,
+-- or whose texture is missing, not uploaded or fails to load, keeps its plain neon look.
 --
--- A texture is named "<role>:<rank>": the pick of that rank in that role (VfxPicks). Roles: slash,
--- smoke, sparks, rings, flashes, lightning, energy, fire, explosions, cracks, auras.
--- To change an assignment, edit one line in `units` or `elements` (or reorder ranks in the picker
--- and run lune run scripts/vfx-apply).
+-- A texture is named "<role>:<rank>": the kit texture of that rank in that role (VfxPicks). Roles:
+-- slash, rings, glow, sparks, smoke, explosions, fire, lightning, energy, cracks, impact.
+-- To change an assignment, edit one line in `uses`, `units` or `elements` (or the role mapping in
+-- scripts/vfx-apply.luau, then run lune run scripts/vfx-apply).
 
 local Picks = require(script.Parent:WaitForChild("VfxPicks"))
 
@@ -28,51 +29,49 @@ return deepFreeze({
 	picks = Picks.roles,
 	roles = {
 		"slash",
-		"smoke",
-		"sparks",
 		"rings",
-		"flashes",
+		"glow",
+		"sparks",
+		"smoke",
+		"explosions",
+		"fire",
 		"lightning",
 		"energy",
-		"fire",
-		"explosions",
 		"cracks",
-		"auras",
+		"impact",
 	},
 
-	-- What each picked image is, by texture id (checked by eye on its thumbnail):
+	-- What each kit texture is, by its name (VfxPicks `name`). Every kit texture is a white core on a
+	-- real transparent background (docs/design/vfx-style.md), tinted by the effect's color; anything
+	-- not listed is { blend = "alpha" }.
 	--   blend     "alpha" (a transparent background: fine on planes and billboards) or "additive" (a
 	--             black background: only particles and beams, which add light, can hide it)
 	--   baked     the texture's own color: it is not tinted (an element color would muddy it), and it
 	--             is chosen only for colors close to it (`hue` below) unless a variant names it
-	--   tint      false: drawn in its own colors, for any color (a black crack)
+	--   tint      false: drawn in its own colors, for any color
+	--   shade     always drawn in this color, whatever the effect's (soot)
 	--   flipbook  a grid of frames: { layout = "2x2" | "4x4" | "8x8", mode = "OneShot" | "Loop",
-	--             fps (Loop only) } (particles only)
+	--             fps (Loop only) } (particles only; planes and billboards draw it as a sprite)
+	--   scale     particles and sprites are drawn this many times bigger (art small in its frame)
+	--   tile      beams repeat the texture every this many studs instead of stretching it once
+	--   light     LightEmission on beams and sprites (0-1: how much it adds light)
 	--   burst     one whole burst in the image: only for single big particles (flashes), not for
 	--             streams of small sparks
-	--   beam      false: does not read along a beam (a vertical bolt would lie across it)
+	--   beam      false: does not read along a beam
 	--   frame     a full-screen impact frame (screen only)
 	--   unusable  why it is never used
 	traits = {
-		[8273465648] = { blend = "alpha" }, -- slash:1 a white swoosh streak
-		[138157711335343] = { blend = "alpha", flipbook = { layout = "4x4", mode = "OneShot" } }, -- slash:2 electric crescent, 4x4 frames (the picker had no grid set)
-		[101393300473082] = { blend = "alpha" }, -- slash:3 wind slash
-		[9061498628] = { blend = "alpha" }, -- smoke:1 soft white puff
-		[6956634044] = { blend = "alpha" }, -- smoke:2 billowy cloud
-		[122079743545882] = { blend = "additive", baked = rgb(255, 170, 90), burst = true }, -- sparks:2 an orange spark burst on black
-		[134674538402910] = { blend = "alpha" }, -- rings:1 a faint bubble with a bright rim
-		[119064104030965] = { blend = "alpha" }, -- rings:2 a clean soft ring
-		[120301856301662] = { blend = "alpha", frame = true }, -- flashes:1 manga impact frame on white (full screen only)
-		[125496445293050] = { blend = "additive", burst = true }, -- flashes:2 a white starburst on black
-		[99013781938083] = { blend = "alpha", baked = rgb(255, 150, 60), beam = false }, -- lightning:1 an upright orange bolt
-		[16601233770] = { blend = "additive", baked = rgb(170, 90, 255) }, -- lightning:2 purple forks on black
-		[12525387853] = { blend = "alpha" }, -- lightning:3 white branching lightning
-		[16601260137] = { blend = "additive", baked = rgb(150, 70, 230), beam = false }, -- energy:1 a purple orb on black
-		[6900421146] = { blend = "alpha", beam = false }, -- energy:2 a white crackling orb
-		[17703378809] = { blend = "alpha", flipbook = { layout = "4x4", mode = "Loop", fps = 24 } }, -- fire:3 4x4 fire loop
-		[8734114950] = { blend = "alpha", flipbook = { layout = "8x8", mode = "OneShot" } }, -- explosions:2 8x8 pixel blast
-		[8815468530] = { unusable = "an opaque white background: it would show as a white square on the ground" }, -- cracks:1
-		[100563112706114] = { blend = "alpha", tint = false }, -- cracks:2 a black crack (black takes no tint)
+		smoke_flipbook = { blend = "alpha", flipbook = { layout = "4x4", mode = "OneShot" } }, -- puff that fades out
+		explosion_flipbook = { blend = "alpha", flipbook = { layout = "4x4", mode = "OneShot" } }, -- flash, fireball, smoke
+		-- flames fill only the lower middle of each 256 px frame: drawn bigger so they read
+		fire_flipbook = { blend = "alpha", flipbook = { layout = "4x4", mode = "Loop", fps = 24 }, scale = 1.8 },
+		lightning_strip = { blend = "alpha", tile = 6, light = 1 }, -- tiles along the beam (U)
+		energy_orb = { blend = "alpha", beam = false },
+		energy_swirl = { blend = "alpha", beam = false },
+		glow_soft = { blend = "alpha", beam = false },
+		glow_hard_core = { blend = "alpha", beam = false },
+		impact_starburst = { blend = "alpha", burst = true, beam = false }, -- one whole hit burst
+		ground_scorch = { blend = "alpha", shade = rgb(45, 40, 38) }, -- dark soot whatever the element
 	},
 	-- Textures exported from a model pack (VfxPicks `textures`) are particle textures: additive unless
 	-- listed in `traits`. `packs` picks which of a pack's textures a role uses (1 = the most used).
@@ -101,62 +100,69 @@ return deepFreeze({
 	--   beamAlong     true: a texture marked `beam = false` is passed over for beams (the next fits)
 	filters = { sprites = true, burstAnywhere = true, beamAlong = true },
 
-	-- How each kind of effect draws. `roles` in order (the first with a fitting texture wins), `modes`
-	-- in order of preference:
+	-- How each kind of effect draws. `on` switches a usage (false: always the neon look). `roles` in
+	-- order (the first with a fitting texture wins); `first` (optional) are picks tried before the
+	-- roles' ranks (after unit and element variants); `modes` in order of preference:
 	--   particle   a ParticleEmitter texture (flipbooks play)
 	--   plane      an unlit textured plane (SurfaceGui) in place of a flat neon part
 	--   billboard  an unlit textured sprite facing the camera in place of a neon ball
-	--   beam       a Beam stretched along a neon bar's length
+	--   beam       a Beam stretched (or tiled: traits `tile`) along a neon bar's length
 	--   screen     a full-screen frame
 	-- `brightness` brightens planes and billboards (bloom catches above 1); `burst` allows burst
 	-- images; `speed` scrolls a beam's texture; `width` is a beam's width, times the neon bar's
 	-- (textures have soft or empty edges); `upright` keeps a billboard's image upright (others turn
 	-- at random so repeats do not look stamped).
 	uses = {
-		sparks = { roles = { "sparks" }, modes = { "particle" } }, -- spark and ember bursts (hits, casts)
-		smoke = { roles = { "smoke" }, modes = { "particle" } }, -- puffs, dust, smoke
-		fire = { roles = { "fire" }, modes = { "particle" } }, -- flame bursts
-		glow = { roles = { "energy" }, modes = { "particle" } }, -- glow bursts (ki, time, magic)
-		shock = { roles = { "rings" }, modes = { "particle" } }, -- shockwave bursts
-		explosion = { roles = { "explosions" }, modes = { "particle" } }, -- explode strikes, big blasts
-		flash = { roles = { "flashes" }, modes = { "particle" }, burst = true }, -- the flash at every hit and burst
-		critFlash = { roles = { "sparks", "flashes" }, modes = { "particle" }, burst = true }, -- crits
-		ring = { roles = { "rings" }, modes = { "plane" }, brightness = 1.6 }, -- ground rings, spirals, cones
-		disc = { roles = { "smoke" }, modes = { "plane" }, brightness = 1.1 }, -- soft ground discs and pools
-		crack = { roles = { "cracks" }, modes = { "plane" }, brightness = 1 }, -- ground cracks
-		slash = { roles = { "slash" }, modes = { "plane", "particle" }, brightness = 2 }, -- slash arcs, waves, cuts
-		slashBurst = { roles = { "slash" }, modes = { "particle" } }, -- a slash flash at a cut (flipbooks play)
-		bolt = { roles = { "lightning" }, modes = { "billboard" }, brightness = 2, upright = true }, -- a bolt striking down
-		halo = { roles = { "energy" }, modes = { "billboard" }, brightness = 1.6 }, -- orbs and orb projectiles
-		shell = { roles = { "rings" }, modes = { "billboard" }, brightness = 1.3 }, -- growing shockwave shells
-		-- aura spikes: an aura pack once exported, until then the fire flipbook (as sprites)
-		aura = { roles = { "auras", "fire" }, modes = { "billboard" }, brightness = 1.6, upright = true },
-		lightning = { roles = { "lightning" }, modes = { "beam" }, speed = 3, width = 3 }, -- jagged beams, zaps
-		beamGlow = { roles = { "energy", "smoke" }, modes = { "beam" }, width = 1.4 }, -- the soft glow around beams, columns
-		impactFrame = { roles = { "flashes" }, modes = { "screen" } }, -- ultimate releases (below)
+		sparks = { on = true, roles = { "sparks" }, modes = { "particle" } }, -- spark and ember bursts (hits, casts)
+		-- puffs, dust, smoke: the fading puff flipbook
+		smoke = { on = true, roles = { "smoke" }, first = { "smoke:2" }, modes = { "particle" } },
+		fire = { on = true, roles = { "fire" }, modes = { "particle" } }, -- flame bursts (fire flipbook loop)
+		glow = { on = true, roles = { "glow", "energy" }, modes = { "particle" } }, -- glow bursts (ki, time, magic)
+		-- shockwave bursts: the thick ring
+		shock = { on = true, roles = { "rings" }, first = { "rings:2" }, modes = { "particle" } },
+		explosion = { on = true, roles = { "explosions" }, modes = { "particle" } }, -- explode strikes, big blasts
+		-- the flash at every hit and burst: the hard-cored glow
+		flash = { on = true, roles = { "glow" }, first = { "glow:2" }, modes = { "particle" }, burst = true },
+		critFlash = { on = true, roles = { "impact", "glow" }, modes = { "particle" }, burst = true }, -- crits: the starburst
+		ring = { on = true, roles = { "rings" }, modes = { "plane" }, brightness = 1.6 }, -- ground rings, spirals, cones
+		disc = { on = true, roles = { "smoke" }, modes = { "plane" }, brightness = 1.1 }, -- soft ground discs and pools
+		crack = { on = true, roles = { "cracks" }, modes = { "plane" }, brightness = 1 }, -- ground cracks
+		slash = { on = true, roles = { "slash" }, modes = { "plane", "particle" }, brightness = 2 }, -- slash arcs, waves, cuts
+		slashBurst = { on = true, roles = { "slash" }, modes = { "particle" } }, -- a slash flash at a cut
+		-- a bolt striking down: off (the kit's lightning is a horizontal beam strip, not an upright bolt)
+		bolt = { on = false, roles = { "lightning" }, modes = { "billboard" }, brightness = 2, upright = true },
+		halo = { on = true, roles = { "energy", "glow" }, modes = { "billboard" }, brightness = 1.6 }, -- orbs and orb projectiles
+		-- growing shockwave shells: the thick ring
+		shell = { on = true, roles = { "rings" }, first = { "rings:2" }, modes = { "billboard" }, brightness = 1.3 },
+		-- aura spikes: the fire flipbook (as sprites)
+		aura = { on = true, roles = { "fire" }, modes = { "billboard" }, brightness = 1.6, upright = true },
+		lightning = { on = true, roles = { "lightning" }, modes = { "beam" }, speed = 3, width = 3 }, -- jagged beams, zaps
+		-- the soft glow around beams, columns: off (no kit texture made for it yet)
+		beamGlow = { on = false, roles = { "glow", "smoke" }, modes = { "beam" }, width = 1.4 },
+		-- ultimate releases (below): off (the kit has no full-screen impact frame)
+		impactFrame = { on = false, roles = { "impact" }, modes = { "screen" } },
 	},
 
 	-- Variants by element (AbilityFxConfig.units `element`) and by unit id: role -> "<role>:<rank>".
-	-- A unit's line wins over its element's; both win over rank 1 (and skip the hue check).
+	-- A unit's line wins over its element's; both win over `first` and rank 1 (and skip the hue check).
 	elements = {
-		lightning = { slash = "slash:2" }, -- lightning swordsmen cut with the electric crescent
-		wind = { slash = "slash:3" }, -- wind users cut with the wind slash
-		steam = { smoke = "smoke:2" }, -- billowing steam
-		explosion = { smoke = "smoke:2" }, -- big blast clouds
-		impact = { smoke = "smoke:2", rings = "rings:2" }, -- heavy dust, crisp shock rings
-		ki_impact = { smoke = "smoke:2", rings = "rings:2" },
-		gravity = { rings = "rings:2" }, -- clean gravity rings
-		fire = { explosions = "explosions:2" }, -- fire blasts burst like the pixel explosion
+		lightning = { slash = "slash:3" }, -- lightning swordsmen cut with the double crescent
+		wind = { slash = "slash:2" }, -- wind users cut with the wide crescent
+		impact = { rings = "rings:2" }, -- heavy, thick shock rings
+		ki_impact = { rings = "rings:2" },
+		gravity = { rings = "rings:3" }, -- segmented gravity rings
+		fire = { cracks = "cracks:2" }, -- fire scorches the ground
+		explosion = { cracks = "cracks:2" }, -- blasts scorch the ground
+		time = { energy = "energy:2" }, -- time ki swirls
+		cursed = { energy = "energy:2" }, -- cursed energy swirls
+		magic = { sparks = "sparks:2" }, -- magic twinkles with star sparks
 	},
 	units = {
-		cyclone_edge = { slash = "slash:3" }, -- the cyclone blade cuts with wind
-		wolfstep = { slash = "slash:3" }, -- wind-step lunges
-		volt_spear = { lightning = "lightning:2", energy = "energy:1" }, -- violet lightning
-		clockbreaker = { energy = "energy:1" }, -- violet ki
-		night_parade = { energy = "energy:1", lightning = "lightning:2" }, -- cursed violet
-		night_command = { energy = "energy:1" },
-		flashline = { lightning = "lightning:1" }, -- the orange-gold bolt
-		burst_vector = { explosions = "explosions:2" },
+		cyclone_edge = { slash = "slash:2" }, -- the cyclone blade cuts wide
+		wolfstep = { slash = "slash:2" }, -- wind-step lunges
+		clockbreaker = { energy = "energy:2" }, -- swirling ki
+		night_parade = { energy = "energy:2" }, -- cursed swirl
+		night_command = { energy = "energy:2" },
 	},
 
 	-- Ultimate releases flash a full-screen impact frame for the listed tiers (UltimateConfig), unless
