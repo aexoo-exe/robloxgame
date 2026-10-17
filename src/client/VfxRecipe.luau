@@ -111,6 +111,23 @@ VfxRecipe.DEFAULTS = {
 }
 local D = VfxRecipe.DEFAULTS
 
+-- Lightning values (studs at unit scale): arc widths, life, how often a strand re-jitters, how
+-- many segments, how far kinks push sideways, strands per tier for VfxRecipe.arcs.
+local LIGHTNING = {
+	width = 0.9, -- arcs between two points (a dash, a spear line)
+	burstWidth = 0.8, -- arcs from a burst out to the area's edge (x tier k)
+	crackleWidth = 0.6, -- short arcs off a body or hand
+	life = 0.35,
+	jitter = 0.05, -- seconds between re-jitters
+	segments = { 3, 6 },
+	segmentLength = 1.1, -- studs per segment, within `segments`
+	push = 0.22, -- sideways push of a kink, share of the arc's length
+	coreWidth = 0.22, -- the bright core, share of the width (0.45 without the kit's glow)
+	strands = { 2, 2, 3, 4, 5 }, -- VfxRecipe.arcs by tier
+	light = { brightness = 2.5, seconds = 0.15 },
+}
+VfxRecipe.LIGHTNING = LIGHTNING
+
 -- Per tier (UltimateConfig tier 1-5): `k` scales sizes and counts, `sides` side blasts, `after`
 -- multiplies the aftermath's length and smoke, `light` the light flash, `arcs` the lightning arcs
 -- a crackling (lightning) burst throws.
@@ -316,11 +333,12 @@ function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?,
 	})
 end
 
--- The thick ring flat on the ground, racing out then fading.
+-- The thick shock ring racing out then fading: camera-facing, raised off the ground (a ring lying on
+-- the floor reads as a sticker).
 function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?)
 	local config = D.shock
 	local scale = k or 1
-	ImpactEffects.emit(at + Vector3.new(0, 0.15, 0), {
+	ImpactEffects.emit(at + Vector3.new(0, 1 + radius * 0.3, 0), {
 		usage = "shock",
 		count = 1,
 		color = colors({ { 0, edge:Lerp(WHITE, 0.6) }, { 1, edge } }),
@@ -333,7 +351,6 @@ function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?)
 		lifetime = { config.lifetime, config.lifetime },
 		lightEmission = 1,
 		brightness = config.brightness,
-		flat = true,
 	})
 end
 
@@ -395,7 +412,7 @@ function VfxRecipe.smoke(center: Vector3, radius: number, count: number, palette
 		local out = at - center
 		local heading = Vector3.new(out.X, 0, out.Z)
 		heading = if heading.Magnitude > 1e-3 then heading.Unit else Vector3.xAxis
-		ImpactEffects.emit(at + Vector3.new(0, 0.8, 0), {
+		ImpactEffects.emit(at + Vector3.new(0, 0.6 + radius * 0.35, 0), {
 			-- alternate the puff flipbook and the soft puff so they do not look stamped
 			usage = if i % 2 == 0 then "smokePuff" else "smoke",
 			count = 1,
@@ -414,7 +431,6 @@ function VfxRecipe.smoke(center: Vector3, radius: number, count: number, palette
 			acceleration = Vector3.new(0, 1, 0),
 			lightEmission = 0,
 			rotSpeed = { -30, 30 },
-			zOffset = -0.5,
 		})
 	end
 end
@@ -434,7 +450,6 @@ function VfxRecipe.steamColumn(at: Vector3, width: number, palette: ColorSequenc
 		acceleration = Vector3.new(0, 2, 0),
 		lightEmission = 0.05,
 		rotSpeed = { -40, 40 },
-		zOffset = -0.5,
 	})
 end
 
@@ -503,7 +518,7 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 		for i = 1, tier.sides do
 			run:at(run:designTime() + 0.03 * i, function()
 				VfxRecipe.explosion(
-					within(center, radius * 0.7) + Vector3.new(0, 0.8, 0),
+					within(center, radius * 0.7) + Vector3.new(0, 0.8 + radius * D.explosion.side * k, 0),
 					radius * D.explosion.side * k,
 					blast,
 					theme.blastUsage,
@@ -519,8 +534,16 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 		for i = 1, arcs do
 			local angle = (i / arcs) * math.pi * 2 + math.random() * 0.5
 			local edge = center
-				+ Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * (0.8 + 0.3 * math.random())
-			VfxRecipe.arc(air, edge + Vector3.new(0, 0.2, 0), theme.crackle, 0.3 * k, 0.22, 0.02 * i)
+				+ Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * (0.95 + 0.35 * math.random())
+			VfxRecipe.arc(
+				air + Vector3.new(0, 0.4, 0),
+				edge + Vector3.new(0, 0.3, 0),
+				theme.crackle,
+				LIGHTNING.burstWidth * k * run:scale(),
+				LIGHTNING.life,
+				0.03 * i,
+				i <= 2 and not run.reduced
+			)
 		end
 	end
 	VfxRecipe.sparks(air, k, nil, theme.spark)
@@ -618,9 +641,11 @@ local function jag(a: Vector3, b: Vector3, kinks: number, jitter: number): { Vec
 	return points
 end
 
--- One lightning arc from `a` to `b`: a jagged strand (re-jittered `flashes` times over its life of
--- `life` seconds), each segment a thin bright neon core under the kit's lightning strip tiled along
--- it, flickering as it dies. `width` studs. `delay` seconds from now.
+-- One lightning arc from `a` to `b`, `width` studs, living `life` seconds from `delay`: a jagged
+-- strand of 3-6 segments that re-jitters every LIGHTNING.jitter seconds, each segment a colored outer
+-- glow (the kit's lightning strip, VfxConfig.uses `boltGlow`: wide, LightEmission 0.5) over a bright
+-- thin neon core. It flickers on and off (2-4 times) for most of its life, then fades. `lit`: a small
+-- light flash at the strike.
 function VfxRecipe.arc(
 	a: Vector3,
 	b: Vector3,
@@ -628,31 +653,50 @@ function VfxRecipe.arc(
 	width: number,
 	life: number,
 	delay: number?,
-	flashes: number?
+	lit: boolean?
 )
-	local beam = FxKit.textured("lightning", color, "beam")
-	local core = color:Lerp(WHITE, 0.75)
-	local count = flashes or 2
-	local kinks = math.clamp(math.floor((b - a).Magnitude / 1.6), 1, 4)
-	for flash = 1, count do
-		local points = jag(a, b, kinks, 0.18)
-		local start = (delay or 0) + (flash - 1) * life / count
-		local span = life / count * 1.15
-		for i = 1, #points - 1 do
-			local p, q = points[i], points[i + 1]
-			local length = math.max((q - p).Magnitude, 0.05)
-			local frame = CFrame.lookAt((p + q) / 2, q)
-			for layer = 1, 2 do
-				local isCore = layer == 1
-				ImpactEffects.shape("Block", if isCore then core else color, span, function(part, progress)
-					local w = width * (if isCore then 0.3 else 1) * (1 - 0.4 * progress)
-					part.Size = Vector3.new(w, w, length)
-					part.CFrame = frame
-					local flicker = if math.floor(progress * 9 + i + flash) % 2 == 0 then 0 else 0.4
-					part.Transparency = math.min(1, progress * progress + flicker * (1 - progress))
-				end, start, nil, if isCore then nil else beam, not isCore)
-			end
+	local glow = FxKit.textured("boltGlow", color, "beam")
+	local core = color:Lerp(WHITE, 0.8)
+	local length = (b - a).Magnitude
+	local segments =
+		math.clamp(math.floor(length / LIGHTNING.segmentLength), LIGHTNING.segments[1], LIGHTNING.segments[2])
+	local kinks = segments - 1
+	-- One shared strand for every segment and layer: re-jittered on a clock, so a few shapes crackle.
+	local state = { points = jag(a, b, kinks, LIGHTNING.push), tick = 0 }
+	local function strandAt(progress: number): { Vector3 }
+		local tick = math.floor(progress * life / LIGHTNING.jitter)
+		if tick ~= state.tick then
+			state.tick = tick
+			state.points = jag(a, b, kinks, LIGHTNING.push)
 		end
+		return state.points
+	end
+	local coreShare = if glow then LIGHTNING.coreWidth else 0.45
+	for i = 1, segments do
+		for layer = 1, 2 do
+			local isCore = layer == 1
+			ImpactEffects.shape("Block", if isCore then core else color, life, function(part, progress)
+				local points = strandAt(progress)
+				local p, q = points[i], points[i + 1]
+				local w = width * (if isCore then coreShare else 1) * (1 - 0.3 * progress)
+				part.Size = Vector3.new(w, w, math.max((q - p).Magnitude, 0.05))
+				part.CFrame = CFrame.lookAt((p + q) / 2, q)
+				-- On/off with every other re-jitter for the first 70% (2-4 flickers), then a fade.
+				local seen = if progress < 0.7 then (if state.tick % 2 == 1 then 0.6 else 0) else (progress - 0.7) / 0.3
+				part.Transparency = math.min(1, seen + (if isCore then 0 else 0.1))
+			end, delay, nil, if isCore then nil else glow, not isCore)
+		end
+	end
+	if lit then
+		ImpactEffects.later(delay, function()
+			ImpactEffects.light(
+				a:Lerp(b, 0.5),
+				core,
+				LIGHTNING.light.brightness,
+				math.max(4, length * 0.8),
+				LIGHTNING.light.seconds
+			)
+		end)
 	end
 end
 
@@ -665,30 +709,36 @@ function VfxRecipe.crackle(run, at: Vector3, reach: number, theme: Theme?, count
 	for i = 1, count or 3 do
 		local direction = Vector3.new(math.random() - 0.5, math.random() - 0.3, math.random() - 0.5)
 		direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
-		local from = at + direction * reach * 0.15
+		local from = at + direction * reach * 0.1
 		VfxRecipe.arc(
 			from,
-			at + direction * reach * (0.6 + 0.4 * math.random()),
+			at + direction * reach * (0.8 + 0.4 * math.random()),
 			color,
-			0.14 * reach,
-			0.14,
-			0.03 * i,
-			1
+			LIGHTNING.crackleWidth * math.clamp(reach / 1.6, 0.7, 1.6),
+			LIGHTNING.life * 0.6,
+			0.03 * (i - 1),
+			i == 1 and not run.reduced
 		)
 	end
 	VfxRecipe.sparks(at, 0.35, 6, t.spark)
-	if not run.reduced then
-		ImpactEffects.light(at, color:Lerp(WHITE, 0.4), 1.5, math.max(3, reach * 3), 0.12)
-	end
 end
 
 -- Several arcs from `a` to `b` at once (a lightning dash, a bolt, a spear), the first the widest.
 function VfxRecipe.arcs(run, a: Vector3, b: Vector3, theme: Theme?, strands: number?, width: number?, life: number?)
 	local t = themeOf(theme)
 	local color = t.crackle or t.edge
-	local n = if run.reduced then 1 else (strands or 3)
+	local tierStrands = LIGHTNING.strands[math.clamp(run.tier or 3, 1, 5)]
+	local n = if run.reduced then 1 else (strands or tierStrands)
 	for i = 1, n do
-		VfxRecipe.arc(a, b, color, (width or 0.5) * (if i == 1 then 1 else 0.55), life or 0.25, 0.02 * (i - 1), 3)
+		VfxRecipe.arc(
+			a,
+			b,
+			color,
+			(width or LIGHTNING.width) * (if i == 1 then 1 else 0.6),
+			life or LIGHTNING.life,
+			0.03 * (i - 1),
+			i == 1 and not run.reduced
+		)
 	end
 	VfxRecipe.light(run, a:Lerp(b, 0.5), math.max(2, (b - a).Magnitude * 0.3), color:Lerp(WHITE, 0.3), 0.6)
 end

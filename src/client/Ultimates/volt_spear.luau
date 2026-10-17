@@ -44,7 +44,7 @@ def.beats = {
 			-- The chirping flicker: short arcs off the ball.
 			for i = 0, (if run.reduced then 3 else 7) do
 				run:at(-0.4 + i * 0.05, function()
-					VfxRecipe.crackle(run, run:hand("right"), 1.6 * run:scale(), theme(run), 1)
+					VfxRecipe.crackle(run, run:hand("right"), 1.6 * run:scale(), theme(run), 2)
 					if i % 2 == 0 then
 						run:sound("tick", 2)
 					end
@@ -66,8 +66,13 @@ function def.event(run, event): boolean
 		Kit.groove(run, 0, 0.6, blue, run:ground(), to, 0.3)
 		-- Lightning tearing a line in the ground: arcs along it, sparks and scorch marks behind.
 		local lift = Vector3.new(0, 0.3, 0)
-		VfxRecipe.arcs(run, run:ground() + lift, to + lift, theme(run), 2, 0.45, 0.3)
-		VfxRecipe.trail(run, run:ground(), to, { theme = theme(run), steps = 4, span = 0.1, size = 0.8 * run:scale() })
+		VfxRecipe.arcs(run, run:ground() + lift, to + lift, theme(run), 2, 1.1 * run:scale(), 0.45)
+		VfxRecipe.trail(
+			run,
+			run:ground(),
+			to,
+			{ theme = theme(run), steps = 4, span = 0.1, size = 0.8 * run:scale(), sparks = false }
+		)
 		run:sound("whoosh", 2)
 		return false -- the afterimages still show the lunge
 	elseif kind == "Damage" and event.target and not event.dot then

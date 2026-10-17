@@ -64,7 +64,14 @@ function def.event(run, event): boolean
 		side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
 		local points = { from, from:Lerp(to, 0.33) + side * 1.2, from:Lerp(to, 0.66) - side * 1.2, to }
 		for i = 1, 3 do
-			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 2, 0.7, 0.3)
+			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 2, 1.1 * run:scale(), 0.35)
+		end
+		-- Bolts crackling over his body through the dash.
+		local now = run:designTime()
+		for i = 0, (if run.reduced then 2 else 5) do
+			run:at(now + i * 0.05, function()
+				crackle(run, run:chest(), 2.2 * run:scale())
+			end)
 		end
 		VfxRecipe.pop(run, from, 1.4 * run:scale(), theme(run))
 		run:sound("whoosh", 1.9)

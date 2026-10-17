@@ -950,7 +950,19 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 	emitter.Rotation = NumberRange.new(rotation[1], rotation[2])
 	local rotSpeed = spec.rotSpeed or { 0, 0 }
 	emitter.RotSpeed = NumberRange.new(rotSpeed[1], rotSpeed[2])
-	emitter.ZOffset = spec.zOffset or 1
+	-- A camera-facing sprite larger than its height above the floor is cut by it and reads as a flat
+	-- oval on the ground: by default it is drawn toward the camera by half its largest size.
+	if spec.zOffset then
+		emitter.ZOffset = spec.zOffset
+	elseif spec.flat then
+		emitter.ZOffset = 0.2
+	else
+		local largest = 0
+		for _, point in emitter.Size.Keypoints do
+			largest = math.max(largest, point.Value)
+		end
+		emitter.ZOffset = math.clamp(largest * 0.5, 1, 8)
+	end
 	emitter:Emit(count)
 end
 

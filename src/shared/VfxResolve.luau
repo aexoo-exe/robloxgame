@@ -29,7 +29,7 @@ export type Texture = {
 	sprite: boolean,
 	scale: number, -- particles, sprites and billboards drawn this many times bigger (traits and usage `scale`)
 	tile: number?, -- a beam repeats the texture every this many studs (traits `tile`); nil: stretched
-	light: number?, -- LightEmission for beams and sprites (traits, else usage `light`); nil: by blend
+	light: number?, -- LightEmission for beams and sprites (usage, else traits `light`); nil: by blend
 	shade: Color3?, -- always drawn in this color (traits `shade`)
 	opacity: number, -- the most opaque it is ever drawn (usage `opacity`; 1: as its shape says)
 }
@@ -279,7 +279,7 @@ function VfxResolve.resolve(
 			sprite = sprite,
 			scale = (traits.scale or 1) * (usage.scale or 1),
 			tile = traits.tile,
-			light = traits.light or usage.light,
+			light = usage.light or traits.light,
 			shade = traits.shade,
 			opacity = usage.opacity or 1,
 		},
