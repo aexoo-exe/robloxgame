@@ -381,12 +381,49 @@ end
 -- Every live effect instance, printed to Output (the dev lineup's O key freezes them first): its
 -- path, class, what it draws (the `vfx` attribute: usage and pick, or "neon"), and for particles
 -- the orientation, size, ZOffset, transparency and color; world position and height above the floor.
-local function floorBelow(at: Vector3, ignore: { Instance }): number?
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = ignore
-	local hit = workspace:Raycast(at + Vector3.new(0, 0.5, 0), Vector3.new(0, -200, 0), params)
-	return if hit then hit.Position.Y else nil
+-- Floor candidates: visible anchored parts at least 2 studs across (board tiles, the stage floor),
+-- outside the effect folders and outside any model with a Humanoid or a unit's figure. Found from
+-- geometry, not a raycast: tiles may not be queryable, and a ray started inside a unit hits the unit.
+local function floorParts(ignore: { Instance }): { BasePart }
+	local out = {}
+	for _, item in workspace:GetDescendants() do
+		if not item:IsA("BasePart") or not item.Anchored or item.Transparency >= 1 then
+			continue
+		end
+		if item.Size.X < 2 or item.Size.Z < 2 then
+			continue
+		end
+		local skip = false
+		for _, root in ignore do
+			if item:IsDescendantOf(root) then
+				skip = true
+				break
+			end
+		end
+		local model = item:FindFirstAncestorOfClass("Model")
+		if model and model:FindFirstChildWhichIsA("Humanoid", true) then
+			skip = true
+		end
+		if not skip then
+			table.insert(out, item)
+		end
+	end
+	return out
+end
+
+-- The highest floor top under `at` (nil: none).
+local function floorBelow(at: Vector3, floors: { BasePart }): number?
+	local best: number? = nil
+	for _, part in floors do
+		local localAt = part.CFrame:PointToObjectSpace(at)
+		if math.abs(localAt.X) <= part.Size.X / 2 and math.abs(localAt.Z) <= part.Size.Z / 2 then
+			local top = part.Position.Y + part.Size.Y / 2
+			if top <= at.Y + 0.25 and (not best or top > best) then
+				best = top
+			end
+		end
+	end
+	return best
 end
 
 local function first(sequence: any): string
@@ -416,6 +453,7 @@ function VfxDebug.dumpLive(): string
 	end
 	local lines = { "==== LIVE EFFECTS ====" }
 	local count = 0
+	local floors = floorParts(roots)
 	for _, root in roots do
 		for _, item in root:GetDescendants() do
 			local holder = if item:IsA("BasePart") then item else item:FindFirstAncestorWhichIsA("BasePart")
@@ -495,7 +533,11 @@ function VfxDebug.dumpLive(): string
 			end
 			if live then
 				count += 1
-				local floor = if where then floorBelow(where, roots) else nil
+				-- A GUI is drawn at its adornee plus its offset, not at its holder part.
+				if where and (item:IsA("BillboardGui")) then
+					where += item.StudsOffsetWorldSpace
+				end
+				local floor = if where then floorBelow(where, floors) else nil
 				local tag = item:GetAttribute("vfx") or (holder and holder:GetAttribute("vfx")) or "?"
 				table.insert(
 					lines,

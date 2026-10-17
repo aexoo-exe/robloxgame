@@ -412,7 +412,7 @@ local function play(playback, placement: Placement?)
 				end
 				-- Areas the server described pulse with their Area events; only inferred ones here.
 				for _, area in reading.areas[index] or {} do
-					if area.inferred then
+					if area.inferred and not Cinematic.running(event.unit) then
 						pulseArea(area, colorOf(event.unit))
 					end
 				end
@@ -425,8 +425,9 @@ local function play(playback, placement: Placement?)
 		elseif kind == "FollowUp" and view and fresh then
 			lastCastAt[event.unit] = fightTimeOf(event.tick)
 			abilityFx:release(event.unit, view)
-		elseif kind == "Area" and fresh then
-			-- In the caster's element color (AbilityFx draws the shape's own effect on top).
+		elseif kind == "Area" and fresh and not Cinematic.running(event.unit) then
+			-- In the caster's element color (AbilityFx draws the shape's own effect on top); an
+			-- ultimate's recipe shows its own area, so no hex pulse under it.
 			pulseArea(
 				reading.areaEvents[index] or CastReader.areaOf(event),
 				colorOf(event.unit),
@@ -493,7 +494,7 @@ local function play(playback, placement: Placement?)
 			end
 		elseif kind == "MaxHealth" and view then
 			UnitView.setMaxHealth(view, event.maxHealth, event.health)
-		elseif kind == "AreaStun" and fresh then
+		elseif kind == "AreaStun" and fresh and not Cinematic.running(event.unit) then
 			-- The field in the caster's element color; each stunned unit shows the stun halo.
 			pulseArea({ column = event.column, row = event.row, radius = event.radius }, colorOf(event.unit))
 		elseif kind == "Summon" and view then

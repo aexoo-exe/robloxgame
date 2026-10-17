@@ -1,7 +1,7 @@
 -- Short-lived combat effects that belong to no single unit: projectiles for ranged attacks and
--- pulses on the hexes an area ability hits. Built-in shapes only. Every effect is animated by
--- CombatEffects.update (once per frame) and removed by CombatEffects.clear; nothing is scheduled
--- with task.delay or TweenService. Presentation only.
+-- pulses on the hexes an area ability hits (soft rings, drawn by ImpactEffects). Projectiles are
+-- animated by CombatEffects.update (once per frame) and removed by CombatEffects.clear; nothing is
+-- scheduled with task.delay or TweenService. Presentation only.
 -- Times come from CombatEffects.setClock (os.clock by default); combat playback sets a clock that
 -- runs in fight time, so effects follow the playback speed.
 -- Projectiles are pooled (each part keeps its trail), wait hidden until they launch, and look as
@@ -72,7 +72,6 @@ end
 local HEX_WIDTH = math.sqrt(3) * (RenderConfig.hexRadius - RenderConfig.cellGap)
 local PULSE_THICKNESS = 0.12
 -- A cylinder's axis is its X axis; this lays it flat.
-local FLAT = CFrame.Angles(0, 0, math.pi / 2)
 local WHITE = Color3.new(1, 1, 1)
 
 local function getFolder(): Folder
@@ -309,16 +308,21 @@ function CombatEffects.projectile(
 end
 
 -- Pulses the given ground positions. Each entry is { position = Vector3, delay = seconds }. `color`
--- defaults to RenderConfig.areaPulseColor.
+-- defaults to RenderConfig.areaPulseColor. Each hex gets a faint soft ring (the kit's ring texture,
+-- at most RenderConfig.areaPulseOpacity opaque, gone in areaPulseDuration), or without the kit a
+-- raised camera-facing ring (ImpactEffects.ring): never a flat neon disc on the floor.
 function CombatEffects.areaPulse(cells: { { position: Vector3, delay: number } }, color: Color3?)
-	local now = clock()
+	local tint = color or RenderConfig.areaPulseColor
 	for _, cell in cells do
-		local part = effectPart(color or RenderConfig.areaPulseColor)
-		part.Shape = Enum.PartType.Cylinder
-		part.Transparency = 1 -- shown when its delay has passed
-		part.Size = Vector3.new(PULSE_THICKNESS, HEX_WIDTH, HEX_WIDTH)
-		part.CFrame = CFrame.new(cell.position + Vector3.new(0, PULSE_THICKNESS, 0)) * FLAT
-		table.insert(pulses, { part = part, startsAt = now + cell.delay, diameter = HEX_WIDTH })
+		ImpactEffects.later(cell.delay, function()
+			ImpactEffects.ring(
+				cell.position,
+				tint,
+				HEX_WIDTH * 0.9,
+				RenderConfig.areaPulseDuration,
+				1 - RenderConfig.areaPulseOpacity
+			)
+		end)
 	end
 end
 

@@ -126,7 +126,8 @@ return deepFreeze({
 		-- the flash at every hit and burst: the hard-cored glow
 		flash = { on = true, roles = { "glow" }, first = { "glow:2" }, modes = { "particle" }, burst = true },
 		critFlash = { on = true, roles = { "impact", "glow" }, modes = { "particle" }, burst = true }, -- crits: the starburst
-		ring = { on = true, roles = { "rings" }, modes = { "plane" }, brightness = 1.6 }, -- ground rings, spirals, cones
+		-- ground rings, spirals, cones: never more than 30% opaque (a flat ring reads as a sticker)
+		ring = { on = true, roles = { "rings" }, modes = { "plane" }, brightness = 1.6, opacity = 0.3 },
 		-- soft ground discs and pools: the radial soft glow (no hard edge), never more than half opaque
 		disc = { on = true, roles = { "glow" }, modes = { "plane" }, brightness = 0.9, opacity = 0.5 },
 		crack = { on = true, roles = { "cracks" }, modes = { "plane" }, brightness = 1 }, -- ground cracks

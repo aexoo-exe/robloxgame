@@ -1169,8 +1169,9 @@ end
 
 -- A flat ring on the ground at `position` growing to `diameter` studs and fading: the picked ring
 -- texture (VfxConfig.uses `ring`) on a plane, or a neon disc.
-function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?)
+function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?, start: number?)
 	local seconds = duration or 0.35
+	local first = start or 0.25 -- the starting transparency
 	local texture = Vfx.texture("ring", color, "plane")
 	if not level.rings then
 		return
@@ -1187,7 +1188,7 @@ function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, 
 				NumberSequenceKeypoint.new(0, diameter * 0.3),
 				NumberSequenceKeypoint.new(1, diameter),
 			}),
-			transparency = NumberSequence.new(0.45, 1),
+			transparency = NumberSequence.new(math.max(first, 0.45), 1),
 			lifetime = { seconds, seconds },
 			lightEmission = 1,
 		})
@@ -1200,7 +1201,7 @@ function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, 
 			local grown = diameter * (0.3 + 0.7 * eased)
 			part.Size = Vector3.new(0.05, grown, grown)
 			part.CFrame = center
-			part.Transparency = 0.25 + 0.75 * progress
+			part.Transparency = first + (1 - first) * progress
 		end, nil, nil, texture)
 	end
 end

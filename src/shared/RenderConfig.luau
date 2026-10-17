@@ -62,8 +62,9 @@ return table.freeze({
 	dashTrailColor = Color3.fromRGB(255, 255, 255),
 	dashTrailLifetime = 0.2,
 	areaPulseColor = Color3.fromRGB(200, 120, 255),
-	areaPulseDuration = 0.45,
-	areaPulseTransparency = 0.5, -- starting transparency of each affected hex
+	areaPulseDuration = 0.3,
+	areaPulseTransparency = 0.5, -- (unused since the soft ring pulse; kept for older tuning notes)
+	areaPulseOpacity = 0.25, -- the most opaque each affected hex's soft ring is drawn
 	areaWaveDelay = 0.06, -- extra delay per hex from the center, so the pulse spreads outward
 	shieldBubbleColor = Color3.fromRGB(150, 220, 255),
 	shieldBubbleScale = 1.35, -- bubble diameter relative to the unit's largest side
