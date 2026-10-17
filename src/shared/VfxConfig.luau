@@ -151,6 +151,12 @@ return deepFreeze({
 		},
 		-- wind streaks and ground grooves: a soft glow streak along the line
 		streak = { on = true, roles = { "glow" }, modes = { "beam" }, width = 3, light = 1 },
+		-- Particle usages for fully specified emits (ImpactEffects.emit, showcase ultimates):
+		star = { on = true, roles = { "sparks" }, first = { "sparks:2" }, modes = { "particle" } }, -- star twinkles
+		smokePuff = { on = true, roles = { "smoke" }, modes = { "particle" } }, -- one soft puff (no flipbook)
+		ember = { on = true, roles = { "glow" }, first = { "glow:2" }, modes = { "particle" } }, -- hot dots
+		-- a burnt patch on the ground (ground_scorch, always soot-dark)
+		scorch = { on = true, roles = { "cracks" }, first = { "cracks:2" }, modes = { "plane" }, brightness = 1 },
 		-- the glow over a neon block (spirit bodies, barriers, shrine lights): a soft halo
 		glowBlob = { on = true, roles = { "glow" }, modes = { "billboard" }, brightness = 1.8, scale = 1.5 },
 		-- ultimate releases (below): off (the kit has no full-screen impact frame)

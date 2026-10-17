@@ -442,11 +442,14 @@ do
 end
 
 loaded["src/client/ImpactEffects"] = {
-	shape = function(shape, color, duration, step, delay, _material, texture)
+	shape = function(shape, color, duration, step, delay, _material, texture, textureOnly)
 		expect(color, "Color3", "shape color")
 		expect(duration, "number", "shape duration")
 		if texture ~= nil and type(texture) ~= "table" then
 			table.insert(stubErrors, "shape texture: a Vfx texture or nil expected")
+		end
+		if textureOnly and not texture then
+			return -- a glow layer with no texture draws nothing
 		end
 		local startAt = recordClock() + (delay or 0)
 		local group = recordGroup
@@ -475,6 +478,24 @@ loaded["src/client/ImpactEffects"] = {
 			Vfx.texture(KIND_USAGE[kind], burst.color, "particle")
 		end
 	end,
+	emit = function(position, spec)
+		expect(position, "Vector3", "emit position")
+		expect(spec.count, "number", "emit count")
+		expect(spec.color, "ColorSequence", "emit color")
+		expect(spec.size, "NumberSequence", "emit size")
+		expect(spec.transparency, "NumberSequence", "emit transparency")
+		if spec.usage then
+			Vfx.texture(spec.usage, nil, "particle")
+		end
+	end,
+	light = function(position, color, brightness, range, duration)
+		expect(position, "Vector3", "light position")
+		expect(color, "Color3", "light color")
+		expect(brightness, "number", "light brightness")
+		expect(range, "number", "light range")
+		expect(duration, "number", "light duration")
+	end,
+	setTimeScale = function() end,
 	later = function(_delay, fn)
 		fn()
 	end,

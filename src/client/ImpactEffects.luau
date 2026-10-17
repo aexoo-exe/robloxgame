@@ -610,6 +610,28 @@ local function hideFrame()
 	end
 end
 
+-- Light flashes: a PointLight at `position` that peaks at once and dies out over `duration` (the
+-- effects' clock, so it follows slow motion), `range` studs. Not at quality levels without rings.
+type Light = { part: BasePart, light: PointLight, startsAt: number, duration: number, brightness: number }
+local lights: { Light } = {}
+local spareLights: { BasePart } = {}
+
+local function stepLights(now: number)
+	for i = #lights, 1, -1 do
+		local entry = lights[i]
+		local progress = (now - entry.startsAt) / entry.duration
+		if progress >= 1 then
+			table.remove(lights, i)
+			entry.light.Enabled = false
+			entry.part.Parent = nil
+			table.insert(spareLights, entry.part)
+		else
+			-- Peaks at once, dies out faster than linear.
+			entry.light.Brightness = entry.brightness * (1 - progress) * (1 - progress)
+		end
+	end
+end
+
 local function update()
 	local now = clock()
 	for i = #active, 1, -1 do
@@ -660,6 +682,7 @@ local function update()
 			end
 		end
 	end
+	stepLights(now)
 	for i = #waiting, 1, -1 do
 		local call = waiting[i]
 		if now >= call.at then
@@ -806,6 +829,155 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	emitter.RotSpeed = if config.spin then NumberRange.new(-90, 90) else NumberRange.new(0, 0)
 	emitter.Rotation = if turns then NumberRange.new(0, 360) else NumberRange.new(0, 0)
 	emitter:Emit(count)
+end
+
+-- Fully specified particles (the showcase recipe) ----------------------------------------------------
+
+-- Particle time scale (slow-motion previews): every host emitter plays at this speed.
+local particleTimeScale = 1
+function ImpactEffects.setTimeScale(scale: number)
+	particleTimeScale = math.clamp(scale, 0, 1)
+	for _, list in hosts do
+		for _, emitter in list do
+			emitter.TimeScale = particleTimeScale
+		end
+	end
+end
+
+export type Emit = {
+	usage: string?, -- VfxConfig.uses entry for the texture (nil: `fallback` only)
+	fallback: string?, -- the texture when none is picked or the kit is off (default sparkles)
+	count: number,
+	color: ColorSequence, -- the textures are white masks: this is their whole color
+	size: NumberSequence,
+	transparency: NumberSequence,
+	lifetime: { number }, -- { min, max } seconds
+	speed: { number }?, -- { min, max } studs/s (default none)
+	spread: number?, -- degrees around `direction` (default 180: all around)
+	direction: Vector3?, -- default up
+	drag: number?,
+	acceleration: Vector3?, -- gravity is Vector3.new(0, -g, 0); rising smoke and embers go up
+	lightEmission: number?, -- 1: adds light (fire, glow, sparks); 0: covers (smoke)
+	brightness: number?,
+	rotation: { number }?, -- { min, max } degrees (default random all around)
+	rotSpeed: { number }?, -- { min, max } degrees/s
+	flat: boolean?, -- lies flat, facing up (ground shockwaves, scorches)
+	zOffset: number?,
+}
+
+-- Emits `spec.count` particles at `position` with every property given (ImpactEffects.Emit), drawn
+-- with the usage's kit texture (its flipbook plays: one-shot sheets over each particle's life) or the
+-- fallback texture. Within the quality level's particle share and cap; nothing when none is left.
+function ImpactEffects.emit(position: Vector3, spec: Emit)
+	local count = budget(spec.count, spec.lifetime[2])
+	if count <= 0 then
+		return
+	end
+	local texture = if spec.usage then Vfx.texture(spec.usage, nil, "particle") else nil
+	if texture and texture.mode ~= "particle" then
+		texture = nil
+	end
+	local content = if texture then texture.image else (spec.fallback or KINDS.spark.texture)
+	local key = "emit|" .. content
+	local list = hosts[key]
+	if not list then
+		list = {}
+		hosts[key] = list
+		nextHost[key] = 0
+	end
+	local index = nextHost[key] % POOLS.emitters + 1
+	nextHost[key] = index
+	local emitter = list[index]
+	if not emitter or not emitter.Parent or not emitter.Parent.Parent then
+		local part = Instance.new("Part")
+		part.Name = "emit"
+		bare(part)
+		part.Transparency = 1
+		part.Size = Vector3.one * 0.2
+		part.Parent = getFolder()
+		local created = Instance.new("ParticleEmitter")
+		created.Texture = content
+		created.LightInfluence = 0
+		created.Rate = 0
+		created.Enabled = false
+		local flipbook = texture and texture.flipbook
+		if flipbook then
+			created.FlipbookLayout = (Enum.ParticleFlipbookLayout :: any)["Grid" .. flipbook.layout]
+			created.FlipbookMode = (Enum.ParticleFlipbookMode :: any)[flipbook.mode]
+				or Enum.ParticleFlipbookMode.OneShot
+			created.FlipbookFramerate = NumberRange.new(flipbook.fps or 24)
+			created.FlipbookStartRandom = flipbook.mode == "Loop"
+		end
+		created.Parent = part
+		list[index] = created
+		emitter = created
+	end
+	local scale = if texture then texture.scale or 1 else 1
+	local part = emitter.Parent :: BasePart
+	local aim = if spec.direction and spec.direction.Magnitude > 1e-3 then spec.direction.Unit else Vector3.yAxis
+	part.CFrame = CFrame.lookAt(position, position + aim)
+	emitter.EmissionDirection = Enum.NormalId.Front
+	emitter.TimeScale = particleTimeScale
+	emitter.Color = spec.color
+	if scale ~= 1 then
+		local points = {}
+		for _, point in spec.size.Keypoints do
+			table.insert(points, NumberSequenceKeypoint.new(point.Time, point.Value * scale, point.Envelope * scale))
+		end
+		emitter.Size = NumberSequence.new(points)
+	else
+		emitter.Size = spec.size
+	end
+	emitter.Transparency = spec.transparency
+	emitter.Lifetime = NumberRange.new(spec.lifetime[1], spec.lifetime[2])
+	local speed = spec.speed or { 0, 0 }
+	-- Flat particles need a heading to lie across: a tiny speed straight up.
+	local least = if spec.flat then 0.001 else 0
+	emitter.Speed = NumberRange.new(math.max(speed[1], least), math.max(speed[2], least))
+	local spread = if spec.flat then 0 else (spec.spread or 180)
+	emitter.SpreadAngle = Vector2.new(spread, spread)
+	emitter.Orientation = if spec.flat
+		then Enum.ParticleOrientation.VelocityPerpendicular
+		else Enum.ParticleOrientation.FacingCamera
+	emitter.Drag = spec.drag or 0
+	emitter.Acceleration = spec.acceleration or Vector3.zero
+	emitter.LightEmission = spec.lightEmission or 0
+	emitter.Brightness = spec.brightness or 1
+	local rotation = spec.rotation or { 0, 360 }
+	emitter.Rotation = NumberRange.new(rotation[1], rotation[2])
+	local rotSpeed = spec.rotSpeed or { 0, 0 }
+	emitter.RotSpeed = NumberRange.new(rotSpeed[1], rotSpeed[2])
+	emitter.ZOffset = spec.zOffset or 1
+	emitter:Emit(count)
+end
+
+-- A light flash (see stepLights): `brightness` at once, out over `duration`.
+function ImpactEffects.light(position: Vector3, color: Color3, brightness: number, range: number, duration: number)
+	if not level.rings then
+		return
+	end
+	local part = table.remove(spareLights)
+	if not part then
+		local created = Instance.new("Part")
+		created.Name = "light"
+		bare(created)
+		created.Transparency = 1
+		created.Size = Vector3.one * 0.2
+		local point = Instance.new("PointLight")
+		point.Shadows = false
+		point.Parent = created
+		part = created
+	end
+	local p = part :: BasePart
+	local point = p:FindFirstChildOfClass("PointLight") :: PointLight
+	p.CFrame = CFrame.new(position)
+	point.Color = color
+	point.Range = range
+	point.Brightness = brightness
+	point.Enabled = true
+	p.Parent = getFolder()
+	table.insert(lights, { part = p, light = point, startsAt = clock(), duration = duration, brightness = brightness })
+	ensureRunning()
 end
 
 -- Runs `fn` `delay` seconds from now on the effects' clock (at once when `delay` is 0 or nil): a
@@ -1125,6 +1297,12 @@ function ImpactEffects.clear()
 	end
 	table.clear(shapes)
 	table.clear(waiting)
+	for _, entry in lights do
+		entry.light.Enabled = false
+		entry.part.Parent = nil
+		table.insert(spareLights, entry.part)
+	end
+	table.clear(lights)
 	hideFrame()
 	trauma = 0
 end

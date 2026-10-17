@@ -143,7 +143,7 @@ local OVERVIEW_HELP = "L close   . / ] / Right: next   , / [ / Left: previous"
 local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
-	"9 auto loop   F form   X star level   Q quality   V kit textures",
+	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate",
 }, "\n")
 
 -- Shows the key help and the title (the unit in a close-up) on the lineup's on-screen panel.
@@ -435,7 +435,7 @@ local function openStage(unitType: string)
 			.. ImpactEffects.quality()
 			.. "), V kit textures (now "
 			.. (if Vfx.enabled() then "on" else "off")
-			.. ")"
+			.. "), S ultimate at 0.25x"
 	)
 end
 
@@ -1166,6 +1166,19 @@ function DevLineup.start()
 		end
 		if key == Enum.KeyCode.L then
 			toggle()
+		elseif key == Enum.KeyCode.S and stage then
+			-- Judge an ultimate: replay it (as key 3) at 0.25x, particles included, then back to 1x.
+			local slow = 0.25
+			timeScale = slow
+			ImpactEffects.setTimeScale(slow)
+			cast(stage)
+			print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
+			task.delay(14, function()
+				if timeScale == slow then
+					timeScale = 1
+					ImpactEffects.setTimeScale(1)
+				end
+			end)
 		elseif key == Enum.KeyCode.V then
 			-- A/B: every effect with its kit texture, or its neon fallback.
 			Vfx.setEnabled(not Vfx.enabled())
