@@ -65,8 +65,19 @@ VfxRecipe.palettes = {
 	ember = colors({ { 0, rgb(255, 220, 140) }, { 0.5, rgb(255, 130, 40) }, { 1, rgb(170, 40, 15) } }),
 	-- smoke: dark gray, never white and never pure black
 	smoke = colors({ { 0, rgb(88, 80, 74) }, { 0.5, rgb(62, 57, 54) }, { 1, rgb(44, 41, 40) } }),
-	-- steam: pale warm gray, a little orange from the heat at first (drawn more transparent)
-	steam = colors({ { 0, rgb(255, 205, 165) }, { 0.3, rgb(205, 195, 188) }, { 1, rgb(150, 146, 144) } }),
+	-- steam: white -> pale gray (drawn more transparent)
+	steam = colors({ { 0, rgb(250, 248, 245) }, { 0.4, rgb(222, 222, 224) }, { 1, rgb(170, 172, 176) } }),
+	-- a steam blast: a faint warm tint at the very start only, then white -> pale gray
+	steamBlast = colors({
+		{ 0, rgb(255, 238, 220) },
+		{ 0.15, rgb(250, 248, 245) },
+		{ 0.6, rgb(220, 221, 224) },
+		{ 1, rgb(175, 177, 181) },
+	}),
+	steamCore = colors({ { 0, rgb(255, 255, 255) }, { 1, rgb(255, 238, 220) } }),
+	droplet = colors({ { 0, rgb(255, 255, 255) }, { 1, rgb(205, 215, 225) } }),
+	-- dust kicked up by a slam: warm tan -> gray
+	dust = colors({ { 0, rgb(205, 190, 165) }, { 0.5, rgb(170, 160, 145) }, { 1, rgb(130, 125, 118) } }),
 	flash = colors({ { 0, rgb(255, 255, 255) }, { 1, rgb(255, 225, 150) } }),
 }
 local P = VfxRecipe.palettes
@@ -101,13 +112,14 @@ VfxRecipe.DEFAULTS = {
 local D = VfxRecipe.DEFAULTS
 
 -- Per tier (UltimateConfig tier 1-5): `k` scales sizes and counts, `sides` side blasts, `after`
--- multiplies the aftermath's length and smoke, `light` the light flash.
+-- multiplies the aftermath's length and smoke, `light` the light flash, `arcs` the lightning arcs
+-- a crackling (lightning) burst throws.
 VfxRecipe.TIERS = {
-	{ k = 0.75, sides = 0, after = 0.5, light = 0.7 },
-	{ k = 0.85, sides = 1, after = 0.7, light = 0.85 },
-	{ k = 1, sides = 3, after = 1, light = 1 },
-	{ k = 1.15, sides = 4, after = 1.3, light = 1.1 },
-	{ k = 1.3, sides = 5, after = 1.6, light = 1.2 },
+	{ k = 0.75, sides = 0, after = 0.5, light = 0.7, arcs = 2 },
+	{ k = 0.85, sides = 1, after = 0.7, light = 0.85, arcs = 3 },
+	{ k = 1, sides = 3, after = 1, light = 1, arcs = 5 },
+	{ k = 1.15, sides = 4, after = 1.3, light = 1.1, arcs = 6 },
+	{ k = 1.3, sides = 5, after = 1.6, light = 1.2, arcs = 8 },
 }
 local function tierOf(run, tier: number?)
 	return VfxRecipe.TIERS[math.clamp(tier or (run and run.tier) or 3, 1, 5)]
@@ -117,7 +129,8 @@ export type Theme = {
 	core: ColorSequence,
 	blast: ColorSequence, -- the explosion (or glow) sheet
 	blastBig: ColorSequence,
-	blastUsage: string, -- "explosion" (a fireball flipbook) or "glow" (a soft energy sheet)
+	blastUsage: string, -- "explosion" (a fireball flipbook), "glow" (a soft energy sheet), "smoke" (steam)
+	blastLight: number?, -- the blast sheet's LightEmission (default DEFAULTS.explosion; 1 for glow)
 	spark: ColorSequence,
 	ember: ColorSequence,
 	smoke: ColorSequence,
@@ -126,7 +139,10 @@ export type Theme = {
 	edgeBig: Color3,
 	light: Color3,
 	lightBig: Color3,
-	flames: ColorSequence?, -- ground flames in the aftermath (nil: drifting embers instead)
+	flames: ColorSequence?, -- ground flames in the aftermath
+	residue: string?, -- without flames, what lingers: "embers" (default) or "steam" (columns, bubbling)
+	embers: boolean?, -- false: no embers at all
+	crackle: Color3?, -- lightning themes: the arcs' color (bursts throw arcs, residue crackles)
 	scorch: Color3?, -- the burnt patch's color (nil: no scorch)
 }
 
@@ -146,22 +162,26 @@ VfxRecipe.themes = {
 		flames = P.fire,
 		scorch = rgb(40, 30, 25),
 	} :: Theme,
-	-- an eruption: a fire blast and flames, but pale steam rolling out instead of dark smoke
+	-- a steam eruption: white -> pale gray clouds (a faint warm tint at the core only), droplets
+	-- for sparks, no flames, no dark smoke, no scorch; it leaves rising steam columns and bubbling
 	steam = {
-		core = P.flash,
-		blast = P.explosion,
-		blastBig = P.explosionRed,
-		blastUsage = "explosion",
-		spark = P.spark,
-		ember = P.ember,
+		core = P.steamCore,
+		blast = P.steamBlast,
+		blastBig = P.steamBlast,
+		blastUsage = "smoke",
+		blastLight = 0.1,
+		spark = P.droplet,
+		ember = P.droplet,
 		smoke = P.steam,
-		smokeTransparency = 0.55,
-		edge = rgb(255, 140, 60),
-		edgeBig = rgb(240, 80, 30),
-		light = rgb(255, 165, 80),
-		lightBig = rgb(255, 120, 55),
-		flames = P.fire,
-		scorch = rgb(36, 26, 22),
+		smokeTransparency = 0.5,
+		edge = rgb(235, 238, 242),
+		edgeBig = rgb(220, 224, 230),
+		light = rgb(255, 240, 225),
+		lightBig = rgb(255, 235, 215),
+		flames = nil,
+		residue = "steam",
+		embers = false,
+		scorch = nil,
 	} :: Theme,
 }
 
@@ -197,6 +217,27 @@ function VfxRecipe.energy(color: Color3, accent: Color3?): Theme
 	}
 end
 
+-- A lightning theme: an energy theme whose bursts throw jittering arcs to the ground (`color`, with
+-- a white-hot core) and whose residue crackles.
+function VfxRecipe.lightning(color: Color3, accent: Color3?): Theme
+	local theme = VfxRecipe.energy(color, accent or color:Lerp(WHITE, 0.6))
+	theme.crackle = color
+	theme.smokeTransparency = 0.65
+	theme.scorch = color:Lerp(BLACK, 0.8) -- strikes mark the ground
+	return theme
+end
+
+-- A wind theme: an energy theme in `color` whose smoke is a faint pale haze and whose residue is
+-- pale motes (no dark smoke, no scorch).
+function VfxRecipe.wind(color: Color3, accent: Color3?): Theme
+	local pale = accent or color:Lerp(WHITE, 0.7)
+	local theme = VfxRecipe.energy(color, pale)
+	theme.smoke = colors({ { 0, pale:Lerp(WHITE, 0.5) }, { 1, pale } })
+	theme.smokeTransparency = 0.75
+	theme.ember = colors({ { 0, WHITE }, { 0.5, pale }, { 1, color } })
+	return theme
+end
+
 local function themeOf(theme: Theme?): Theme
 	return theme or VfxRecipe.themes.fire
 end
@@ -220,10 +261,12 @@ function VfxRecipe.scorch(at: Vector3, radius: number, seconds: number, color: C
 	end
 	local base = CFrame.new(at + Vector3.new(0, 0.07, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, 0)
 	ImpactEffects.shape("Block", tint, seconds, function(part, progress)
-		local grown = radius * 2.2 * (0.6 + 0.4 * math.min(1, progress * 8))
+		-- Burns in fast, keeps spreading a little, fades over the last half (never a solid sticker:
+		-- the scorch usage caps its opacity).
+		local grown = radius * 2.2 * (0.6 + 0.4 * math.min(1, progress * 8) + 0.15 * progress)
 		part.Size = Vector3.new(grown, 0.05, grown)
 		part.CFrame = base
-		part.Transparency = 0.05 + 0.95 * math.max(0, progress - 0.5) * 2
+		part.Transparency = 0.2 + 0.8 * math.max(0, progress - 0.5) * 2
 	end, nil, nil, texture, true)
 end
 
@@ -254,9 +297,9 @@ end
 
 -- One explosion sheet at `at`, `size` times DEFAULTS.explosion.size studs: the one-shot explosion
 -- flipbook, or (`usage` "glow") a soft energy sheet.
-function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?, usage: string?)
+function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?, usage: string?, light: number?)
 	local config = D.explosion
-	local glow = usage == "glow"
+	local glow = usage == "glow" or usage == "smoke"
 	ImpactEffects.emit(at, {
 		usage = usage or "explosion",
 		count = 1,
@@ -267,7 +310,7 @@ function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?,
 			then curve({ { 0, 0.15 }, { 0.4, 0.35 }, { 1, 1 } })
 			else curve({ { 0, 0.1 }, { 0.7, 0.2 }, { 1, 1 } }),
 		lifetime = { config.lifetime, config.lifetime },
-		lightEmission = if glow then 1 else config.lightEmission,
+		lightEmission = light or (if usage == "glow" then 1 else config.lightEmission),
 		brightness = config.brightness,
 		rotSpeed = if glow then { -40, 40 } else nil,
 	})
@@ -376,6 +419,43 @@ function VfxRecipe.smoke(center: Vector3, radius: number, count: number, palette
 	end
 end
 
+-- A rising column of steam at `at` (ground): narrow puffs climbing fast and widening, `width` studs.
+function VfxRecipe.steamColumn(at: Vector3, width: number, palette: ColorSequence?)
+	ImpactEffects.emit(at + Vector3.new(0, 0.4, 0), {
+		usage = "smoke",
+		count = 3,
+		color = palette or P.steam,
+		size = curve({ { 0, width * 0.6 }, { 0.3, width * 1.2 }, { 1, width * 2.2 } }),
+		transparency = curve({ { 0, 1 }, { 0.1, 0.5 }, { 0.5, 0.65 }, { 1, 1 } }),
+		lifetime = { 0.8, 1.2 },
+		speed = { 4, 6.5 },
+		spread = 8,
+		drag = 0.8,
+		acceleration = Vector3.new(0, 2, 0),
+		lightEmission = 0.05,
+		rotSpeed = { -40, 40 },
+		zOffset = -0.5,
+	})
+end
+
+-- Bubbling at `at` (ground): small bubbles popping up within `radius`.
+function VfxRecipe.bubbles(at: Vector3, radius: number, s: number)
+	ImpactEffects.burst("bubble", at + Vector3.new(0, 0.2, 0), Vector3.yAxis, {
+		color = Color3.fromRGB(235, 240, 245),
+		count = 6,
+		size = 0.35 * s,
+		speed = { 1.5, 3.5 },
+		lifetime = { 0.25, 0.45 },
+		spread = math.clamp(radius * 20, 20, 60),
+		transparency = 0.3,
+	})
+end
+
+-- Dust kicked up at `at` (ground) by a slam or a landing: `count` puffs within `radius`, rolling out.
+function VfxRecipe.dust(at: Vector3, radius: number, count: number)
+	VfxRecipe.smoke(at - Vector3.new(0, 0.5, 0), radius, count, P.dust, 0.45)
+end
+
 -- Embers drifting up from `at`. Extra.
 function VfxRecipe.embers(run, at: Vector3, s: number, palette: ColorSequence?, count: number?)
 	if run.reduced then
@@ -418,7 +498,7 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 	local blast = if o.big then theme.blastBig else theme.blast
 	local air = center + Vector3.new(0, 1.2, 0)
 	VfxRecipe.core(air, radius, k, theme.core)
-	VfxRecipe.explosion(air, radius * k, blast, theme.blastUsage)
+	VfxRecipe.explosion(air, radius * k, blast, theme.blastUsage, theme.blastLight)
 	if not run.reduced then
 		for i = 1, tier.sides do
 			run:at(run:designTime() + 0.03 * i, function()
@@ -426,12 +506,23 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 					within(center, radius * 0.7) + Vector3.new(0, 0.8, 0),
 					radius * D.explosion.side * k,
 					blast,
-					theme.blastUsage
+					theme.blastUsage,
+					theme.blastLight
 				)
 			end)
 		end
 	end
 	VfxRecipe.shock(center, radius, if o.big then theme.edgeBig else theme.edge, k)
+	if theme.crackle then
+		-- Arcs snapping from the blast down to the edge of the area.
+		local arcs = if run.reduced then math.ceil(tier.arcs / 2) else tier.arcs
+		for i = 1, arcs do
+			local angle = (i / arcs) * math.pi * 2 + math.random() * 0.5
+			local edge = center
+				+ Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * (0.8 + 0.3 * math.random())
+			VfxRecipe.arc(air, edge + Vector3.new(0, 0.2, 0), theme.crackle, 0.3 * k, 0.22, 0.02 * i)
+		end
+	end
 	VfxRecipe.sparks(air, k, nil, theme.spark)
 	VfxRecipe.light(run, air, radius, if o.big then theme.lightBig else theme.light, k * tier.light)
 	if theme.scorch then
@@ -464,11 +555,26 @@ function VfxRecipe.aftermath(run, center: Vector3, radius: number, opts: Options
 				)
 			end)
 		end
+	elseif theme.residue == "steam" then
+		-- rising steam columns and bubbling across the area
+		for j = 0, math.max(1, math.floor(3 * tier.after)) - 1 do
+			run:at(now + 0.15 + j * 0.25, function()
+				VfxRecipe.steamColumn(within(center, radius * 0.7), radius * 0.35, theme.smoke)
+				if not run.reduced then
+					VfxRecipe.bubbles(within(center, radius * 0.8), radius * 0.3, s)
+				end
+			end)
+		end
 	else
-		-- the residue of an energy blast: embers rising off the area in waves
+		-- the residue of an energy blast: embers rising off the area in waves (crackling arcs too,
+		-- for lightning themes)
 		for j = 0, math.max(1, math.floor(3 * tier.after)) - 1 do
 			run:at(now + 0.1 + j * 0.25, function()
-				VfxRecipe.embers(run, within(center, radius * 0.6) + Vector3.new(0, 0.5, 0), s, theme.ember, 8)
+				local at = within(center, radius * 0.6)
+				VfxRecipe.embers(run, at + Vector3.new(0, 0.5, 0), s, theme.ember, 8)
+				if theme.crackle and not run.reduced then
+					VfxRecipe.crackle(run, at + Vector3.new(0, 0.4, 0), radius * 0.4, theme, 2)
+				end
 			end)
 		end
 	end
@@ -485,9 +591,106 @@ function VfxRecipe.aftermath(run, center: Vector3, radius: number, opts: Options
 			VfxRecipe.smoke(center, radius, puffs - first, theme.smoke, theme.smokeTransparency)
 		end)
 	end
-	run:at(now + 0.2, function()
-		VfxRecipe.embers(run, center + Vector3.new(0, 0.8, 0), s, theme.ember)
-	end)
+	if theme.embers ~= false then
+		run:at(now + 0.2, function()
+			VfxRecipe.embers(run, center + Vector3.new(0, 0.8, 0), s, theme.ember)
+		end)
+	end
+end
+
+-- Lightning ------------------------------------------------------------------------------------
+
+-- The points of a jagged strand from `a` to `b`: `kinks` kinks pushed sideways by up to `jitter` of
+-- its length.
+local function jag(a: Vector3, b: Vector3, kinks: number, jitter: number): { Vector3 }
+	local along = b - a
+	local length = along.Magnitude
+	local side = along:Cross(Vector3.yAxis)
+	side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
+	local up = if length > 1e-3 then side:Cross(along.Unit) else Vector3.yAxis
+	local points = { a }
+	for i = 1, kinks do
+		local push = (math.random() - 0.5) * 2 * jitter * length
+		local lift = (math.random() - 0.5) * jitter * length
+		table.insert(points, a:Lerp(b, i / (kinks + 1)) + side * push + up * lift)
+	end
+	table.insert(points, b)
+	return points
+end
+
+-- One lightning arc from `a` to `b`: a jagged strand (re-jittered `flashes` times over its life of
+-- `life` seconds), each segment a thin bright neon core under the kit's lightning strip tiled along
+-- it, flickering as it dies. `width` studs. `delay` seconds from now.
+function VfxRecipe.arc(
+	a: Vector3,
+	b: Vector3,
+	color: Color3,
+	width: number,
+	life: number,
+	delay: number?,
+	flashes: number?
+)
+	local beam = FxKit.textured("lightning", color, "beam")
+	local core = color:Lerp(WHITE, 0.75)
+	local count = flashes or 2
+	local kinks = math.clamp(math.floor((b - a).Magnitude / 1.6), 1, 4)
+	for flash = 1, count do
+		local points = jag(a, b, kinks, 0.18)
+		local start = (delay or 0) + (flash - 1) * life / count
+		local span = life / count * 1.15
+		for i = 1, #points - 1 do
+			local p, q = points[i], points[i + 1]
+			local length = math.max((q - p).Magnitude, 0.05)
+			local frame = CFrame.lookAt((p + q) / 2, q)
+			for layer = 1, 2 do
+				local isCore = layer == 1
+				ImpactEffects.shape("Block", if isCore then core else color, span, function(part, progress)
+					local w = width * (if isCore then 0.3 else 1) * (1 - 0.4 * progress)
+					part.Size = Vector3.new(w, w, length)
+					part.CFrame = frame
+					local flicker = if math.floor(progress * 9 + i + flash) % 2 == 0 then 0 else 0.4
+					part.Transparency = math.min(1, progress * progress + flicker * (1 - progress))
+				end, start, nil, if isCore then nil else beam, not isCore)
+			end
+		end
+	end
+end
+
+-- Crackling around a point (a body, a head, a hand): `count` short arcs leaping out from near `at`
+-- in random directions, up to `reach` studs, colored by the theme's crackle (or its edge), with a
+-- flicker of light and a few sparks.
+function VfxRecipe.crackle(run, at: Vector3, reach: number, theme: Theme?, count: number?)
+	local t = themeOf(theme)
+	local color = t.crackle or t.edge
+	for i = 1, count or 3 do
+		local direction = Vector3.new(math.random() - 0.5, math.random() - 0.3, math.random() - 0.5)
+		direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
+		local from = at + direction * reach * 0.15
+		VfxRecipe.arc(
+			from,
+			at + direction * reach * (0.6 + 0.4 * math.random()),
+			color,
+			0.14 * reach,
+			0.14,
+			0.03 * i,
+			1
+		)
+	end
+	VfxRecipe.sparks(at, 0.35, 6, t.spark)
+	if not run.reduced then
+		ImpactEffects.light(at, color:Lerp(WHITE, 0.4), 1.5, math.max(3, reach * 3), 0.12)
+	end
+end
+
+-- Several arcs from `a` to `b` at once (a lightning dash, a bolt, a spear), the first the widest.
+function VfxRecipe.arcs(run, a: Vector3, b: Vector3, theme: Theme?, strands: number?, width: number?, life: number?)
+	local t = themeOf(theme)
+	local color = t.crackle or t.edge
+	local n = if run.reduced then 1 else (strands or 3)
+	for i = 1, n do
+		VfxRecipe.arc(a, b, color, (width or 0.5) * (if i == 1 then 1 else 0.55), life or 0.25, 0.02 * (i - 1), 3)
+	end
+	VfxRecipe.light(run, a:Lerp(b, 0.5), math.max(2, (b - a).Magnitude * 0.3), color:Lerp(WHITE, 0.3), 0.6)
 end
 
 -- A small pop at `at` (a snap, a palm, a muzzle): a one-frame flash, a pop of stars, a little light,
@@ -528,7 +731,7 @@ function VfxRecipe.hit(run, at: Vector3, size: number, theme: Theme?, direction:
 	local t = themeOf(theme)
 	local radius = size * 0.6
 	VfxRecipe.core(at, radius, 1, t.core)
-	VfxRecipe.explosion(at, radius * 0.8, t.blast, t.blastUsage)
+	VfxRecipe.explosion(at, radius * 0.8, t.blast, t.blastUsage, t.blastLight)
 	VfxRecipe.sparks(at, 0.6, 24, t.spark, direction)
 	VfxRecipe.light(run, at, radius, t.light, 0.7)
 end
@@ -558,6 +761,8 @@ function VfxRecipe.trail(run, a: Vector3, b: Vector3, opts: TrailOptions?)
 			local at = a:Lerp(b, i / steps)
 			if t.flames then
 				VfxRecipe.flames(at + Vector3.new(0, 0.1, 0), 2, size, t.flames)
+			elseif t.residue == "steam" then
+				VfxRecipe.steamColumn(at, size * 0.4, t.smoke)
 			else
 				VfxRecipe.embers(run, at + Vector3.new(0, 0.3, 0), size, t.ember, 4)
 			end

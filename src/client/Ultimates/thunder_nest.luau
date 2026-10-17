@@ -5,10 +5,10 @@
 --          of lightning snapping out 1 hex around him on the real hit
 --   +0.10  the stunned enemies twitch with arcs
 --   +0.50  he stands, lightning dying along his arms
+-- Layers: the shared recipe (VfxRecipe, a lightning theme in his blue, tier 3).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
-local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -24,9 +24,14 @@ def.pose = {
 	tremble = { { -0.35, 0 }, { -0.25, 0.8 }, { -0.02, 0.8 }, { 0, 0, "hold" } },
 }
 
+-- His lightning: blue arcs with a white-hot core.
+local function theme(run)
+	run.memo.theme = run.memo.theme or VfxRecipe.lightning(run.style.primary, WHITE:Lerp(run.style.primary, 0.4))
+	return run.memo.theme
+end
+
 local function crackle(run, at: Vector3, size: number)
-	local to = at + Vector3.new(math.random() - 0.5, math.random() - 0.3, math.random() - 0.5) * size
-	Kit.zap(at, to, WHITE:Lerp(run.style.primary, 0.5), 0.1, 0.1, 2)
+	VfxRecipe.crackle(run, at, size, theme(run), 2)
 end
 
 def.beats = {
@@ -59,10 +64,9 @@ function def.event(run, event): boolean
 		side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
 		local points = { from, from:Lerp(to, 0.33) + side * 1.2, from:Lerp(to, 0.66) - side * 1.2, to }
 		for i = 1, 3 do
-			Kit.zap(points[i], points[i + 1], WHITE:Lerp(blue, 0.3), 0.35, 0.3, 1)
-			Kit.zap(points[i], points[i + 1], blue, 0.8, 0.2, 1)
+			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 2, 0.7, 0.3)
 		end
-		ImpactEffects.ball(from, WHITE, 1.4, 0.1)
+		VfxRecipe.pop(run, from, 1.4 * run:scale(), theme(run))
 		run:sound("whoosh", 1.9)
 		return true
 	elseif kind == "Area" or kind == "AreaStun" then
@@ -77,19 +81,10 @@ function def.event(run, event): boolean
 		end, function(u)
 			return 0.3 + 0.7 * u
 		end)
-		for i = 1, (if run.reduced then 3 else 6) do
-			local angle = i / 6 * 2 * math.pi
-			Kit.zap(
-				air,
-				center + Vector3.new(math.cos(angle) * radius, 0.4, math.sin(angle) * radius),
-				WHITE,
-				0.2,
-				0.2,
-				2
-			)
-		end
-		FxKit.ring(center, blue, radius * 2.3, 0.3)
-		run:shake(0.18)
+		-- The dome snapping out (above), then the recipe's lightning burst: core, glow sheet, arcs to
+		-- the edge of the area, shockwave, sparks, light, scorch; crackling residue.
+		VfxRecipe.burst(run, center, radius, { theme = theme(run) })
+		VfxRecipe.aftermath(run, center, radius, { theme = theme(run) })
 		return true
 	elseif kind == "Stun" and event.target then
 		-- The stunned twitch with arcs for a moment.
@@ -114,13 +109,7 @@ end
 def.beats[2] = {
 	at = 0.5,
 	run = function(run)
-		ImpactEffects.burst("spark", run:hand("right"), nil, {
-			color = run.style.primary,
-			count = 6,
-			size = 0.18,
-			speed = { 2, 4 },
-			lifetime = { 0.2, 0.4 },
-		})
+		crackle(run, run:hand("right"), 1.2)
 	end,
 }
 

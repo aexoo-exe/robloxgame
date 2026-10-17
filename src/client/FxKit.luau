@@ -288,7 +288,9 @@ function FxKit.disc(
 	-- A picked soft texture (VfxConfig.uses `disc`): a soft-edged disc, a little wider.
 	local soft = textured("disc", color, "plane")
 	ImpactEffects.shape(if soft then "Block" else "Cylinder", color, duration, function(part, progress)
-		local grown = diameter * (0.7 + 0.3 * math.min(1, progress * 4)) * (if soft then 1.25 else 1)
+		-- Swells in fast, then keeps spreading while it fades.
+		local swell = 1 - (1 - math.min(1, progress * 4)) ^ 2
+		local grown = diameter * (0.7 + 0.3 * swell + 0.2 * progress) * (if soft then 1.35 else 1)
 		part.Size = Vector3.new(0.06, grown, grown)
 		part.CFrame = CFrame.new(position + Vector3.new(0, 0.07, 0)) * FLAT
 		part.Transparency = holdFade(progress, start or 0.35, 0.5)

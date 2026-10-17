@@ -9,14 +9,16 @@
 --   +0.25  the first real hit: it opens into a wide white-blue sphere of wind over the area; a pulse
 --          and quick cuts on each real hit after
 --   +1.00  the last real hit: the sphere collapses in a final burst
+-- Layers: the shared recipe (VfxRecipe, a wind theme in his blue and white, tier 4).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
 local SMOKE = Color3.fromRGB(235, 235, 235)
+local CLONE_SMOKE = VfxRecipe.colors({ { 0, SMOKE }, { 1, SMOKE:Lerp(Color3.fromRGB(150, 150, 155), 0.6) } })
 
 local def = {}
 
@@ -74,14 +76,14 @@ local function clone(run, side: number)
 	end, fade, Enum.Material.Neon)
 	for _, at in { -0.9, -0.12 } do
 		run:at(at, function()
-			ImpactEffects.burst("puff", base().Position, nil, {
-				color = SMOKE,
-				count = 8,
-				size = 1,
-				speed = { 2, 4 },
-				lifetime = { 0.3, 0.5 },
-				transparency = 0.3,
-			})
+			-- The clones pop in (and out) in pale puffs of smoke.
+			VfxRecipe.smoke(
+				base().Position - Vector3.new(0, 0.5, 0),
+				1.3,
+				if run.reduced then 2 else 4,
+				CLONE_SMOKE,
+				0.45
+			)
 		end)
 	end
 end
@@ -190,13 +192,19 @@ function def.event(run, event): boolean
 		end
 		FxKit.ring(center, white, radius * 2.3, 0.22)
 		Kit.slashes(run, now, now + 0.2, center, radius * 0.9, if run.reduced then 4 else 8, { WHITE, blue }, 1.6)
+		run.memo.wind = run.memo.wind or VfxRecipe.wind(blue, white)
+		local wind = run.memo.wind
 		if hit >= total then
-			-- The collapse: a final burst.
-			ImpactEffects.ball(air, WHITE, radius * 1.4, 0.15)
+			-- The collapse: the recipe's burst in his wind (core, glow sheet and side sheets, shockwave,
+			-- sparks, light), then pale motes and a faint haze.
 			FxKit.ring(center, blue, radius * 2.8, 0.4)
-			run:shake(0.28)
+			VfxRecipe.burst(run, center, radius, { theme = wind })
+			VfxRecipe.aftermath(run, center, radius, { theme = wind })
 			run:sound("whoosh", 1.2)
 		else
+			-- Each pulse: a ground shockwave and a spray of sparks off the spinning sphere.
+			VfxRecipe.shock(center, radius * 0.8, wind.edge)
+			VfxRecipe.sparks(air, 0.45, 14, wind.spark)
 			run:shake(0.1)
 		end
 		for _, target in run:targets() do
@@ -206,14 +214,9 @@ function def.event(run, event): boolean
 	elseif kind == "Damage" and event.target and not event.dot then
 		local view = run.context.views[event.target]
 		if view then
-			ImpactEffects.burst("spark", view.part.Position, nil, {
-				color = WHITE,
-				color2 = run.style.primary,
-				count = 5,
-				size = 0.2,
-				speed = { 6, 10 },
-				lifetime = { 0.1, 0.2 },
-			})
+			-- Quick cuts: a few sparks off each unit hit.
+			run.memo.wind = run.memo.wind or VfxRecipe.wind(run.style.primary, run.style.secondary)
+			VfxRecipe.sparks(view.part.Position, 0.3, 8, run.memo.wind.spark)
 		end
 		return true
 	end

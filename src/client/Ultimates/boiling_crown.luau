@@ -8,8 +8,9 @@
 --    0     the eruption: a column and a dome of superheated steam over the real area, shockwave
 --          rings, hit-stop; he heaves up and back
 --   +0.10  steam rolls out across the area and thins; the ground stays scorched a while
--- Layers at the eruption: the shared recipe (VfxRecipe, steam theme: a fire blast with pale steam,
--- tier 5: the biggest, most side blasts, the longest aftermath).
+-- Layers at the eruption: the shared recipe (VfxRecipe, steam theme: white -> pale gray clouds,
+-- droplets, rising steam columns and bubbling; tier 5: the biggest, most side blasts, the longest
+-- aftermath). Nothing at the eruption is fire.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -106,7 +107,7 @@ function def.event(run, event): boolean
 		-- The column of superheated steam, the eruption over the real area (core, fire blast and side
 		-- blasts, shockwave, sparks, light, scorch), a second white shock ring, then flames, pale steam
 		-- rolling out and embers for the longest (tier 5) aftermath.
-		FxKit.column(center, HOT:Lerp(WHITE, 0.4), height, radius * 0.9, 0.7)
+		FxKit.column(center, WHITE:Lerp(HOT, 0.12), height, radius * 0.9, 0.7)
 		VfxRecipe.burst(run, center, radius, { theme = theme })
 		FxKit.ring(center, WHITE, radius * 2, 0.3)
 		VfxRecipe.aftermath(run, center, radius, { theme = theme })
@@ -125,8 +126,8 @@ function def.event(run, event): boolean
 	elseif kind == "Damage" and event.target and not event.dot and not event.aura then
 		local view = run.context.views[event.target]
 		if view then
-			-- Flames licking up each unit caught in it.
-			VfxRecipe.flames(view.part.Position - Vector3.new(0, view.part.Size.Y * 0.4, 0), 3, 1.4 * run:scale())
+			-- Steam scalding up around each unit caught in it.
+			VfxRecipe.steamColumn(view.part.Position - Vector3.new(0, view.part.Size.Y * 0.5, 0), 0.9 * run:scale())
 		end
 		return true
 	end

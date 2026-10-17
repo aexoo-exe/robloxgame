@@ -484,7 +484,8 @@ local function drawSkin(entry: Shape)
 	local skin = skinOf(part)
 	local color = Vfx.tint(texture, part.Color)
 	local size = part.Size
-	local seen = entry.shown
+	-- A usage's opacity cap (VfxConfig.uses `opacity`): ground discs and patches never read as solid.
+	local seen = 1 - (1 - entry.shown) * (texture.opacity or 1)
 	if texture.sprite then
 		drawSprite(entry, skin, color, size, seen)
 	elseif texture.mode == "plane" then

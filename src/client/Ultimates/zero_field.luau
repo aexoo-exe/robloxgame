@@ -6,15 +6,22 @@
 --    0     pink rings pulse out over the area; every held enemy floats up, turning helplessly, in a
 --          pink glow; a pink pulse under each ally she speeds up
 --   end    she claps (release!) and on the real end-of-hold hits they slam down: dust, pink rings
+-- Layers: the shared recipe (VfxRecipe, an energy theme in her pink, tier 3).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
 
 local def = {}
+
+-- Her gravity: pink glow, white-pink sparks and motes.
+local function theme(run)
+	run.memo.theme = run.memo.theme or VfxRecipe.energy(run.style.primary, WHITE:Lerp(run.style.primary, 0.5))
+	return run.memo.theme
+end
 
 local function holdOf(run): number
 	local stun = run:find("Stun")
@@ -106,6 +113,15 @@ function def.event(run, event): boolean
 		for i = 0, 2 do
 			FxKit.ring(center, if i == 1 then WHITE else pink, radius * (1.6 + 0.4 * i), 0.4, i * 0.1)
 		end
+		-- The field taking hold: a soft pink glow over the area, a ground shockwave, a light, and
+		-- motes lifting off the ground (gravity let go).
+		local t = theme(run)
+		local air = center + Vector3.new(0, 1, 0)
+		VfxRecipe.core(air, radius * 0.6, 1, t.core)
+		VfxRecipe.explosion(air, radius * 0.8, t.blast, t.blastUsage)
+		VfxRecipe.shock(center, radius, t.edge)
+		VfxRecipe.light(run, air, radius, t.light, 0.8)
+		VfxRecipe.embers(run, center + Vector3.new(0, 0.3, 0), run:scale(), t.ember, 14)
 		return true
 	elseif kind == "Stun" and event.target then
 		local view = run.context.views[event.target]
@@ -124,14 +140,12 @@ function def.event(run, event): boolean
 		if view then
 			-- The slam down as the hold ends.
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
-			ImpactEffects.burst("puff", floor + Vector3.new(0, 0.3, 0), nil, {
-				color = Kit.DUST,
-				count = 8,
-				size = 0.8,
-				speed = { 3, 6 },
-				lifetime = { 0.3, 0.6 },
-				transparency = 0.35,
-			})
+			-- Dust rolling out, a pink shockwave, a small core flash and sparks at the impact.
+			local t = theme(run)
+			VfxRecipe.dust(floor, 1.8, if run.reduced then 2 else 4)
+			VfxRecipe.shock(floor, 1.6, t.edge)
+			VfxRecipe.core(floor + Vector3.new(0, 0.5, 0), 1.2, 1, t.core)
+			VfxRecipe.sparks(floor + Vector3.new(0, 0.4, 0), 0.4, 12, t.spark)
 			FxKit.ring(floor, pink, 4.5, 0.35)
 			run:hitStop(view, 0.08)
 		end
@@ -144,7 +158,9 @@ function def.event(run, event): boolean
 	elseif kind == "Buff" and event.target and event.target ~= run.unitIndex then
 		local view = run.context.views[event.target]
 		if view then
-			FxKit.ring(view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0), pink, 3.5, 0.4, 0.1)
+			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
+			FxKit.ring(floor, pink, 3.5, 0.4, 0.1)
+			VfxRecipe.embers(run, floor + Vector3.new(0, 0.3, 0), 0.7 * run:scale(), theme(run).ember, 5)
 		end
 		return true
 	end

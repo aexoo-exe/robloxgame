@@ -31,6 +31,7 @@ export type Texture = {
 	tile: number?, -- a beam repeats the texture every this many studs (traits `tile`); nil: stretched
 	light: number?, -- LightEmission for beams and sprites (traits, else usage `light`); nil: by blend
 	shade: Color3?, -- always drawn in this color (traits `shade`)
+	opacity: number, -- the most opaque it is ever drawn (usage `opacity`; 1: as its shape says)
 }
 
 export type Context = { unit: string?, element: string?, color: Color3? }
@@ -280,6 +281,7 @@ function VfxResolve.resolve(
 			tile = traits.tile,
 			light = traits.light or usage.light,
 			shade = traits.shade,
+			opacity = usage.opacity or 1,
 		},
 			trace
 	end

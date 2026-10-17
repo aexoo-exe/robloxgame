@@ -8,9 +8,11 @@
 --    0     a clean white-blue beam fires straight through the real line; a bright line on the
 --          ground, small impacts along it, glyph sparks; a hexagonal barrier flickers around her
 --   +0.40  she lowers the staff, expressionless
+-- Layers at the beam: the shared recipe (VfxRecipe, an energy theme in white and pale blue, tier 4;
+-- never fiery).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -115,6 +117,8 @@ end
 function def.event(run, event): boolean
 	local kind = event.kind
 	local pale = run.style.secondary
+	-- Her magic: white and pale blue glow sheets and sparks (never fiery).
+	local magic = VfxRecipe.energy(pale, WHITE)
 	if kind == "Area" and event.shape == "LINE" and event.cells then
 		local start = circleFrame(run).Position
 		local far, distance = start, -1
@@ -137,17 +141,13 @@ function def.event(run, event): boolean
 		for i, cell in event.cells do
 			local at = run.context.toWorld(cell[1], cell[2])
 			run:at(0.025 * i, function()
-				ImpactEffects.ball(at + Vector3.new(0, 1.4, 0), WHITE, 1.2, 0.12)
+				-- A clean impact on each cell: a small core, a pale glow sheet, sparks, a light.
+				VfxRecipe.hit(run, at + Vector3.new(0, 1.4, 0), 1.9, magic)
 			end)
 		end
-		ImpactEffects.burst("spark", start, nil, {
-			color = WHITE,
-			color2 = pale,
-			count = 14,
-			size = 0.24,
-			speed = { 5, 10 },
-			lifetime = { 0.2, 0.4 },
-		})
+		-- Glyph sparks off the circle as it fires, and the circle's light.
+		VfxRecipe.sparks(start, 0.6, 26, magic.spark)
+		VfxRecipe.light(run, start, 3 * run:scale(), magic.light, 1)
 		for _, target in run:targets() do
 			run:hitStop(target, 0.07)
 		end

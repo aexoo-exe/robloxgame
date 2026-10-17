@@ -112,7 +112,8 @@ return deepFreeze({
 	-- (textures have soft or empty edges); `upright` keeps a billboard's image upright (others turn
 	-- at random so repeats do not look stamped); `scale` draws particles, sprites and billboards bigger
 	-- (soft-edged art looks smaller than its neon shape); `light` is the LightEmission of beams and
-	-- sprites (1: adds light, the punchy look).
+	-- sprites (1: adds light, the punchy look); `opacity` caps how opaque planes, billboards and
+	-- sprites ever draw (ground discs read as soft light, not stickers).
 	uses = {
 		sparks = { on = true, roles = { "sparks" }, modes = { "particle" } }, -- spark and ember bursts (hits, casts)
 		-- puffs, dust, smoke: the fading puff flipbook
@@ -126,7 +127,8 @@ return deepFreeze({
 		flash = { on = true, roles = { "glow" }, first = { "glow:2" }, modes = { "particle" }, burst = true },
 		critFlash = { on = true, roles = { "impact", "glow" }, modes = { "particle" }, burst = true }, -- crits: the starburst
 		ring = { on = true, roles = { "rings" }, modes = { "plane" }, brightness = 1.6 }, -- ground rings, spirals, cones
-		disc = { on = true, roles = { "smoke" }, modes = { "plane" }, brightness = 1.1 }, -- soft ground discs and pools
+		-- soft ground discs and pools: the radial soft glow (no hard edge), never more than half opaque
+		disc = { on = true, roles = { "glow" }, modes = { "plane" }, brightness = 0.9, opacity = 0.5 },
 		crack = { on = true, roles = { "cracks" }, modes = { "plane" }, brightness = 1 }, -- ground cracks
 		slash = { on = true, roles = { "slash" }, modes = { "plane", "particle" }, brightness = 2 }, -- slash arcs, waves, cuts
 		slashBurst = { on = true, roles = { "slash" }, modes = { "particle" } }, -- a slash flash at a cut
@@ -156,7 +158,14 @@ return deepFreeze({
 		smokePuff = { on = true, roles = { "smoke" }, modes = { "particle" } }, -- one soft puff (no flipbook)
 		ember = { on = true, roles = { "glow" }, first = { "glow:2" }, modes = { "particle" } }, -- hot dots
 		-- a burnt patch on the ground (ground_scorch, always soot-dark)
-		scorch = { on = true, roles = { "cracks" }, first = { "cracks:2" }, modes = { "plane" }, brightness = 1 },
+		scorch = {
+			on = true,
+			roles = { "cracks" },
+			first = { "cracks:2" },
+			modes = { "plane" },
+			brightness = 1,
+			opacity = 0.6,
+		},
 		-- the glow over a neon block (spirit bodies, barriers, shrine lights): a soft halo
 		glowBlob = { on = true, roles = { "glow" }, modes = { "billboard" }, brightness = 1.8, scale = 1.5 },
 		-- ultimate releases (below): off (the kit has no full-screen impact frame)
