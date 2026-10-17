@@ -138,16 +138,23 @@ local function strikeAt(style: Style, source: UnitView.UnitView?, target: UnitVi
 	local facing = if source then flat(target.part.Position - source.part.Position) else Vector3.zAxis
 	local kind = def.strike
 	if kind == "bolt" then
-		-- The picked bolt sprite striking down (VfxConfig.uses `bolt`), else a jagged beam.
-		local bolt = FxKit.textured("bolt", style.primary, "billboard")
+		-- The kit's lightning strip tiled down a beam from the sky (VfxConfig.uses `bolt`), over a
+		-- thin neon core, else a jagged neon beam.
+		local bolt = FxKit.textured("bolt", style.primary, "beam")
 		local sky = at + Vector3.new(0.6, 8, 0.4)
 		if bolt then
-			ImpactEffects.shape("Block", style.primary, 0.25, function(part, progress)
-				part.Size = Vector3.one * 8.5 * scale
-				part.CFrame = CFrame.new((sky + at) / 2)
-				local flicker = if math.floor(progress * 10) % 2 == 0 then 0 else 0.35
-				part.Transparency = math.min(1, progress ^ 2 + flicker * (1 - progress))
-			end, nil, nil, bolt)
+			local length = (sky - at).Magnitude
+			local frame = CFrame.lookAt((sky + at) / 2, at)
+			for layer = 1, 2 do
+				local core = layer == 1
+				ImpactEffects.shape("Block", style.primary, 0.25, function(part, progress)
+					local width = (if core then 0.12 else 0.6) * scale
+					part.Size = Vector3.new(width, width, length)
+					part.CFrame = frame
+					local flicker = if math.floor(progress * 10 + layer) % 2 == 0 then 0 else 0.35
+					part.Transparency = math.min(1, progress ^ 2 + flicker * (1 - progress) + (if core then 0.2 else 0))
+				end, nil, nil, if core then nil else bolt)
+			end
 		else
 			FxKit.beam(sky, at, style.primary, 0.5 * scale, 0.25, "jagged")
 		end

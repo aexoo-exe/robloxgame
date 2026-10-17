@@ -296,9 +296,23 @@ local function count(usage: string, textured: boolean)
 	end
 end
 
+-- Kit textures on or off for every effect (the dev lineup's V key, for A/B checks). Off: every
+-- effect draws its neon fallback, as if no texture were picked.
+local enabled = true
+function Vfx.setEnabled(on: boolean)
+	enabled = on
+end
+function Vfx.enabled(): boolean
+	return enabled
+end
+
 -- The texture `usage` (VfxConfig.uses) draws with now, for an effect of `color`, or nil (neon).
 -- `mode` only accepts textures that draw that way ("plane", "billboard", "beam", "particle").
 function Vfx.texture(usage: string, color: Color3?, mode: string?): Texture?
+	if not enabled then
+		count(usage, false)
+		return nil
+	end
 	local context = current
 	local key = table.concat({
 		usage,

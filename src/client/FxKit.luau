@@ -421,6 +421,8 @@ function FxKit.spiral(
 	delay: number?
 )
 	local orbs = 8
+	-- Twinkling star sparks when picked (VfxConfig.uses `mote`), else small neon balls.
+	local mote = textured("mote", color, "billboard")
 	for i = 1, orbs do
 		local offset = (i - 1) / orbs
 		ImpactEffects.shape("Ball", color, duration, function(part, progress)
@@ -430,17 +432,26 @@ function FxKit.spiral(
 			part.Size = Vector3.one * (0.35 * (1 - 0.5 * t))
 			part.CFrame = CFrame.new(position + Vector3.new(math.cos(angle) * r, height * t, math.sin(angle) * r))
 			part.Transparency = fadeIn(t, 0.1)
-		end, delay)
+		end, delay, nil, mote)
 	end
 end
 
--- An afterimage of a unit: a see-through block of `size` at `cframe`.
+-- An afterimage of a unit: a see-through block of `size` at `cframe`, with a soft glow halo over
+-- it when the kit has one (VfxConfig.uses `glowBlob`; the block then fainter, as its core).
 function FxKit.ghost(cframe: CFrame, size: Vector3, color: Color3, duration: number, delay: number?)
+	local glow = textured("glowBlob", color, "billboard")
 	ImpactEffects.shape("Block", color, duration, function(part, progress)
 		part.Size = size * (1 - 0.15 * progress)
 		part.CFrame = cframe
-		part.Transparency = fadeIn(progress, 0.55)
+		part.Transparency = fadeIn(progress, if glow then 0.75 else 0.55)
 	end, delay)
+	if glow then
+		ImpactEffects.shape("Block", color, duration, function(part, progress)
+			part.Size = size * (0.8 - 0.2 * progress)
+			part.CFrame = cframe
+			part.Transparency = fadeIn(progress, 0.35)
+		end, delay, nil, glow, true)
+	end
 end
 
 -- A blade arc: a crescent of short blocks across `center`, facing along `facing`, tilted `tilt`

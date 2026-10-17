@@ -501,7 +501,7 @@ local function drawSkin(entry: Shape)
 		end
 	elseif texture.mode == "billboard" then
 		local billboard, sprite = billboardOf(part, skin)
-		local across = math.max(size.X, size.Y, size.Z)
+		local across = math.max(size.X, size.Y, size.Z) * (texture.scale or 1)
 		billboard.Size = UDim2.fromScale(across, across)
 		billboard.Brightness = texture.brightness
 		billboard.Enabled = seen < 1
@@ -826,7 +826,8 @@ end
 -- (progress 0-1), which sets its size, place, color and transparency. With `texture` (Vfx.texture)
 -- it is drawn as that texture instead (a plane on its thinnest side, a billboard as wide as it, or a
 -- beam along a cylinder's axis or a block's Z length), within the quality level's cap of textured
--- shapes; a plane should be a "Block" (a SurfaceGui covers a block's face). Nothing at
+-- shapes; a plane should be a "Block" (a SurfaceGui covers a block's face). `textureOnly`: drawn
+-- only textured (nothing instead of neon). Nothing at
 -- quality levels without rings. At most AnimationConfig.pools.shapes at once: past that the oldest
 -- is reused.
 function ImpactEffects.shape(
@@ -836,9 +837,15 @@ function ImpactEffects.shape(
 	step: (BasePart, number) -> (),
 	delay: number?,
 	material: Enum.Material?,
-	texture: Vfx.Texture?
+	texture: Vfx.Texture?,
+	textureOnly: boolean?
 )
 	if not level.rings then
+		return
+	end
+	-- A texture-only layer (a glow over a neon core) draws nothing without its texture, including
+	-- when the quality level's cap of textured shapes is reached.
+	if textureOnly and (not texture or skinned >= vfxLevel.maxSkinned) then
 		return
 	end
 	local list = spareShapes[shape]

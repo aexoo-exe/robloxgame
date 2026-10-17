@@ -68,8 +68,7 @@ return deepFreeze({
 		lightning_strip = { blend = "alpha", tile = 6, light = 1 }, -- tiles along the beam (U)
 		energy_orb = { blend = "alpha", beam = false },
 		energy_swirl = { blend = "alpha", beam = false },
-		glow_soft = { blend = "alpha", beam = false },
-		glow_hard_core = { blend = "alpha", beam = false },
+		-- glows read along beams too: a soft streak, fading at both ends (beam glows, grooves, streaks)
 		impact_starburst = { blend = "alpha", burst = true, beam = false }, -- one whole hit burst
 		ground_scorch = { blend = "alpha", shade = rgb(45, 40, 38) }, -- dark soot whatever the element
 	},
@@ -111,7 +110,9 @@ return deepFreeze({
 	-- `brightness` brightens planes and billboards (bloom catches above 1); `burst` allows burst
 	-- images; `speed` scrolls a beam's texture; `width` is a beam's width, times the neon bar's
 	-- (textures have soft or empty edges); `upright` keeps a billboard's image upright (others turn
-	-- at random so repeats do not look stamped).
+	-- at random so repeats do not look stamped); `scale` draws particles, sprites and billboards bigger
+	-- (soft-edged art looks smaller than its neon shape); `light` is the LightEmission of beams and
+	-- sprites (1: adds light, the punchy look).
 	uses = {
 		sparks = { on = true, roles = { "sparks" }, modes = { "particle" } }, -- spark and ember bursts (hits, casts)
 		-- puffs, dust, smoke: the fading puff flipbook
@@ -129,16 +130,29 @@ return deepFreeze({
 		crack = { on = true, roles = { "cracks" }, modes = { "plane" }, brightness = 1 }, -- ground cracks
 		slash = { on = true, roles = { "slash" }, modes = { "plane", "particle" }, brightness = 2 }, -- slash arcs, waves, cuts
 		slashBurst = { on = true, roles = { "slash" }, modes = { "particle" } }, -- a slash flash at a cut
-		-- a bolt striking down: off (the kit's lightning is a horizontal beam strip, not an upright bolt)
-		bolt = { on = false, roles = { "lightning" }, modes = { "billboard" }, brightness = 2, upright = true },
+		-- a bolt striking down: the lightning strip tiled along a vertical beam from the sky
+		bolt = { on = true, roles = { "lightning" }, modes = { "beam" }, speed = 4, width = 2.5 },
 		halo = { on = true, roles = { "energy", "glow" }, modes = { "billboard" }, brightness = 1.6 }, -- orbs and orb projectiles
 		-- growing shockwave shells: the thick ring
 		shell = { on = true, roles = { "rings" }, first = { "rings:2" }, modes = { "billboard" }, brightness = 1.3 },
 		-- aura spikes: the fire flipbook (as sprites)
 		aura = { on = true, roles = { "fire" }, modes = { "billboard" }, brightness = 1.6, upright = true },
 		lightning = { on = true, roles = { "lightning" }, modes = { "beam" }, speed = 3, width = 3 }, -- jagged beams, zaps
-		-- the soft glow around beams, columns: off (no kit texture made for it yet)
-		beamGlow = { on = false, roles = { "glow", "smoke" }, modes = { "beam" }, width = 1.4 },
+		-- the soft glow around beams, columns and glowing bars (over their neon core)
+		beamGlow = { on = true, roles = { "glow" }, modes = { "beam" }, width = 1.6, light = 1 },
+		-- motes drawn in or pushed out, spiral orbs: twinkling star sparks
+		mote = {
+			on = true,
+			roles = { "glow" },
+			first = { "sparks:2" },
+			modes = { "billboard" },
+			brightness = 2.2,
+			scale = 2.4,
+		},
+		-- wind streaks and ground grooves: a soft glow streak along the line
+		streak = { on = true, roles = { "glow" }, modes = { "beam" }, width = 3, light = 1 },
+		-- the glow over a neon block (spirit bodies, barriers, shrine lights): a soft halo
+		glowBlob = { on = true, roles = { "glow" }, modes = { "billboard" }, brightness = 1.8, scale = 1.5 },
 		-- ultimate releases (below): off (the kit has no full-screen impact frame)
 		impactFrame = { on = false, roles = { "impact" }, modes = { "screen" } },
 	},

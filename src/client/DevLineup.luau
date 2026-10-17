@@ -61,6 +61,7 @@ local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
+local Vfx = require(script.Parent.Vfx)
 local VfxDebug = require(script.Parent.VfxDebug)
 
 local DevLineup = {}
@@ -142,7 +143,7 @@ local OVERVIEW_HELP = "L close   . / ] / Right: next   , / [ / Left: previous"
 local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
-	"9 auto loop   F form   X star level   Q quality",
+	"9 auto loop   F form   X star level   Q quality   V kit textures",
 }, "\n")
 
 -- Shows the key help and the title (the unit in a close-up) on the lineup's on-screen panel.
@@ -429,7 +430,13 @@ local function openStage(unitType: string)
 	CameraCues.setClock(stageClock)
 	spawnActors(s)
 	print("[DevLineup] keys: 1 attack, 2 crit, 3 cast, 4 get hit, 5 stun, 6 death, 7 victory, 8 heal + shield,")
-	print("[DevLineup]       9 auto loop, F form, X star level, Q quality (now " .. ImpactEffects.quality() .. ")")
+	print(
+		"[DevLineup]       9 auto loop, F form, X star level, Q quality (now "
+			.. ImpactEffects.quality()
+			.. "), V kit textures (now "
+			.. (if Vfx.enabled() then "on" else "off")
+			.. ")"
+	)
 end
 
 -- The unit attacks the dummy; the hit lands as the motion strikes (or the projectile arrives).
@@ -1159,6 +1166,10 @@ function DevLineup.start()
 		end
 		if key == Enum.KeyCode.L then
 			toggle()
+		elseif key == Enum.KeyCode.V then
+			-- A/B: every effect with its kit texture, or its neon fallback.
+			Vfx.setEnabled(not Vfx.enabled())
+			print("[DevLineup] kit textures: " .. (if Vfx.enabled() then "ON" else "OFF (neon fallback)"))
 		elseif key == Enum.KeyCode.Period or key == Enum.KeyCode.RightBracket then
 			step(1)
 		elseif key == Enum.KeyCode.Comma or key == Enum.KeyCode.LeftBracket then

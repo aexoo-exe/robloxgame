@@ -5,7 +5,9 @@
 -- slow motion and fast-forward and cost nothing once finished. Presentation only.
 -- Textures (VfxConfig.uses, for the caster: Cinematic sets it with Vfx.within): orb halos, shells
 -- and aura spikes are textured sprites, pools soft discs, beam glows soft beams, zaps lightning,
--- slash flashes textured blades. Without a texture each keeps its neon shape.
+-- slash flashes textured blades, motes star sparks, grooves and streaks soft glow streaks, and a
+-- Neon block (or pool) gets a soft glow over its neon core. Without a texture each keeps its neon
+-- shape; with ReducedEffects the extra glow layers are skipped.
 
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
@@ -36,7 +38,8 @@ end
 
 -- A part that lives from design time `from` to `to` of `run` (compressed before the release like
 -- the rest of the anticipation). `step(part, u)` sets it each frame, `u` 0-1 across the span.
--- `texture` (Vfx.texture) draws it textured (ImpactEffects.shape).
+-- `texture` (Vfx.texture) draws it textured (ImpactEffects.shape); `textureOnly`: only textured
+-- (a glow layer: nothing instead of neon).
 function UltimateKit.live(
 	run: any,
 	from: number,
@@ -45,13 +48,14 @@ function UltimateKit.live(
 	color: Color3,
 	step: (BasePart, number) -> (),
 	material: Enum.Material?,
-	texture: Vfx.Texture?
+	texture: Vfx.Texture?,
+	textureOnly: boolean?
 )
 	local now = run:now()
 	local startAt, endAt = run:time(from), run:time(to)
 	local delay = math.max(0, startAt - now)
 	local duration = math.max(0.03, endAt - math.max(startAt, now))
-	ImpactEffects.shape(shape, color, duration, step, delay, material, texture)
+	ImpactEffects.shape(shape, color, duration, step, delay, material, texture, textureOnly)
 end
 
 -- A glowing orb at `where()` from `from` to `to`, `size(u)` studs across, pulsing a little: a
@@ -97,6 +101,8 @@ function UltimateKit.converge(
 )
 	local span = run:time(to) - run:time(from)
 	local life = travel or 0.28
+	-- Twinkling star sparks when picked (VfxConfig.uses `mote`), else small neon balls.
+	local mote = textured("mote", color, "billboard")
 	for i = 1, count do
 		local direction = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
 		direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
@@ -106,7 +112,7 @@ function UltimateKit.converge(
 			part.Size = Vector3.one * (0.22 * (if outward then 1 - u * 0.6 else 0.5 + u * 0.5))
 			part.CFrame = CFrame.new(center() + direction * radius * k)
 			part.Transparency = if outward then 0.1 + 0.85 * u else 0.6 - 0.5 * u
-		end, delay)
+		end, delay, nil, mote)
 	end
 end
 
@@ -140,12 +146,23 @@ function UltimateKit.groove(run: any, from: number, to: number, color: Color3, a
 		return
 	end
 	local frame = CFrame.lookAt((flatA + flatB) / 2, flatB)
+	-- A soft glow streak along it when picked (VfxConfig.uses `streak`), over a thinner neon core.
+	local glow = if run.reduced then nil else textured("streak", color, "beam")
 	UltimateKit.live(run, from, to, "Block", color, function(part, u)
 		local drawn = math.min(1, u * 8)
-		part.Size = Vector3.new(width * (1 - 0.5 * u), 0.05, length * drawn)
+		part.Size = Vector3.new(width * (1 - 0.5 * u) * (if glow then 0.45 else 1), 0.05, length * drawn)
 		part.CFrame = frame * CFrame.new(0, 0, length * (1 - drawn) / 2)
 		part.Transparency = 0.15 + 0.85 * UltimateKit.easeIn(u)
 	end)
+	if glow then
+		UltimateKit.live(run, from, to, "Block", color, function(part, u)
+			local drawn = math.min(1, u * 8)
+			-- The beam is as wide as the mean of X and Y, times `streak`'s width (3): ~1.2x the groove.
+			part.Size = Vector3.new(width * 0.6 * (1 - 0.4 * u), width * 0.2, length * drawn)
+			part.CFrame = frame * CFrame.new(0, 0.1, length * (1 - drawn) / 2)
+			part.Transparency = 0.1 + 0.9 * UltimateKit.easeIn(u)
+		end, nil, glow, true)
+	end
 end
 
 -- A flat disc on the ground at `center`, `diameter(u)` across, `transparency(u)`.
@@ -161,16 +178,31 @@ function UltimateKit.pool(
 )
 	-- A plain pool takes the picked soft disc (VfxConfig.uses `disc`), a little wider for its soft
 	-- edge; a pool of a chosen material keeps it.
-	local soft = if material then nil else textured("disc", color, "plane")
+	-- A Neon pool asks for the soft disc too (neon when there is none).
+	local glows = material == nil or material == Enum.Material.Neon
+	local soft = if glows then textured("disc", color, "plane") else nil
 	UltimateKit.live(run, from, to, if soft then "Block" else "Cylinder", color, function(part, u)
 		local d = math.max(0.05, diameter(u)) * (if soft then 1.25 else 1)
 		part.Size = Vector3.new(0.05, d, d)
 		part.CFrame = CFrame.new(center + Vector3.new(0, 0.05, 0)) * FLAT
 		part.Transparency = transparency(u)
-	end, material or Enum.Material.SmoothPlastic, soft)
+	end, if soft then Enum.Material.SmoothPlastic else material or Enum.Material.SmoothPlastic, soft)
 end
 
--- A block set each frame from `u`: its CFrame, size and transparency.
+-- The rotation that turns a block's longest side onto Z (a beam runs along a block's Z).
+local function longestOnZ(size: Vector3): (CFrame, number, number)
+	if size.X >= size.Y and size.X >= size.Z then
+		return CFrame.Angles(0, math.pi / 2, 0), size.X, (size.Y + size.Z) / 2
+	elseif size.Y >= size.Z then
+		return CFrame.Angles(math.pi / 2, 0, 0), size.Y, (size.X + size.Z) / 2
+	end
+	return CFrame.identity, size.Z, (size.X + size.Y) / 2
+end
+
+-- A block set each frame from `u`: its CFrame, size and transparency. A Neon block (glowing energy:
+-- spirit bodies, barriers, shrine lights) gets a soft glow over it when the kit has one: a glow
+-- beam along a bar-like block (VfxConfig.uses `beamGlow`), else a soft halo (`glowBlob`); its neon
+-- core stays, a little fainter. Other materials (stone, steel, cloth) stay solid props.
 function UltimateKit.block(
 	run: any,
 	from: number,
@@ -181,11 +213,32 @@ function UltimateKit.block(
 	transparency: (number) -> number,
 	material: Enum.Material?
 )
+	local glow, bar = nil, false
+	if material == Enum.Material.Neon and not run.reduced then
+		local middle = size(0.5)
+		local _, length, across = longestOnZ(middle)
+		bar = length > across * 2.5
+		glow = if bar then textured("beamGlow", color, "beam") else textured("glowBlob", color, "billboard")
+	end
 	UltimateKit.live(run, from, to, "Block", color, function(part, u)
 		part.Size = size(u)
 		part.CFrame = frame(u)
-		part.Transparency = transparency(u)
+		part.Transparency = if glow then 0.3 + 0.7 * transparency(u) else transparency(u)
 	end, material)
+	if glow then
+		UltimateKit.live(run, from, to, "Block", color, function(part, u)
+			local s = size(u)
+			if bar then
+				local turn, length, across = longestOnZ(s)
+				part.Size = Vector3.new(across, across, length * 1.1)
+				part.CFrame = frame(u) * turn
+			else
+				part.Size = s
+				part.CFrame = frame(u)
+			end
+			part.Transparency = 0.15 + 0.85 * transparency(u)
+		end, nil, glow, true)
+	end
 end
 
 -- A held beam from `a()` to `b()` (moving points), `width(u)` thick: a bright core in a wider glow.
@@ -290,6 +343,8 @@ function UltimateKit.streaks(
 	end
 	flat = flat.Unit
 	local side = Vector3.new(-flat.Z, 0, flat.X)
+	-- Soft glow streaks when picked (VfxConfig.uses `streak`), else thin neon lines.
+	local streak = textured("streak", color, "beam")
 	for _ = 1, count do
 		local offset = side * (math.random() - 0.5) * width + Vector3.new(0, 0.4 + math.random() * 2.4, 0)
 		local reach = length * (0.6 + math.random() * 0.4)
@@ -301,7 +356,7 @@ function UltimateKit.streaks(
 			part.Size = Vector3.new(0.07, 0.07, span)
 			part.CFrame = CFrame.lookAt((tip + tail) / 2, tip + flat * 0.01)
 			part.Transparency = 0.2 + 0.7 * u
-		end)
+		end, nil, streak)
 	end
 end
 

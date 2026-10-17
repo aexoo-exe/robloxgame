@@ -27,9 +27,9 @@ export type Texture = {
 	upright: boolean, -- a billboard keeps the image upright (no random turn)
 	-- a plane or billboard drawn as one additive particle sprite (a black background or a flipbook)
 	sprite: boolean,
-	scale: number, -- particles and sprites drawn this many times bigger (traits `scale`)
+	scale: number, -- particles, sprites and billboards drawn this many times bigger (traits and usage `scale`)
 	tile: number?, -- a beam repeats the texture every this many studs (traits `tile`); nil: stretched
-	light: number?, -- LightEmission for beams and sprites (traits `light`); nil: by blend
+	light: number?, -- LightEmission for beams and sprites (traits, else usage `light`); nil: by blend
 	shade: Color3?, -- always drawn in this color (traits `shade`)
 }
 
@@ -276,9 +276,9 @@ function VfxResolve.resolve(
 			width = usage.width or 1,
 			upright = usage.upright == true,
 			sprite = sprite,
-			scale = traits.scale or 1,
+			scale = (traits.scale or 1) * (usage.scale or 1),
 			tile = traits.tile,
-			light = traits.light,
+			light = traits.light or usage.light,
 			shade = traits.shade,
 		},
 			trace
