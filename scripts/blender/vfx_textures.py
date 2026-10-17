@@ -322,25 +322,43 @@ def explosion_frame(X, Y, px, t):
 
 # ---------------------------------------------------------------- fire
 
+# x, base half-width, height (0-1), flicker cycles per loop (whole number), phase
+FIRE_TONGUES = [
+    (-0.17, 0.15, 0.62, 2, 0.1),
+    (0.0, 0.21, 0.92, 1, 0.45),
+    (0.18, 0.14, 0.7, 3, 0.8),
+]
+
+
 def fire_frame(X, Y, px, t):
-    """Licking flame tongues. Two noise layers scroll up at different whole-period
-    speeds, so shapes change every frame and frame 16 wraps back to frame 1."""
+    """Tall flame: wide bright base splitting into licking tongues with wispy tips.
+    Every noise layer scrolls a whole number of periods and every flicker runs
+    whole cycles per loop, so frame 16 wraps back to frame 1."""
     h = (Y + 0.82) / 1.64
     hc = np.clip(h, 0.0, 1.0)
     V = (Y + 1.0) * 2.0
-    warp = fbm((X + 1.0) * 1.5 + 3.1, V - 8.0 * t, 37, period=8, octaves=2)
-    xw = X + (warp - 0.5) * 0.8 * hc
+    warp = fbm((X + 1.0) * 1.5 + 3.1, V - 8.0 * t, 37, period=8, octaves=3)
+    lift = fbm((X + 1.0) * 1.5 + 5.3, V - 16.0 * t, 39, period=8, octaves=2)
+    xw = X + (warp - 0.5) * 0.45 * hc
+    hw = hc + (lift - 0.5) * 0.18 * hc
+
+    d = 1.0 - (xw / 0.33) ** 2 - ((h - 0.15) / 0.17) ** 2  # wide base
+    for x0, w0, height, speed, phase in FIRE_TONGUES:
+        top = height + 0.1 * np.sin(TAU * (speed * t + phase))
+        sway = 0.07 * np.sin(TAU * (speed * t + phase) + 4.0 * hw) * hw
+        u = np.clip(hw / top, 0.0, 1.0)
+        # Tongues start inside the base so their roots never poke out below it.
+        width = w0 * (1.0 - u) ** 0.8 * np.sqrt(ss(0.06, 0.2, hw)) + 1e-3
+        tongue = 1.0 - np.abs(xw - x0 - sway) / width
+        d = np.maximum(d, np.where((hw >= 0.06) & (hw < top), tongue, -1.0))
+
     n1 = fbm((xw + 1.0) * 3.0, V - 8.0 * t, 31, period=8, octaves=3)
     n2 = fbm((xw + 1.0) * 6.0, V * 2.0 - 32.0 * t, 33, period=16, octaves=2)
-    n = 0.65 * n1 + 0.35 * n2
-    width = 0.72 - 0.38 * hc
-    across = xw / width
-    g = (1.0 - hc) ** 0.5 * np.clip(1.0 - across ** 2, 0.0, 1.0) * ss(-0.02, 0.12, h - 0.12 * across ** 2)
-    # Noise only eats into the flame, so nothing appears outside it.
-    F = g * 2.0 - n * (0.6 + 1.4 * hc)
-    a = ss(0.04, 0.12, F)
-    core = ss(0.55, 0.8, F + 0.3 * (1.0 - hc))
-    halo = 0.25 * ss(-0.25, 0.05, F) * (1.0 - hc) * ss(-0.05, 0.1, h)
+    # Erosion grows with height so the tips break into wisps.
+    F = d - (0.6 * n1 + 0.4 * n2) * (0.1 + 1.0 * hc ** 1.5)
+    a = ss(0.0, 0.1, F) * (1.0 - 0.7 * ss(0.45, 1.0, h))
+    core = ss(0.3, 0.6, F) * (1.0 - ss(0.25, 0.6, h))
+    halo = 0.22 * ss(-0.3, 0.0, F) * (1.0 - ss(0.2, 0.7, h)) * ss(-0.05, 0.08, h)
     return union((0.78 + 0.22 * core, a), (1.0, halo))
 
 
