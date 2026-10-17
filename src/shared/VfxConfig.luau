@@ -83,12 +83,12 @@ return deepFreeze({
 	-- next pick is used) and is never tinted.
 	hue = { strict = false, bakedTint = 0.5, maxGap = 0.09, minSaturation = 0.3 },
 
-	-- Loading. Every image is preloaded in one batch at client start; any not loaded is tried once
-	-- more after `retryDelays[1]` seconds, and one still reporting Failure or TimedOut falls back to
-	-- neon. Images given up on are asked about again every `recheck`
-	-- seconds when an effect would draw with them. requireLoaded = false: an image is drawn while it
-	-- loads (it pops in when it arrives); true: only once loaded.
-	loading = { requireLoaded = false, retryDelays = { 2 }, recheck = 2 },
+	-- Loading. At client start every image gets a hidden ImageLabel that uses it (kept for the
+	-- session) and those labels are preloaded: an image is drawn while it loads. One whose label has
+	-- still not loaded `failAfter` seconds after start is drawn neon, re-fetched every `retryEvery`
+	-- seconds, and drawn again once loaded (re-checked at draw time every `recheck` seconds).
+	-- requireLoaded = true: an image is drawn only once its label has loaded.
+	loading = { requireLoaded = false, failAfter = 20, retryEvery = 10, recheck = 2 },
 
 	-- Filters, each a switch:
 	--   sprites       true: a black-background (additive) or flipbook texture asked to draw as a plane

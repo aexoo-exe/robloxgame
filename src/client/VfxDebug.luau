@@ -113,10 +113,10 @@ function VfxDebug.report(): string
 	)
 	line(
 		string.format(
-			"loading: requireLoaded=%s, first pass done=%s, retries after %s s | hue.strict=%s bakedTint=%.2f | filters: sprites=%s burstAnywhere=%s beamAlong=%s",
+			"loading: requireLoaded=%s, preload returned=%s, neon after %s s if not loaded | hue.strict=%s bakedTint=%.2f | filters: sprites=%s burstAnywhere=%s beamAlong=%s",
 			tostring(VfxConfig.loading.requireLoaded),
 			tostring(Vfx.preloaded()),
-			table.concat(VfxConfig.loading.retryDelays, "/"),
+			tostring(VfxConfig.loading.failAfter),
 			tostring(VfxConfig.hue.strict),
 			VfxConfig.hue.bakedTint,
 			tostring(VfxConfig.filters.sprites),

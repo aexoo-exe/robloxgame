@@ -1,12 +1,15 @@
--- Effect textures on the client: preloads every picked image in one batch, retried once (Vfx.start),
--- keeps the unit whose effects are being drawn (Vfx.within: its id, element and color pick its
--- variants), and answers which texture a usage draws with (Vfx.texture; VfxResolve with VfxConfig).
--- An image is drawn while it loads; only one whose every retry failed falls back to neon (one
--- warning naming the role and id), and those are asked about again at draw time, so a late load
--- still shows. VfxConfig.loading.requireLoaded = true waits for a confirmed load instead.
+-- Effect textures on the client: preloads every picked image through instances that use it (a
+-- hidden holder of ImageLabels, kept for the session so the images stay cached; Vfx.start), keeps the
+-- unit whose effects are being drawn (Vfx.within: its id, element and color pick its variants), and
+-- answers which texture a usage draws with (Vfx.texture; VfxResolve with VfxConfig).
+-- An image is always drawn while it loads. Only one whose holder label still has not loaded
+-- `VfxConfig.loading.failAfter` seconds after start falls back to neon (one warning), and it is
+-- retried and re-checked for the rest of the session, so a late load still shows.
+-- VfxConfig.loading.requireLoaded = true draws an image only once its label has loaded.
 -- Counts how many requests drew textured or fell back, for the debug report (VfxDebug).
 -- Presentation only.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -19,21 +22,21 @@ local Vfx = {}
 export type Texture = VfxResolve.Texture
 export type Context = VfxResolve.Context
 
--- Per image id: its last fetch status name ("Success", "Failure", "TimedOut", "Loading", ...),
--- preload attempts so far, whether it has failed for good (every retry failed), and when its status
--- was last asked again at draw time.
-type Load = { status: string, attempts: number, failed: boolean, checkedAt: number }
+-- Per image id: its holder label (whose IsLoaded is the truth), the last status the preload callback
+-- reported (for the report only: it never marks an image failed), whether it is drawn neon for now
+-- (not loaded by `failAfter`; re-checked), and how many times its label was asked to fetch it.
+type Load = { label: ImageLabel?, reported: string, failed: boolean, attempts: number }
 local loads: { [number]: Load } = {}
 local started = false
-local preloaded = false -- the preload (and its retry pass) has finished
+local preloaded = false -- the preload call has returned
 local current: Context? = nil
 local cache: { [string]: Texture | false } = {}
 local recheckedAt = 0
+local holder: ScreenGui? = nil
 
 -- Draw counts since Vfx.resetCounts: per usage, textured and fallback requests.
 local counts: { [string]: { textured: number, fallback: number } } = {}
 
-local FAILED = { Failure = true, TimedOut = true }
 local LOADING = VfxConfig.loading
 
 -- The pick keys ("<role>:<rank>") that draw with each image id, for warnings and the report.
@@ -56,74 +59,70 @@ end
 local function loadOf(id: number): Load
 	local entry = loads[id]
 	if not entry then
-		entry = { status = "unreported", attempts = 0, failed = false, checkedAt = 0 }
+		entry = { label = nil, reported = "unreported", failed = false, attempts = 0 }
 		loads[id] = entry
 	end
 	return entry
 end
 
--- The image's fetch status right now (ContentProvider), or nil if it cannot be asked.
-local function fetchStatus(id: number): string?
-	local ok, status = pcall(function()
-		return game:GetService("ContentProvider"):GetAssetFetchStatus(contentOf(id))
-	end)
-	return if ok and status then status.Name else nil
+local function isLoaded(id: number): boolean
+	local entry = loads[id]
+	local label = entry and entry.label
+	return label ~= nil and label.IsLoaded
 end
 
--- Records a status; a change makes every choice be made again.
-local function record(id: number, status: string)
+-- The hidden holder: one 2 px, almost fully transparent ImageLabel per image, on screen (so the
+-- engine fetches it) in a ScreenGui that survives respawns.
+local function holderLabel(id: number): ImageLabel
 	local entry = loadOf(id)
-	if status == "Success" and entry.failed then
+	if entry.label then
+		return entry.label
+	end
+	if not holder then
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "VfxPreload"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = -1000
+		gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+		holder = gui
+	end
+	local label = Instance.new("ImageLabel")
+	label.Name = tostring(id)
+	label.BackgroundTransparency = 1
+	label.ImageTransparency = 0.99
+	label.Size = UDim2.fromOffset(2, 2)
+	label.Position = UDim2.fromOffset(0, 0)
+	label.Image = contentOf(id)
+	label.Parent = holder
+	entry.label = label
+	entry.attempts += 1
+	return label
+end
+
+-- Marks an image usable again once its label has loaded (a change makes every choice be made again).
+local function refresh(id: number)
+	local entry = loads[id]
+	if entry and entry.failed and isLoaded(id) then
 		entry.failed = false
+		table.clear(cache)
 		print(string.format("[Vfx] texture %s (id %d) loaded after all: drawn from now on", keysOf(id), id))
 	end
-	if entry.status ~= status then
-		entry.status = status
-		table.clear(cache)
+end
+
+-- Asks a not-yet-loaded label to fetch its image again (cleared and set back).
+local function refetch(id: number)
+	local entry = loads[id]
+	local label = entry and entry.label
+	if label and not label.IsLoaded then
+		entry.attempts += 1
+		label.Image = ""
+		label.Image = contentOf(id)
 	end
 end
 
--- One preload pass over `ids` in a single ContentProvider:PreloadAsync call: the callback records
--- each image's status as it arrives (the callback is the source of truth; GetAssetFetchStatus only
--- fills in images the callback never reported).
-local function preloadAll(ids: { number })
-	local content = {}
-	for _, id in ids do
-		loadOf(id).attempts += 1
-		table.insert(content, contentOf(id))
-	end
-	local reported: { [number]: boolean } = {}
-	local ok, err = pcall(function()
-		game:GetService("ContentProvider"):PreloadAsync(content, function(asset: string, status: Enum.AssetFetchStatus)
-			local id = tonumber(string.match(asset, "(%d+)%s*$"))
-			if id and loads[id] then
-				reported[id] = true
-				record(id, status.Name)
-			end
-		end)
-	end)
-	if not ok then
-		warn("[Vfx] PreloadAsync failed: " .. tostring(err))
-	end
-	for _, id in ids do
-		if not reported[id] then
-			record(id, fetchStatus(id) or (if ok then "Loading" else "Failure"))
-		end
-	end
-end
-
-local function notLoaded(ids: { number }): { number }
-	local out = {}
-	for _, id in ids do
-		if loads[id].status ~= "Success" then
-			table.insert(out, id)
-		end
-	end
-	return out
-end
-
--- One warning in Output: each pick's key, name, image id and load result, so a texture that
--- silently draws neon shows up. `when` says which summary it is.
+-- One warning in Output: each pick's key, name, image id and load result (its holder label's
+-- IsLoaded), so a texture that draws neon shows up. `when` says which summary it is.
 local function summarize(when: string)
 	local lines, loaded, total = {}, 0, 0
 	for _, role in VfxConfig.roles do
@@ -139,15 +138,19 @@ local function summarize(when: string)
 			total += 1
 			local entry = loads[pick.image]
 			local result
-			if entry and entry.status == "Success" then
+			if isLoaded(pick.image) then
 				loaded += 1
 				result = "loaded"
 			elseif entry and entry.failed then
-				result = "FAILED: " .. entry.status .. " after " .. entry.attempts .. " tries (drawn neon)"
+				result = "FAILED: not loaded after "
+					.. LOADING.failAfter
+					.. " s (drawn neon, still retrying; preload said "
+					.. entry.reported
+					.. ")"
 			else
-				result = "not loaded yet: "
-					.. (if entry then entry.status else "never requested")
-					.. " (drawn while loading)"
+				result = "still loading (drawn while loading; preload said "
+					.. (if entry then entry.reported else "nothing")
+					.. ")"
 			end
 			table.insert(
 				lines,
@@ -167,11 +170,11 @@ local function summarize(when: string)
 	)
 end
 
--- Preloads every picked image in one PreloadAsync call, then once more (after
--- VfxConfig.loading.retryDelays[1] seconds) for any that did not load; images that still report
--- Failure or TimedOut are given up on (drawn neon, and asked about again at draw time). Images are
--- drawn while they load. Prints the load summary when preloading finishes, and again at
--- `LATE_SUMMARY` seconds if anything had not loaded by then.
+-- Preloads every picked image: each gets a label in the hidden holder, and the labels are preloaded
+-- in one PreloadAsync call (its callback only noted for the report). Prints the summary when that
+-- returns. At `failAfter` seconds an image whose label still has not loaded is drawn neon (one
+-- warning) and, from then on, re-fetched every `retryEvery` seconds until it loads. A second summary
+-- prints at `LATE_SUMMARY` seconds if anything had not loaded by then.
 local LATE_SUMMARY = 60
 function Vfx.start()
 	if started then
@@ -181,61 +184,101 @@ function Vfx.start()
 	task.spawn(function()
 		local began = os.clock()
 		local ids = VfxResolve.images()
-		preloadAll(ids)
-		local retry = notLoaded(ids)
-		if #retry > 0 then
-			task.wait(LOADING.retryDelays[1] or 2)
-			preloadAll(retry)
+		local labels = {}
+		for _, id in ids do
+			table.insert(labels, holderLabel(id))
 		end
-		for _, id in notLoaded(ids) do
-			local entry = loads[id]
-			if FAILED[entry.status] then
-				entry.failed = true
-				table.clear(cache)
-			end
+		local ok, err = pcall(function()
+			game:GetService("ContentProvider")
+				:PreloadAsync(labels, function(asset: string, status: Enum.AssetFetchStatus)
+					local id = tonumber(string.match(asset, "(%d+)%s*$"))
+					if id and loads[id] then
+						loads[id].reported = status.Name
+					end
+				end)
+		end)
+		if not ok then
+			warn("[Vfx] PreloadAsync failed (images still load through their labels): " .. tostring(err))
 		end
 		preloaded = true
 		summarize(string.format("preload finished in %.1f s", os.clock() - began))
-		if #notLoaded(ids) > 0 then
-			task.wait(math.max(0, LATE_SUMMARY - (os.clock() - began)))
-			for _, id in notLoaded(ids) do
-				local status = fetchStatus(id)
-				if status then
-					record(id, status)
+
+		task.wait(math.max(0, LOADING.failAfter - (os.clock() - began)))
+		local missing = {}
+		for _, id in ids do
+			if not isLoaded(id) then
+				loads[id].failed = true
+				table.insert(missing, keysOf(id) .. " " .. string.format("%d", id))
+			end
+		end
+		if #missing > 0 then
+			table.clear(cache)
+			warn(
+				string.format(
+					"[Vfx] %d textures not loaded after %d s, drawn neon until they load (retrying): %s",
+					#missing,
+					LOADING.failAfter,
+					table.concat(missing, ", ")
+				)
+			)
+		end
+
+		-- For the rest of the session: re-fetch what has not loaded, and draw it again once it has.
+		local lateDone = false
+		while true do
+			local anyMissing = false
+			for _, id in ids do
+				if isLoaded(id) then
+					refresh(id)
+				else
+					anyMissing = true
+					refetch(id)
 				end
 			end
-			summarize(string.format("at %d s", LATE_SUMMARY))
+			if not lateDone and os.clock() - began >= LATE_SUMMARY then
+				lateDone = true
+				if anyMissing then
+					summarize(string.format("at %d s", LATE_SUMMARY))
+				end
+			end
+			if not anyMissing and lateDone then
+				break
+			end
+			task.wait(LOADING.retryEvery)
 		end
 	end)
 end
 
--- An image's status for the report: "Success", "Loading", "Failure (gave up after 4 tries)", ...
+-- An image's status for the report: "loaded", "loading: not loaded (...)", "NEON: not loaded (...)".
 function Vfx.status(id: number): string
 	local entry = loads[id]
 	if not entry then
 		return "unreported"
 	end
-	local text = entry.status .. " (" .. entry.attempts .. " tries)"
-	return if entry.failed then "GAVE UP: " .. text else text
+	if isLoaded(id) then
+		return "loaded"
+	end
+	local text = string.format("not loaded (%d fetches, preload said %s)", entry.attempts, entry.reported)
+	return if entry.failed then "NEON: " .. text else "loading: " .. text
 end
 
--- Whether the preload (and its retry pass) has finished.
+-- Whether the preload call has returned.
 function Vfx.preloaded(): boolean
 	return preloaded
 end
 
--- Whether an image may be drawn: anything but one given up on after every retry failed
--- (VfxConfig.loading.requireLoaded: only once loaded).
+-- Whether an image may be drawn: anything not marked neon after `failAfter` (requireLoaded: only
+-- once its holder label has loaded).
 function Vfx.usable(id: number): boolean
-	local entry = loads[id]
 	if LOADING.requireLoaded then
-		return entry ~= nil and entry.status == "Success"
+		return isLoaded(id)
 	end
+	local entry = loads[id]
 	return not (entry and entry.failed)
 end
 
--- Images given up on are asked about again at draw time (every VfxConfig.loading.recheck seconds):
--- one that has loaded since is drawn again.
+-- Images drawn neon are looked at again at draw time (every VfxConfig.loading.recheck seconds): one
+-- whose label has loaded since is drawn again.
 local function recheckFailed()
 	local now = os.clock()
 	if now - recheckedAt < LOADING.recheck then
@@ -243,12 +286,10 @@ local function recheckFailed()
 	end
 	recheckedAt = now
 	for id, entry in loads do
-		if entry.failed or (LOADING.requireLoaded and entry.status ~= "Success") then
-			entry.checkedAt = now
-			local status = fetchStatus(id)
-			if status then
-				record(id, status)
-			end
+		if entry.failed then
+			refresh(id)
+		elseif LOADING.requireLoaded and isLoaded(id) then
+			table.clear(cache)
 		end
 	end
 end
