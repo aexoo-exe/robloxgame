@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
+local VfxPicks = require(Shared:WaitForChild("VfxPicks"))
 local VfxResolve = require(Shared:WaitForChild("VfxResolve"))
 
 local Vfx = {}
@@ -118,6 +119,51 @@ local function preload(id: number)
 	end
 end
 
+-- One warning in Output once every picked image has loaded or given up (or after `wait` seconds):
+-- each pick's key, name, image id and result, so a texture that silently draws neon shows up.
+local SUMMARY_WAIT = 45
+local function summarize()
+	local lines, loaded, total = {}, 0, 0
+	for _, role in VfxConfig.roles do
+		for _, pick in VfxConfig.picks[role] or {} do
+			local key = role .. ":" .. pick.rank
+			if not pick.image then
+				table.insert(
+					lines,
+					string.format("  %-13s %-20s NOT UPLOADED (%s)", key, tostring(pick.name), tostring(pick.pending))
+				)
+				continue
+			end
+			total += 1
+			local entry = loads[pick.image]
+			local result
+			if entry and entry.status == "Success" then
+				loaded += 1
+				result = "loaded"
+			elseif entry and entry.failed then
+				result = "FAILED: " .. entry.status .. " after " .. entry.attempts .. " tries (drawn neon)"
+			else
+				result = "not loaded yet: "
+					.. (if entry then entry.status else "never requested")
+					.. " (drawn while loading)"
+			end
+			table.insert(
+				lines,
+				string.format("  %-13s %-20s image %d  %s", key, tostring(pick.name), pick.image, result)
+			)
+		end
+	end
+	warn(
+		string.format(
+			"[Vfx] texture load summary (VfxPicks generated %s): %d of %d loaded\n%s",
+			tostring(VfxPicks.generated),
+			loaded,
+			total,
+			table.concat(lines, "\n")
+		)
+	)
+end
+
 -- Preloads every picked image, a few at a time (VfxConfig.loading.stagger seconds apart), retrying
 -- failures. Images are drawn while they load (Roblox loads them on first use anyway).
 function Vfx.start()
@@ -126,12 +172,30 @@ function Vfx.start()
 	end
 	started = true
 	task.spawn(function()
-		for _, id in VfxResolve.images() do
+		local ids = VfxResolve.images()
+		for _, id in ids do
 			loadOf(id)
 			task.spawn(preload, id)
 			task.wait(LOADING.stagger)
 		end
 		preloaded = true
+		-- Wait until every image has loaded or been given up on (retries included), then report once.
+		local deadline = os.clock() + SUMMARY_WAIT
+		while os.clock() < deadline do
+			local settled = true
+			for _, id in ids do
+				local entry = loads[id]
+				if not (entry and (entry.status == "Success" or entry.failed)) then
+					settled = false
+					break
+				end
+			end
+			if settled then
+				break
+			end
+			task.wait(1)
+		end
+		summarize()
 	end)
 end
 
