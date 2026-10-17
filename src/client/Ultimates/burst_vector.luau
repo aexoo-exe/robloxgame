@@ -4,14 +4,10 @@
 --   -0.22  a palm blast under him: a rocket jump up and toward the fight
 --    0     the real hit: a big orange-black explosion on the target and its neighbors, smoke
 --   +0.25  he drops into a crouch, sparks crackling, an orange glow for the buff
+-- Layers: the shared recipe (VfxRecipe, fire theme, tier 2: smaller and quicker than snapfire).
 
-local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
-
-local Kit = UltimateKit
-local WHITE = Kit.WHITE
-local SMOKE = Color3.fromRGB(40, 36, 34)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local def = {}
 
@@ -28,14 +24,9 @@ def.beats = {
 		at = -0.35,
 		run = function(run)
 			run:face(run:target())
+			-- His palms pop: a small flash, stars, a little light at each.
 			for _, side in { "left", "right" } do
-				ImpactEffects.burst("spark", run:hand(side), nil, {
-					color = run.style.primary,
-					count = 5,
-					size = 0.2,
-					speed = { 3, 6 },
-					lifetime = { 0.1, 0.2 },
-				})
+				VfxRecipe.pop(run, run:hand(side), 0.9 * run:scale())
 			end
 			run:sound("tick", 1.1)
 		end,
@@ -44,15 +35,14 @@ def.beats = {
 		-- The palm blast he rides up.
 		at = -0.22,
 		run = function(run)
-			ImpactEffects.ball(run:ground() + Vector3.new(0, 0.5, 0), run.style.primary, 2.4, 0.12)
-			ImpactEffects.burst("smoke", run:ground() + Vector3.new(0, 0.3, 0), nil, {
-				color = SMOKE,
-				count = 6,
-				size = 0.8,
-				speed = { 2, 4 },
-				lifetime = { 0.3, 0.5 },
-				transparency = 0.3,
-			})
+			-- A small explosion under his palms, sparks, a puff of dark smoke he rises out of.
+			local s = run:scale()
+			local under = run:ground() + Vector3.new(0, 0.5, 0)
+			VfxRecipe.core(under, 1.2 * s, 1)
+			VfxRecipe.explosion(under, 1 * s)
+			VfxRecipe.sparks(under, 0.5 * s, 16)
+			VfxRecipe.smoke(run:ground(), 1.6 * s, if run.reduced then 2 else 4)
+			VfxRecipe.light(run, under, 1.6 * s, VfxRecipe.themes.fire.light, 0.6)
 			run:sound("whoosh", 1.3)
 		end,
 	},
@@ -65,38 +55,17 @@ end
 function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
+		-- The orange-black explosion over the real area (core, explosion, shockwave, sparks, light,
+		-- scorch), then flames and dark smoke.
 		local center, radius = run:area()
-		local air = center + Vector3.new(0, 1.2, 0)
-		ImpactEffects.ball(air, WHITE, radius * 1.1, 0.1)
-		Kit.shell(run, 0, 0.3, run.style.primary, air, function(u)
-			return radius * 2 * Kit.easeOut(u)
-		end, function(u)
-			return 0.2 + 0.8 * u
-		end)
-		ImpactEffects.burst("flame", air, nil, {
-			color = run.style.primary,
-			color2 = WHITE,
-			count = 12,
-			size = 1,
-			speed = { 4, 8 },
-			lifetime = { 0.25, 0.45 },
-		})
-		ImpactEffects.burst("smoke", air, Vector3.yAxis, {
-			color = SMOKE,
-			count = 8,
-			size = 1.2,
-			speed = { 2, 4 },
-			lifetime = { 0.5, 0.9 },
-			spread = 50,
-			transparency = 0.3,
-		})
-		FxKit.mark(center, run.style.primary, SMOKE, radius, "scorch", 0.8)
-		run:shake(0.12)
+		VfxRecipe.burst(run, center, radius)
+		VfxRecipe.aftermath(run, center, radius)
 		run:sound("whoosh", 0.7)
 		return true
 	elseif kind == "Buff" and event.target == run.unitIndex then
 		run:at(0.25, function()
 			FxKit.ring(run:ground(), run.style.primary, 4, 0.35)
+			VfxRecipe.sparks(run:ground() + Vector3.new(0, 0.4, 0), 0.4 * run:scale(), 10)
 		end)
 		return true
 	elseif kind == "Damage" and event.target and not event.dot then

@@ -8,10 +8,13 @@
 --    0     the eruption: a column and a dome of superheated steam over the real area, shockwave
 --          rings, hit-stop; he heaves up and back
 --   +0.10  steam rolls out across the area and thins; the ground stays scorched a while
+-- Layers at the eruption: the shared recipe (VfxRecipe, steam theme: a fire blast with pale steam,
+-- tier 5: the biggest, most side blasts, the longest aftermath).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -99,29 +102,18 @@ function def.event(run, event): boolean
 	if kind == "Area" then
 		local center, radius = run:area()
 		local height = run.view.part.Size.Y * 2.6
-		ImpactEffects.ball(center + Vector3.new(0, 2, 0), WHITE, radius * 1.2, 0.12)
+		local theme = VfxRecipe.themes.steam
+		-- The column of superheated steam, the eruption over the real area (core, fire blast and side
+		-- blasts, shockwave, sparks, light, scorch), a second white shock ring, then flames, pale steam
+		-- rolling out and embers for the longest (tier 5) aftermath.
 		FxKit.column(center, HOT:Lerp(WHITE, 0.4), height, radius * 0.9, 0.7)
-		Kit.shell(run, 0, 0.5, HOT, center + Vector3.new(0, 1, 0), function(u)
-			return radius * 2.3 * Kit.easeOut(u)
-		end, function(u)
-			return 0.3 + 0.7 * u
-		end)
-		FxKit.ring(center, HOT, radius * 2.6, 0.45)
+		VfxRecipe.burst(run, center, radius, { theme = theme })
 		FxKit.ring(center, WHITE, radius * 2, 0.3)
-		-- Steam rolling out across the area, thinning.
-		for i = 1, (if run.reduced then 3 else 6) do
-			run:at(0.08 * i, function()
-				local angle = math.random() * 2 * math.pi
-				local out = Vector3.new(math.cos(angle), 0, math.sin(angle))
-				ImpactEffects.burst("puff", center + out * radius * (0.4 + 0.12 * i) + Vector3.new(0, 0.8, 0), out, {
-					color = WHITE:Lerp(HOT, 0.3),
-					count = 6,
-					size = 1.6,
-					speed = { 4, 8 },
-					lifetime = { 0.7, 1.1 },
-					spread = 60,
-					transparency = 0.4,
-				})
+		VfxRecipe.aftermath(run, center, radius, { theme = theme })
+		if not run.reduced then
+			-- A second wave of steam further out, rolling across the area.
+			run:at(0.4, function()
+				VfxRecipe.smoke(center, radius * 1.4, 4, theme.smoke, theme.smokeTransparency)
 			end)
 		end
 		for _, target in run:targets() do
@@ -133,15 +125,8 @@ function def.event(run, event): boolean
 	elseif kind == "Damage" and event.target and not event.dot and not event.aura then
 		local view = run.context.views[event.target]
 		if view then
-			ImpactEffects.burst("flame", view.part.Position, Vector3.yAxis, {
-				color = HOT,
-				color2 = EMBER,
-				count = 6,
-				size = 0.8,
-				speed = { 3, 6 },
-				lifetime = { 0.3, 0.5 },
-				spread = 40,
-			})
+			-- Flames licking up each unit caught in it.
+			VfxRecipe.flames(view.part.Position - Vector3.new(0, view.part.Size.Y * 0.4, 0), 3, 1.4 * run:scale())
 		end
 		return true
 	end

@@ -10,16 +10,20 @@
 --    0     the real hits: a white flash, a purple erasure over the area, a dark distortion, a
 --          glowing crater and the groove the sphere cut; a faint blue shimmer of his shield
 --   +0.30  one hand in his pocket while motes drift off the crater
+-- Layers at the erasure: the shared recipe (VfxRecipe, an energy theme in his purple, tier 5).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
 local PURPLE = Color3.fromRGB(176, 86, 255)
 local DEEP = Color3.fromRGB(58, 16, 92)
 local BLUE_SHIELD = Color3.fromRGB(150, 205, 255)
+-- His erasure: purple glow sheets, white-violet sparks, dark violet smoke, violet embers.
+local ERASURE = VfxRecipe.energy(PURPLE, Color3.fromRGB(225, 190, 255))
 
 -- Where his hands meet in front of the chest.
 local function between(run): Vector3
@@ -209,12 +213,10 @@ function def.event(run, event): boolean
 	if kind == "Area" then
 		local center, radius = run:area()
 		local air = center + Vector3.new(0, 1.2, 0)
-		ImpactEffects.ball(air, WHITE, radius * 1.4, 0.12)
-		Kit.shell(run, 0, 0.4, PURPLE, air, function(u)
-			return radius * 2.1 * Kit.easeOut(u)
-		end, function(u)
-			return 0.15 + 0.85 * u
-		end)
+		-- The flash and the purple erasure (core, glow sheet and side sheets, shockwave, sparks,
+		-- light), then the residue: violet embers, dark smoke.
+		VfxRecipe.burst(run, center, radius, { theme = ERASURE })
+		VfxRecipe.aftermath(run, center, radius, { theme = ERASURE })
 		-- The dark distortion that hangs a moment after the flash.
 		Kit.shell(run, 0.06, 0.7, DEEP, air, function(u)
 			return radius * (1.2 + 0.5 * u)
@@ -237,14 +239,6 @@ function def.event(run, event): boolean
 			Kit.groove(run, 0, 1.2, PURPLE, run:ground(), center, 0.5)
 			Kit.drift(run, 0.2, 1.1, PURPLE:Lerp(WHITE, 0.3), center, radius, 0.18)
 		end
-		ImpactEffects.burst("puff", center + Vector3.new(0, 0.4, 0), nil, {
-			color = Kit.DUST,
-			count = 12,
-			size = 1,
-			speed = { 4, 9 },
-			lifetime = { 0.5, 0.9 },
-			transparency = 0.35,
-		})
 		-- The impact frame holds: every enemy hit and the caster freeze for a beat (cosmetic only).
 		for _, target in run:targets() do
 			run:hitStop(target, 0.14)

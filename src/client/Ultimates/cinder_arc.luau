@@ -3,9 +3,10 @@
 --   -0.20  the blade drawn back in both hands, low; embers glow along it
 --    0     one wide circular slash leaving a ring of fire; it bursts out over the real splash
 --   +0.30  the blade held forward, a warm glow for his attack speed
+-- Layers: the shared recipe (VfxRecipe, fire theme, tier 1: small, quick, a short aftermath).
 
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local def = {}
 
@@ -21,15 +22,10 @@ def.beats = {
 		at = -0.2,
 		run = function(run)
 			run:face(run:target())
-			ImpactEffects.burst("ember", run:hand("right"), Vector3.yAxis, {
-				color = run.style.primary,
-				color2 = run.style.secondary,
-				count = 5,
-				size = 0.2,
-				speed = { 1, 3 },
-				lifetime = { 0.25, 0.4 },
-				spread = 40,
-			})
+			-- Embers glowing off the blade, and a small flame licking it.
+			local s = run:scale()
+			VfxRecipe.embers(run, run:hand("right"), s, nil, 8)
+			VfxRecipe.flames(run:hand("right"), 1, 0.7 * s)
 		end,
 	},
 }
@@ -44,16 +40,12 @@ function def.event(run, event): boolean
 		local center, radius = run:area()
 		local at = center + Vector3.new(0, 1.2, 0)
 		FxKit.slashArc(at, at - run.view.part.Position, run.style.primary, radius * 2.4, 0.15, 0.3)
-		FxKit.ring(center, run.style.primary, radius * 2.4, 0.35, 0.05)
-		ImpactEffects.burst("flame", center + Vector3.new(0, 0.4, 0), nil, {
-			color = run.style.primary,
-			color2 = run.style.secondary,
-			count = 10,
-			size = 0.9,
-			speed = { 3, 6 },
-			lifetime = { 0.25, 0.45 },
-		})
-		run:shake(0.08)
+		-- The ring of fire the slash leaves, then it bursts out over the real splash.
+		VfxRecipe.flameRing(center, radius * 1.1, if run.reduced then 6 else 10, 1.3 * run:scale())
+		run:at(0.05, function()
+			VfxRecipe.burst(run, center, radius)
+			VfxRecipe.aftermath(run, center, radius)
+		end)
 		run:sound("whoosh", 1.4)
 		return true
 	elseif kind == "Buff" and event.target == run.unitIndex then

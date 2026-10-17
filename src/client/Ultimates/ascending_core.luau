@@ -13,6 +13,7 @@
 --   -0.15  stillness
 --    0     both hands thrust: a huge beam along the real line to the board's edge, impacts along it
 --   +0.45  the beam thins out; steam rises off him
+-- Layers: the shared recipe (VfxRecipe, energy themes in his gold and blue, tier 5).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,6 +22,7 @@ local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -212,10 +214,12 @@ function def.event(run, event): boolean
 			return width
 				* (if u < 0.4 then 1 + 0.15 * math.sin(run:now() * 40) else 1 - Kit.easeIn((u - 0.4) / 0.6) * 0.92)
 		end)
+		local impact = VfxRecipe.energy(blue, WHITE:Lerp(blue, 0.3))
 		for i, cell in event.cells do
 			local at = run.context.toWorld(cell[1], cell[2])
 			run:at(0.02 * i, function()
-				ImpactEffects.ball(at + Vector3.new(0, 1.4, 0), WHITE, 2.2, 0.15)
+				-- An impact along the line: a small core, a blue glow sheet, sparks, the ground marked.
+				VfxRecipe.hit(run, at + Vector3.new(0, 1.4, 0), 2.6, impact)
 				FxKit.mark(at, blue, WHITE, 1.4, "scorch", 1.0)
 			end)
 		end
@@ -242,22 +246,21 @@ function def.event(run, event): boolean
 	elseif kind == "Area" then
 		-- The blast at the target: a gold-white burst.
 		local center, radius = run:area()
-		local air = center + Vector3.new(0, 1.3, 0)
-		ImpactEffects.ball(air, WHITE, radius * 1.3, 0.12)
-		Kit.shell(run, 0, 0.35, gold, air, function(u)
-			return radius * 1.9 * Kit.easeOut(u)
-		end, function(u)
-			return 0.2 + 0.8 * u
-		end)
-		FxKit.ring(center, gold, radius * 2.4, 0.4)
-		run:shake(0.3)
+		-- The gold-white burst: the shared recipe in his gold (core, glow sheet and side sheets,
+		-- shockwave, sparks, light), then gold embers and a little dark smoke.
+		local burst = VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4))
+		VfxRecipe.burst(run, center, radius, { theme = burst })
+		VfxRecipe.aftermath(run, center, radius, { theme = burst })
 		return true
 	elseif kind == "Form" then
 		-- The step up: an eruption of gold around him.
 		local ground = run:ground()
 		FxKit.column(ground, gold, run.view.part.Size.Y * 2.2, 2.6 * run:scale(), 0.6)
 		FxKit.ring(ground, gold, HEX * 2.2, 0.5)
-		ImpactEffects.ball(run:chest(), WHITE:Lerp(gold, 0.3), run.view.part.Size.Y * 1.1, 0.2)
+		local power = VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4))
+		VfxRecipe.core(run:chest(), run.view.part.Size.Y * 0.8, 1, power.core)
+		VfxRecipe.sparks(run:chest(), 0.7 * run:scale(), 30, power.spark)
+		VfxRecipe.light(run, run:chest(), 2.5 * run:scale(), power.light, 1)
 		if run.memo.toCoreThree then
 			FxKit.ring(ground, blue, HEX * 2.8, 0.55)
 		end
