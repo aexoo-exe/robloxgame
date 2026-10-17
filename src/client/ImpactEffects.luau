@@ -921,7 +921,7 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 	part.CFrame = CFrame.lookAt(position, position + aim)
 	emitter.EmissionDirection = Enum.NormalId.Front
 	emitter.TimeScale = particleTimeScale
-	emitter:SetAttribute("vfx", (spec.usage or "fallback") .. (if texture then " " .. texture.key else " (no texture)"))
+	emitter:SetAttribute("vfx", (spec.usage or "(none)") .. (if texture then " " .. texture.key else " (no texture)"))
 	emitter.Color = spec.color
 	if scale ~= 1 then
 		local points = {}
@@ -1038,6 +1038,12 @@ function ImpactEffects.shape(
 	-- A texture-only layer (a glow over a neon core) draws nothing without its texture, including
 	-- when the quality level's cap of textured shapes is reached.
 	if textureOnly and (not texture or skinned >= vfxLevel.maxSkinned) then
+		return
+	end
+	-- A textured plane past the cap would fall back to a flat neon slab on the ground (a sticker):
+	-- it is skipped instead.
+	if texture and texture.mode == "plane" and skinned >= vfxLevel.maxSkinned then
+		capped += 1
 		return
 	end
 	local list = spareShapes[shape]
@@ -1166,7 +1172,28 @@ end
 function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?)
 	local seconds = duration or 0.35
 	local texture = Vfx.texture("ring", color, "plane")
-	if texture and level.rings then
+	if not level.rings then
+		return
+	end
+	if not texture or skinned >= vfxLevel.maxSkinned then
+		-- No ring texture (or no room for one): a soft camera-facing ring raised off the ground,
+		-- never a flat neon disc on the floor.
+		ImpactEffects.emit(position + Vector3.new(0, 0.4 + diameter * 0.15, 0), {
+			usage = "shock",
+			fallback = KINDS.bubble.texture,
+			count = 1,
+			color = ColorSequence.new(color),
+			size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, diameter * 0.3),
+				NumberSequenceKeypoint.new(1, diameter),
+			}),
+			transparency = NumberSequence.new(0.45, 1),
+			lifetime = { seconds, seconds },
+			lightEmission = 1,
+		})
+		return
+	end
+	if texture then
 		local center = CFrame.new(position + Vector3.new(0, 0.1, 0)) * FLAT
 		ImpactEffects.shape("Block", color, seconds, function(part, progress)
 			local eased = 1 - (1 - progress) * (1 - progress)
@@ -1175,17 +1202,7 @@ function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, 
 			part.CFrame = center
 			part.Transparency = 0.25 + 0.75 * progress
 		end, nil, nil, texture)
-		return
 	end
-	animate(
-		"ring",
-		CFrame.new(position + Vector3.new(0, 0.1, 0)) * FLAT,
-		color,
-		diameter * 0.3,
-		diameter,
-		seconds,
-		0.25
-	)
 end
 
 -- A flash at `position` swelling to `diameter` studs and fading: the core of a hit or burst. With

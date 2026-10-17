@@ -6,10 +6,13 @@
 --    0     he yanks the rod back and the enemy flies in as the fist snaps out; the impact lands as
 --          it arrives: a big yellow-green burst, a ground crack, hit-stop
 --   +0.40  the follow-through holds; the aura sheds away as sparks
+-- Layers at the impact: the shared recipe (VfxRecipe, an energy theme in his yellow-green with
+-- impact dust and debris, tier 4).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -135,37 +138,25 @@ function def.event(run, event): boolean
 			local glow, accent = run.style.primary, run.style.secondary
 			local at = target.part.Position
 			local floor = at - Vector3.new(0, target.part.Size.Y / 2, 0)
-			ImpactEffects.ball(at, WHITE, 3 * run:scale(), 0.1)
-			Kit.shell(run, ARRIVE, ARRIVE + 0.35, glow, at, function(u)
-				return 5 * Kit.easeOut(u) * run:scale()
-			end, function(u)
-				return 0.2 + 0.8 * u
-			end)
+			-- The big yellow-green burst (the recipe's energy burst: core, glow sheet and side sheets,
+			-- shock ring, sparks, light), impact dust and debris thrown off the ground, the crack.
+			local aura = VfxRecipe.energy(glow, accent)
+			VfxRecipe.burst(run, floor, 2.4 * run:scale(), { theme = aura })
+			VfxRecipe.aftermath(run, floor, 2.4 * run:scale(), { theme = aura })
+			VfxRecipe.dust(floor, 2 * run:scale(), if run.reduced then 2 else 4)
+			VfxRecipe.debris(floor, if run.reduced then 3 else 7, 0.3 * run:scale(), nil, 2.4)
 			FxKit.ring(floor, accent, 7 * run:scale(), 0.4)
 			FxKit.mark(floor, glow, accent, 2.4 * run:scale(), "crack", 1.1)
-			ImpactEffects.burst("glow", at, run:forward(), {
-				color = glow,
-				color2 = accent,
-				count = 12,
-				size = 0.5,
-				speed = { 8, 16 },
-				lifetime = { 0.25, 0.45 },
-				spread = 50,
-			})
+			VfxRecipe.sparks(at, 0.6, 20, aura.spark, run:forward())
 			run:hitStop(target, 0.14)
 			run:hitStop(nil, 0.1)
-			run:shake(0.32)
 			run:sound("whoosh", 0.6)
 		end)
 		-- The aura sheds away as sparks.
 		run:at(0.35, function()
-			ImpactEffects.burst("spark", run:hand("left"), nil, {
-				color = run.style.secondary,
-				count = 10,
-				size = 0.22,
-				speed = { 3, 6 },
-				lifetime = { 0.3, 0.5 },
-			})
+			local aura = VfxRecipe.energy(run.style.primary, run.style.secondary)
+			VfxRecipe.sparks(run:hand("left"), 0.4, 14, aura.spark)
+			VfxRecipe.embers(run, run:hand("left"), run:scale(), aura.ember, 8)
 		end)
 		return true
 	end

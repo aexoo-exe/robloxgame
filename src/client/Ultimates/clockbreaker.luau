@@ -5,9 +5,10 @@
 --    0     the barrage: fist afterimages pour into the target, a small impact on each real hit
 --   +1.00  the final punch on the real last hit: a big purple burst, hit-stop
 --   +1.00  the spirit fades back; his hands never left his pockets
+-- Layers: the shared recipe (VfxRecipe, an energy theme in his purple with impact dust, tier 3).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -119,26 +120,19 @@ function def.event(run, event): boolean
 	run.memo.hits = (run.memo.hits or 0) + 1
 	local at = view.part.Position
 	if run.memo.hits >= (run.memo.total or 5) then
-		-- The final punch.
-		ImpactEffects.ball(at, WHITE, 2.4, 0.12)
-		Kit.shell(run, run:designTime(), run:designTime() + 0.35, run.style.primary, at, function(u)
-			return 5 * Kit.easeOut(u)
-		end, function(u)
-			return 0.25 + 0.75 * u
-		end)
+		-- The final punch: the recipe's purple burst at the target (core, glow sheet and side sheets,
+		-- shock ring, sparks, light), impact dust, then purple residue.
+		local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
+		local spirit = VfxRecipe.energy(run.style.primary, WHITE:Lerp(run.style.primary, 0.4))
+		VfxRecipe.burst(run, floor, 2 * run:scale(), { theme = spirit })
+		VfxRecipe.aftermath(run, floor, 2 * run:scale(), { theme = spirit })
+		VfxRecipe.dust(floor, 1.6 * run:scale(), if run.reduced then 1 else 3)
 		run:hitStop(view, 0.14)
-		run:shake(0.2)
 		run:sound("whoosh", 0.8)
 	else
-		ImpactEffects.ball(at, run.style.secondary, 1.2, 0.08)
-		ImpactEffects.burst("spark", at, nil, {
-			color = run.style.primary,
-			color2 = WHITE,
-			count = 5,
-			size = 0.2,
-			speed = { 6, 10 },
-			lifetime = { 0.1, 0.2 },
-		})
+		-- A small impact on each barrage hit.
+		local spirit = VfxRecipe.energy(run.style.primary, WHITE:Lerp(run.style.primary, 0.4))
+		VfxRecipe.hit(run, at, view.part.Size.Y * 0.7, spirit, run:forward())
 		run:shake(0.05)
 		run:sound("tick", 1.2)
 	end

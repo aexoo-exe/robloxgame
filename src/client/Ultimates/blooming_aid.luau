@@ -6,10 +6,12 @@
 -- Punch:
 --   -0.20  she tugs her glove; her fist glows pink
 --    0     the punch into the ground: a crack races to the target and splits into a spiderweb, dust
+-- Layers on the punch: the shared recipe (VfxRecipe, an impact theme in her pink, tier 1).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local PINK = Color3.fromRGB(255, 140, 190)
@@ -87,16 +89,11 @@ function def.event(run, event): boolean
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
 			Kit.groove(run, 0, 0.8, CRACK, run:ground() + run:forward() * 0.8, floor, 0.25)
 			FxKit.mark(floor, CRACK, PINK, 2.2, "crack", 0.9)
-			ImpactEffects.burst("puff", floor + Vector3.new(0, 0.3, 0), nil, {
-				color = Kit.DUST,
-				count = 6,
-				size = 0.7,
-				speed = { 2, 4 },
-				lifetime = { 0.3, 0.5 },
-				transparency = 0.35,
-			})
+			-- A small pink impact at the target (tier 1: quick), dust and a few chips.
+			local impact = VfxRecipe.impact(PINK)
+			VfxRecipe.burst(run, floor, 1.3 * run:scale(), { theme = impact })
+			VfxRecipe.dust(floor, 1.2 * run:scale(), if run.reduced then 1 else 2)
 			run:hitStop(view, 0.05)
-			run:shake(0.08)
 		end
 		return true
 	end

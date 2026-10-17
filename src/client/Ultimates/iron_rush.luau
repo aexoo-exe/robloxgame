@@ -5,10 +5,11 @@
 --   -0.10  he lowers his shoulder and stomps in (dust)
 --    0     the ram on the real hit: a big impact, the enemy shoved back on the real knockback with a
 --          scrape on the ground; the stun stars are the real ones
+-- Layers: the shared recipe (VfxRecipe steam, dust and an impact theme in gold, tier 1).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local GOLD = Color3.fromRGB(240, 200, 110)
@@ -34,28 +35,19 @@ def.beats = {
 			end, function(u)
 				return 0.6 + 0.4 * u
 			end)
-			ImpactEffects.burst("puff", run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.3, 0), Vector3.yAxis, {
-				color = STEAM,
-				count = 6,
-				size = 0.8,
-				speed = { 2, 4 },
-				lifetime = { 0.4, 0.6 },
-				spread = 50,
-				transparency = 0.4,
-			})
+			-- Steam venting off the plates.
+			VfxRecipe.steamColumn(
+				run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.2, 0),
+				0.6 * run:scale(),
+				VfxRecipe.colors({ { 0, STEAM }, { 1, STEAM:Lerp(Color3.fromRGB(160, 160, 165), 0.6) } })
+			)
 		end,
 	},
 	{
 		at = -0.1,
 		run = function(run)
-			ImpactEffects.burst("puff", run:ground() + Vector3.new(0, 0.2, 0), nil, {
-				color = DUST,
-				count = 6,
-				size = 0.7,
-				speed = { 2, 4 },
-				lifetime = { 0.3, 0.5 },
-				transparency = 0.35,
-			})
+			-- The stomp: dust kicked up at his feet.
+			VfxRecipe.dust(run:ground(), 1.2 * run:scale(), if run.reduced then 1 else 3)
 			run:sound("tick", 0.5)
 		end,
 	},
@@ -71,8 +63,14 @@ function def.event(run, event): boolean
 		local view = run.context.views[event.target]
 		if view and not run.memo.ram then
 			run.memo.ram = true
-			ImpactEffects.ball(view.part.Position, GOLD, 2.2, 0.1)
-			FxKit.ring(view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0), DUST, 4.5, 0.3)
+			-- The ram: a gold impact (core, dust cloud, sparks along the charge, a light), dust and
+			-- chips at the target's feet.
+			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
+			local impact = VfxRecipe.impact(GOLD)
+			VfxRecipe.hit(run, view.part.Position, view.part.Size.Y, impact, run:forward())
+			VfxRecipe.dust(floor, 1.4 * run:scale(), if run.reduced then 1 else 3)
+			VfxRecipe.debris(floor, if run.reduced then 2 else 4, 0.25 * run:scale(), impact.debris, 1.2)
+			FxKit.ring(floor, DUST, 4.5, 0.3)
 			run:hitStop(view, 0.07)
 			run:shake(0.08)
 			run:sound("whoosh", 0.6)

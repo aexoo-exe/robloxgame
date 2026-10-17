@@ -82,7 +82,9 @@ local function load(path: string)
 		Enum = roblox.Enum,
 		NumberRange = roblox.NumberRange,
 		NumberSequence = roblox.NumberSequence,
+		NumberSequenceKeypoint = roblox.NumberSequenceKeypoint,
 		ColorSequence = roblox.ColorSequence,
+		ColorSequenceKeypoint = roblox.ColorSequenceKeypoint,
 		UDim2 = roblox.UDim2,
 	}, { __index = globals })
 	env.require = function(target)
@@ -453,9 +455,21 @@ loaded["src/client/ImpactEffects"] = {
 		end
 		local startAt = recordClock() + (delay or 0)
 		local group = recordGroup
+		-- Where it was drawn from (the nearest caller outside the kits), for budget reports.
+		local from = "?"
+		for level = 2, 8 do
+			local source, line = debug.info(level, "sl")
+			if not source then
+				break
+			end
+			from = string.format("%s:%d", string.match(source, "([%w_]+)%.luau") or source, line)
+			if not string.find(source, "VfxRecipe") and not string.find(source, "Kit") then
+				break
+			end
+		end
 		table.insert(
 			recorded,
-			{ shape = shape, step = step, startAt = startAt, endAt = startAt + duration, group = group }
+			{ shape = shape, step = step, startAt = startAt, endAt = startAt + duration, group = group, from = from }
 		)
 	end,
 	ball = function(position, color, diameter, _duration, usage, textureColor)
@@ -978,7 +992,7 @@ local function checkUltimate(unitType: string, problems: { string }): string
 			fail("effect", err)
 		end
 		-- The busiest moment: parts alive at once.
-		local peak = 0
+		local peak, peakAt = 0, nil
 		for _, a in recorded do
 			local alive = 0
 			for _, b in recorded do
@@ -986,12 +1000,39 @@ local function checkUltimate(unitType: string, problems: { string }): string
 					alive += 1
 				end
 			end
-			peak = math.max(peak, alive)
+			if alive > peak then
+				peak, peakAt = alive, a
+			end
 		end
-		if peak > PEAK_LIMIT[config.tier] then
+		if peak > PEAK_LIMIT[config.tier] and peakAt then
+			-- What is alive at the peak, by the line that drew it (most first).
+			local by = {}
+			for _, b in recorded do
+				if b.group == peakAt.group and b.startAt <= peakAt.startAt and b.endAt > peakAt.startAt then
+					by[b.from] = (by[b.from] or 0) + 1
+				end
+			end
+			local parts = {}
+			for from, n in by do
+				table.insert(parts, { from = from, n = n })
+			end
+			table.sort(parts, function(x, y)
+				return x.n > y.n
+			end)
+			local top = {}
+			for i = 1, math.min(5, #parts) do
+				table.insert(top, parts[i].from .. " x" .. parts[i].n)
+			end
 			fail(
 				"budget",
-				string.format("%d parts alive at once (tier %d limit %d)", peak, config.tier, PEAK_LIMIT[config.tier])
+				string.format(
+					"%d parts alive at once (tier %d limit %d) at t=%.2f: %s",
+					peak,
+					config.tier,
+					PEAK_LIMIT[config.tier],
+					peakAt.startAt,
+					table.concat(top, ", ")
+				)
 			)
 		end
 		maxPeak = math.max(maxPeak, peak)

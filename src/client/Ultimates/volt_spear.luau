@@ -42,10 +42,11 @@ def.beats = {
 				return (0.4 + 0.4 * u) * run:scale()
 			end)
 			-- The chirping flicker: short arcs off the ball.
-			for i = 0, (if run.reduced then 5 else 11) do
-				run:at(-0.42 + i * 0.04, function()
-					-- 3 arcs ~1.5 studs off the ball, renewed before the last ones die: a constant crackle.
-					VfxRecipe.crackle(run, run:hand("right"), 1.5, theme(run), if run.reduced then 2 else 3)
+			for i = 0, (if run.reduced then 3 else 6) do
+				run:at(-0.42 + i * 0.06, function()
+					-- An arc ~1.5 studs off the ball every beat; they overlap (each lives longer than a beat), so
+					-- several crackle at once, all the windup long.
+					VfxRecipe.crackle(run, run:hand("right"), 1.5, theme(run), 1)
 					if i % 2 == 0 then
 						run:sound("tick", 2)
 					end
@@ -66,12 +67,12 @@ function def.event(run, event): boolean
 		local to = run.context.toWorld(event.column, event.row)
 		Kit.groove(run, 0, 0.6, blue, run:ground(), to, 0.3)
 		-- Lightning tearing a line in the ground: arcs along it, sparks and scorch marks behind.
-		-- A thick jagged bolt along the ground, 3 strands, renewed once so it holds ~0.45 s.
+		-- A thick jagged bolt along the ground, a second strand crossing it 0.1 s later (~0.45 s in all).
 		local lift = Vector3.new(0, 0.9, 0)
 		local from = run:ground()
-		VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 3, 1.3 * run:scale(), 0.3)
-		run:at(run:designTime() + 0.15, function()
-			VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 2, 1.1 * run:scale(), 0.3)
+		VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 1, 1.4 * run:scale(), 0.35)
+		run:at(run:designTime() + 0.1, function()
+			VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 1, 1.1 * run:scale(), 0.35, false)
 		end)
 		VfxRecipe.trail(
 			run,
@@ -91,7 +92,7 @@ function def.event(run, event): boolean
 			-- A proper burst on the target: core, blue glow sheet, arcs out, shockwave, sparks, light.
 			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
 			VfxRecipe.burst(run, floor, 1.8 * run:scale(), { theme = theme(run) })
-			VfxRecipe.crackle(run, at, 2.6 * run:scale(), theme(run), if run.reduced then 2 else 4)
+			VfxRecipe.crackle(run, at, 2.6 * run:scale(), theme(run), 1)
 			run:hitStop(view, 0.1)
 			run:shake(0.18)
 		end

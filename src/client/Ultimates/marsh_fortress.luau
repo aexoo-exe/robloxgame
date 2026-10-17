@@ -4,10 +4,12 @@
 --   -0.28  a big hop
 --    0     the landing on the real hit: a water-splash shockwave ring over 1 hex, mud and spray
 --   +0.10  blue-green heal motes drift into him
+-- Layers at the landing: the shared recipe (VfxRecipe, a water theme in his colors, tier 2).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local SMOKE = Color3.fromRGB(225, 225, 225)
@@ -64,28 +66,22 @@ function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
 		local center, radius = run:area()
-		FxKit.mark(center, run.style.primary, run.style.secondary, radius, "splash", 0.7)
+		-- The water-splash landing: the recipe's water burst (core, mist, shock ring, droplet
+		-- fountain, light), a ring of water, mud thrown up, then bubbling and falling droplets.
+		local water = VfxRecipe.water(run.style.primary, run.style.secondary)
 		FxKit.ring(center, run.style.primary, radius * 2.4, 0.4)
-		ImpactEffects.burst("bubble", center + Vector3.new(0, 0.6, 0), Vector3.yAxis, {
-			color = run.style.primary,
-			count = 12,
-			size = 0.6,
-			speed = { 4, 8 },
-			lifetime = { 0.4, 0.7 },
-			spread = 70,
-		})
-		ImpactEffects.burst("puff", center + Vector3.new(0, 0.3, 0), nil, {
-			color = MUD,
-			count = 8,
-			size = 0.9,
-			speed = { 3, 6 },
-			lifetime = { 0.3, 0.6 },
-			transparency = 0.3,
-		})
+		VfxRecipe.burst(run, center, radius, { theme = water })
+		VfxRecipe.aftermath(run, center, radius, { theme = water })
+		VfxRecipe.smoke(
+			center,
+			radius * 0.8,
+			if run.reduced then 1 else 3,
+			VfxRecipe.colors({ { 0, MUD }, { 1, MUD:Lerp(Color3.new(0, 0, 0), 0.3) } }),
+			0.35
+		)
 		for _, target in run:targets() do
 			run:hitStop(target, 0.06)
 		end
-		run:shake(0.12)
 		run:sound("splash", 0.8)
 		return true
 	elseif kind == "Heal" and event.target == run.unitIndex then

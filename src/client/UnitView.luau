@@ -37,6 +37,7 @@ local ImpactEffects = require(script.Parent.ImpactEffects)
 local ItemIcon = require(script.Parent.ItemIcon)
 local StatusMarkers = require(script.Parent.StatusMarkers)
 local UnitMotion = require(script.Parent.UnitMotion)
+local Vfx = require(script.Parent.Vfx)
 
 local UnitView = {}
 
@@ -85,6 +86,7 @@ export type UnitView = {
 	shieldFill: Frame,
 	manaFill: Frame,
 	stunRing: Part?, -- created on the first stun
+	stunHalo: BillboardGui?, -- the soft ring texture over the head (with the kit; else the neon ring)
 	formBar: Frame?, -- the form health pool bar; nil for units created without a pool
 	formFill: Frame?,
 	maxFormHealth: number?,
@@ -408,6 +410,7 @@ function UnitView.new(
 		shieldFill = shieldFill :: Frame,
 		manaFill = manaFill :: Frame,
 		stunRing = nil,
+		stunHalo = nil,
 		formBar = formBar,
 		formFill = formFill,
 		maxFormHealth = options.maxFormHealth,
@@ -744,6 +747,25 @@ function UnitView.stun(view: UnitView, seconds: number)
 		ring.Transparency = 1
 		ring.Parent = view.part
 		view.stunRing = ring
+		-- With the kit: a soft ring billboard over the head instead of the solid neon disc.
+		local texture = Vfx.texture("ring", RenderConfig.stunMarkerColor, "plane")
+		if texture then
+			local halo = Instance.new("BillboardGui")
+			halo.LightInfluence = 0
+			halo.Brightness = 1.4
+			halo.Adornee = view.part
+			halo.Size = UDim2.fromScale(diameter * 1.25, diameter * 1.25)
+			halo.Enabled = false
+			local label = Instance.new("ImageLabel")
+			label.BackgroundTransparency = 1
+			label.Size = UDim2.fromScale(1, 1)
+			label.Image = texture.image
+			label.ImageColor3 = RenderConfig.stunMarkerColor
+			label.ImageTransparency = 0.35
+			label.Parent = halo
+			halo.Parent = view.part
+			view.stunHalo = halo
+		end
 		-- Small stars circling over the halo (AnimationConfig.stun).
 		local config = AnimationConfig.stun
 		local stars = {}
@@ -1465,9 +1487,16 @@ function UnitView.update(view: UnitView, now: number, dt: number): boolean
 	local stunned = now < view.stunUntil and not view.dyingSince
 	local ring = view.stunRing
 	if ring then
-		ring.Transparency = if stunned then 0.2 else 1
+		local halo = view.stunHalo
+		ring.Transparency = if stunned and not halo then 0.35 else 1
+		if halo then
+			halo.Enabled = stunned
+		end
 		if stunned then
 			local head = root * CFrame.new(0, view.figure.height * 1.03, 0)
+			if halo then
+				halo.StudsOffsetWorldSpace = head.Position - view.part.Position
+			end
 			ring.CFrame = head * CFrame.Angles(0, now * 4, 0) * CFrame.Angles(0.25, 0, math.pi / 2)
 			local stars = view.stunStars or {}
 			local radius = ring.Size.Y / 2

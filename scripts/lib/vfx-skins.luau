@@ -32,6 +32,8 @@ local COMMON = {
 	GetChildren = true,
 	GetDescendants = true,
 	ClearAllChildren = true,
+	SetAttribute = true,
+	GetAttribute = true,
 }
 
 local wrappers = setmetatable({}, { __mode = "k" })

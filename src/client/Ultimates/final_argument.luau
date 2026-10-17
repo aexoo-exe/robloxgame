@@ -9,10 +9,12 @@
 --    0     the punch, almost invisible: a huge white flash at the target, a cone of air tearing the
 --          ground past it, a long crack, wind streaks across the board, debris; a long hit-stop
 --   +0.45  dust and smoke blown along the punch; he goes back to bored
+-- Layers: the shared recipe (VfxRecipe, an impact theme in his colors, tier 5).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
@@ -116,9 +118,12 @@ function def.event(run, event): boolean
 	local point = target.part.Position - direction * target.part.Size.X * 0.3
 	local floor = target.part.Position - Vector3.new(0, target.part.Size.Y / 2, 0)
 
-	-- The flash and the cone of air past the target.
-	ImpactEffects.ball(point, WHITE, 5 * scale, 0.14)
-	ImpactEffects.ball(point, run.style.primary, 6.5 * scale, 0.3)
+	-- The flash and the cone of air past the target: the recipe's biggest (tier 5) impact burst at
+	-- the target (core, dust cloud and side clouds, shock ring, sparks, debris, light), then dust
+	-- rolling out.
+	local impact = VfxRecipe.impact(run.style.primary)
+	VfxRecipe.burst(run, floor, 3.4 * scale, { theme = impact, big = true })
+	VfxRecipe.aftermath(run, floor, 3.4 * scale, { theme = impact })
 	FxKit.pressureCone(point, direction, 12, math.rad(24), WHITE, 0.55)
 	FxKit.pressureCone(point, direction, 8, math.rad(14), run.style.primary, 0.4, 0.03)
 	-- The ground torn open along the punch.
@@ -144,20 +149,11 @@ function def.event(run, event): boolean
 	-- Dust and smoke blown along the punch.
 	for i = 1, 4 do
 		run:at(0.05 + i * 0.1, function()
-			ImpactEffects.burst("puff", floor + direction * (i * 3) + Vector3.new(0, 0.6, 0), direction, {
-				color = DUST,
-				count = 6,
-				size = 1.2,
-				speed = { 6, 12 },
-				lifetime = { 0.5, 0.9 },
-				spread = 30,
-				transparency = 0.35,
-			})
+			VfxRecipe.dust(floor + direction * (i * 3), 1.6 * scale, if run.reduced then 1 else 3)
 		end)
 	end
 	run:hitStop(target, 0.18)
 	run:hitStop(nil, 0.16)
-	run:shake(0.45)
 	run:sound("whoosh", 0.45)
 	return true
 end

@@ -7,10 +7,11 @@
 --    0     on the real hit a spray of fragments across the cone's real cells, the nearest ones the
 --          biggest, dust bursting where they land
 --   +0.30  he stands tall; his armor glows
+-- Layers: the shared recipe (VfxRecipe dust and debris, tier 3).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
-local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
+local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local STONE = Color3.fromRGB(140, 126, 110)
@@ -45,14 +46,16 @@ def.beats = {
 				return if u > 0.85 then (u - 0.85) * 6 else 0
 			end, Enum.Material.Slate)
 			run:at(-0.3, function()
-				ImpactEffects.burst("puff", side(run), nil, {
-					color = DUST,
-					count = 8,
-					size = 0.9,
-					speed = { 2, 5 },
-					lifetime = { 0.3, 0.6 },
-					transparency = 0.35,
-				})
+				-- The boulder crushed: dust bursting off it, chips flying.
+				local s = run:scale()
+				VfxRecipe.dust(side(run), 1.4 * s, if run.reduced then 2 else 4)
+				VfxRecipe.debris(
+					side(run) - Vector3.new(0, 0.5, 0),
+					if run.reduced then 3 else 6,
+					0.3 * s,
+					DUST:Lerp(STONE, 0.6),
+					1.5
+				)
 				run:sound("tick", 0.6)
 			end)
 		end,
@@ -85,14 +88,14 @@ function def.event(run, event): boolean
 				end, Enum.Material.Slate)
 			end
 			run:at(0.2, function()
-				ImpactEffects.burst("puff", at + Vector3.new(0, 0.4, 0), nil, {
-					color = DUST,
-					count = math.floor(4 + 6 * near),
-					size = 0.6 + 0.8 * near,
-					speed = { 2, 5 },
-					lifetime = { 0.35, 0.7 },
-					transparency = 0.35,
-				})
+				-- Dust bursting where the fragments land (bigger nearer him), a small impact flash
+				-- and sparks on the nearest cells.
+				VfxRecipe.dust(at, (0.8 + 1.2 * near) * run:scale(), if run.reduced then 1 else math.ceil(1 + 2 * near))
+				if near > 0.6 then
+					local impact = VfxRecipe.impact()
+					VfxRecipe.core(at + Vector3.new(0, 0.8, 0), 1.2 * near, 1, impact.core)
+					VfxRecipe.sparks(at + Vector3.new(0, 0.5, 0), 0.4 * near, 12, impact.spark)
+				end
 			end)
 		end
 		run:shake(0.18)

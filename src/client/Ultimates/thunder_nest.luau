@@ -31,7 +31,7 @@ local function theme(run)
 end
 
 local function crackle(run, at: Vector3, size: number)
-	VfxRecipe.crackle(run, at, size, theme(run), 2)
+	VfxRecipe.crackle(run, at, size, theme(run), 1)
 end
 
 def.beats = {
@@ -64,12 +64,12 @@ function def.event(run, event): boolean
 		side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
 		local points = { from, from:Lerp(to, 0.33) + side * 1.2, from:Lerp(to, 0.66) - side * 1.2, to }
 		for i = 1, 3 do
-			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 2, 1.1 * run:scale(), 0.35)
+			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 1, 1.1 * run:scale(), 0.35, false)
 		end
 		-- Bolts crackling over his body through the dash.
 		local now = run:designTime()
-		for i = 0, (if run.reduced then 2 else 5) do
-			run:at(now + i * 0.05, function()
+		for i = 0, (if run.reduced then 0 else 1) do
+			run:at(now + i * 0.12, function()
 				crackle(run, run:chest(), 2.2 * run:scale())
 			end)
 		end
@@ -97,8 +97,8 @@ function def.event(run, event): boolean
 		-- The stunned twitch with arcs for a moment.
 		local view = run.context.views[event.target]
 		if view then
-			for i = 1, 3 do
-				run:at(0.1 + i * 0.12, function()
+			for i = 1, 2 do
+				run:at(0.1 + i * 0.15, function()
 					if view.part.Parent then
 						crackle(run, view.part.Position, 1.4)
 					end

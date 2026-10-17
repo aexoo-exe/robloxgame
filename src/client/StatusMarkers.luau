@@ -1,13 +1,16 @@
 -- Readable markers on units with a status (AbilityFxConfig.statuses): slow, weaken, curse, shred,
 -- wound, burn, poison and a hunter mark. Each is a few parts or one emitter made on first use and
 -- shown until its time runs out; UnitView.update places them every frame (StatusMarkers.update).
--- Stuns keep their own halo and stars (UnitView). Presentation only.
+-- Stuns keep their own halo and stars (UnitView). Every ring is a soft camera-facing ring over the
+-- head (the kit's ring texture, low opacity), never a flat disc; neon parts only without the kit.
+-- Presentation only.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AbilityFxConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AbilityFxConfig"))
 
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local Vfx = require(script.Parent.Vfx)
 
 local StatusMarkers = {}
 
@@ -18,6 +21,7 @@ type Marker = {
 	untilTime: number,
 	parts: { BasePart },
 	emitter: ParticleEmitter?,
+	billboard: BillboardGui?, -- a soft ring over the head (ring and reticle shapes, with the kit)
 	shown: boolean,
 }
 
@@ -61,6 +65,28 @@ local function newEmitter(holder: Holder, texture: string, color: Color3, height
 	return emitter
 end
 
+-- A soft ring over the head: a BillboardGui with the kit's ring texture, or nil without it.
+local function ringBillboard(holder: Holder, color: Color3): BillboardGui?
+	local texture = Vfx.texture("ring", color, "plane")
+	if not texture then
+		return nil
+	end
+	local billboard = Instance.new("BillboardGui")
+	billboard.LightInfluence = 0
+	billboard.Brightness = 1.4
+	billboard.Adornee = holder.part
+	billboard.Enabled = false
+	local label = Instance.new("ImageLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Image = texture.image
+	label.ImageColor3 = color
+	label.ImageTransparency = 0.45
+	label.Parent = billboard
+	billboard.Parent = holder.part
+	return billboard
+end
+
 local TEXTURES = {
 	wisps = "rbxasset://textures/particles/smoke_main.dds",
 	flames = "rbxasset://textures/particles/fire_main.dds",
@@ -70,7 +96,7 @@ local TEXTURES = {
 local function build(holder: Holder, status: string): Marker
 	local config = AbilityFxConfig.statuses[status]
 	local height = holder.figure.height
-	local marker: Marker = { untilTime = -math.huge, parts = {}, emitter = nil, shown = false }
+	local marker: Marker = { untilTime = -math.huge, parts = {}, emitter = nil, billboard = nil, shown = false }
 	local shape = config.shape
 	if TEXTURES[shape] then
 		local emitter =
@@ -82,6 +108,7 @@ local function build(holder: Holder, status: string): Marker
 		end
 		marker.emitter = emitter
 	elseif shape == "ring" or shape == "reticle" then
+		marker.billboard = ringBillboard(holder, config.color)
 		table.insert(marker.parts, newPart(holder.part, Enum.PartType.Cylinder, config.color))
 		if shape == "reticle" then
 			for _ = 1, 4 do
@@ -123,6 +150,9 @@ local function hide(marker: Marker)
 	if marker.emitter then
 		marker.emitter.Enabled = false
 	end
+	if marker.billboard then
+		marker.billboard.Enabled = false
+	end
 	marker.shown = false
 end
 
@@ -146,17 +176,33 @@ function StatusMarkers.update(holder: Holder, now: number, root: CFrame, hidden:
 		local parts = marker.parts
 		if marker.emitter then
 			marker.emitter.Enabled = true
+		elseif shape == "ring" and marker.billboard then
+			-- A soft ring over the head, breathing slowly.
+			local diameter = height * (0.36 + 0.03 * math.sin(now * 4))
+			local billboard = marker.billboard
+			billboard.Size = UDim2.fromScale(diameter, diameter)
+			billboard.StudsOffsetWorldSpace = (root * CFrame.new(0, height * 1.12, 0)).Position - holder.part.Position
+			billboard.Enabled = true
 		elseif shape == "ring" then
-			local diameter = height * 0.55
-			parts[1].Size = Vector3.new(0.06, diameter, diameter)
-			parts[1].CFrame = root * CFrame.new(0, 0.12 + 0.05 * math.sin(now * 4), 0) * FLAT
-			parts[1].Transparency = 0.45
+			-- Without the kit: a thin neon ring over the head (not a disc at the feet).
+			local diameter = height * 0.36
+			parts[1].Size = Vector3.new(0.04, diameter, diameter)
+			parts[1].CFrame = root * CFrame.new(0, height * 1.12 + 0.04 * math.sin(now * 4), 0) * FLAT
+			parts[1].Transparency = 0.6
 		elseif shape == "reticle" then
 			local diameter = height * 0.22
 			local head = root * CFrame.new(0, height * 1.12, 0) * CFrame.Angles(0, now * 1.5, 0)
-			parts[1].Size = Vector3.new(0.05, diameter, diameter)
-			parts[1].CFrame = head * FLAT
-			parts[1].Transparency = 0.55
+			if marker.billboard then
+				local billboard = marker.billboard
+				billboard.Size = UDim2.fromScale(diameter * 1.3, diameter * 1.3)
+				billboard.StudsOffsetWorldSpace = head.Position - holder.part.Position
+				billboard.Enabled = true
+				parts[1].Transparency = 1
+			else
+				parts[1].Size = Vector3.new(0.05, diameter, diameter)
+				parts[1].CFrame = head * FLAT
+				parts[1].Transparency = 0.6
+			end
 			for i = 2, 5 do
 				local angle = (i - 2) / 4 * TAU
 				parts[i].Size = Vector3.new(0.06, 0.06, diameter * 0.35)

@@ -155,7 +155,30 @@ local function setHud(title: string, help: string)
 	end
 end
 
-local function hudButton(parent: Instance, text: string, x: number, by: number)
+-- Freezes every live effect (time 0, particles too) and prints each instance (VfxDebug.dumpLive);
+-- called again, resumes. The "Dump FX" button and the O key.
+local freezeButton: TextButton? = nil
+local function toggleFreeze()
+	if timeScale ~= 0 then
+		frozenScale = timeScale
+		timeScale = 0
+		ImpactEffects.setTimeScale(0)
+		print("[DevLineup] effects frozen (Dump FX / O again to resume)")
+		local ok, problem = pcall(VfxDebug.dumpLive)
+		if not ok then
+			warn("[DevLineup] live-effects dump failed: " .. tostring(problem))
+		end
+	else
+		timeScale = frozenScale or 1
+		ImpactEffects.setTimeScale(timeScale)
+		print("[DevLineup] effects resumed")
+	end
+	if freezeButton then
+		freezeButton.Text = if timeScale == 0 then "Resume" else "Dump FX"
+	end
+end
+
+local function hudButton(parent: Instance, text: string, x: number, by: number | () -> ()): TextButton
 	local button = Instance.new("TextButton")
 	button.AnchorPoint = Vector2.new(0.5, 1)
 	button.Position = UDim2.new(0.5, x, 1, -16)
@@ -171,9 +194,14 @@ local function hudButton(parent: Instance, text: string, x: number, by: number)
 	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = button
 	button.Activated:Connect(function()
-		step(by)
+		if type(by) == "function" then
+			by()
+		else
+			step(by)
+		end
 	end)
 	button.Parent = parent
+	return button
 end
 
 -- The on-screen panel while the lineup is open: Prev / Next buttons, the shown unit, key help.
@@ -184,6 +212,7 @@ local function openHud()
 	gui.DisplayOrder = 50
 	hudButton(gui, "< Prev", -110, -1)
 	hudButton(gui, "Next >", 110, 1)
+	freezeButton = hudButton(gui, "Dump FX", 220, toggleFreeze)
 	local title = Instance.new("TextLabel")
 	title.AnchorPoint = Vector2.new(0.5, 1)
 	title.Position = UDim2.new(0.5, 0, 1, -22)
@@ -972,6 +1001,11 @@ end
 local function close()
 	closeStage()
 	closeHud()
+	-- Never leave the effects frozen (Dump FX / O) or slowed (S) after the lineup closes.
+	timeScale = 1
+	frozenScale = nil
+	freezeButton = nil
+	ImpactEffects.setTimeScale(1)
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil
@@ -1180,21 +1214,7 @@ function DevLineup.start()
 		-- O is the default camera's zoom-out key and S a movement key: Roblox marks both processed,
 		-- so while the lineup is open they are handled before that check.
 		if folder and key == Enum.KeyCode.O and not UserInputService:GetFocusedTextBox() then
-			-- Freeze every live effect (time 0, particles too) and print each instance; O again resumes.
-			if timeScale ~= 0 then
-				frozenScale = timeScale
-				timeScale = 0
-				ImpactEffects.setTimeScale(0)
-				print("[DevLineup] effects frozen (O again to resume)")
-				local ok, problem = pcall(VfxDebug.dumpLive)
-				if not ok then
-					warn("[DevLineup] live-effects dump failed: " .. tostring(problem))
-				end
-			else
-				timeScale = frozenScale or 1
-				ImpactEffects.setTimeScale(timeScale)
-				print("[DevLineup] effects resumed")
-			end
+			toggleFreeze()
 			return
 		end
 		if folder and key == Enum.KeyCode.S and stage then
