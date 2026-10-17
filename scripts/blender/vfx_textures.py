@@ -62,8 +62,10 @@ def union(*layers):
     return c, a
 
 
-def border_fade(X, Y, start=0.9):
-    return 1.0 - ss(start, 1.0, np.maximum(np.abs(X), np.abs(Y)))
+def border_fade(X, Y, px, margin=6):
+    """Alpha reaches 0 `margin` pixels in from every edge."""
+    end = 1.0 - margin * px
+    return 1.0 - ss(end - 0.1, end, np.maximum(np.abs(X), np.abs(Y)))
 
 
 def finish(c, a):
@@ -77,13 +79,13 @@ def finish(c, a):
 def square(fn, w):
     X, Y = coords(w)
     c, a = fn(X, Y, 2.0 / w)
-    return finish(c, a * border_fade(X, Y))
+    return finish(c, a * border_fade(X, Y, 2.0 / w))
 
 
 def flipbook(fn, loop, size=1024, grid=4):
     cell = size // grid
     X, Y = coords(cell)
-    fade = border_fade(X, Y)
+    fade = border_fade(X, Y, 2.0 / cell)
     frames = grid * grid
     sheet = np.zeros((size, size, 4), np.float32)
     for i in range(frames):
@@ -139,18 +141,18 @@ def fbm(U, V, seed, period=8, octaves=4):
 
 # ---------------------------------------------------------------- slash
 
-def crescent(X, Y, cx, cy, r, d, px, streaks=False, seed=3):
-    """Circle minus an offset circle: tapered tips, bright leading edge, faded tail."""
-    rad = np.hypot(X - cx, Y - cy)
-    sd_outer = rad - r
-    sd = np.maximum(sd_outer, -(np.hypot(X - cx + d, Y - cy) - r))
-    inside = fill(sd, px)
-    lead = (1.0 - np.clip(-sd_outer / d, 0.0, 1.0)) ** 1.5
-    core = inside * (0.45 + 0.55 * lead)
-    if streaks:
-        n = vnoise(rad * 90.0, np.zeros_like(rad), seed, 512)
-        core = core * (0.7 + 0.3 * ss(0.35, 0.65, n))
-    halo = glow(sd, 0.045, 0.4)
+def crescent(X, Y, cx, cy, r, d, px):
+    """Circle minus an offset circle: tapered tips, bright outer cutting edge, transparent inner edge."""
+    sd_outer = np.hypot(X - cx, Y - cy) - r
+    sd_inner = np.hypot(X - cx + d, Y - cy) - r
+    inside = fill(np.maximum(sd_outer, -sd_inner), px)
+    # 0 on the outer cutting edge, 1 on the inner edge, measured across the local thickness.
+    depth = np.clip(-sd_outer / np.maximum(sd_inner - sd_outer, 1e-4), 0.0, 1.0)
+    lead = (1.0 - depth) ** 1.6
+    core = inside * lead
+    # Glow hugs the outer edge along the arc only, so no ghost of the full circle.
+    arc = ss(cx - d * 0.5, cx - d * 0.5 + 0.3 * r, X)
+    halo = 0.35 * np.where(sd_outer > 0.0, np.exp(-sd_outer / 0.04), np.exp(sd_outer / 0.01)) * arc
     head = 0.35 + 0.65 * ss(cy - 0.8 * r, cy + 0.35 * r, Y)
     a = (core + halo * (1.0 - core)) * head
     c = 0.86 + 0.14 * lead * inside
@@ -162,7 +164,7 @@ def slash_thin(X, Y, px):
 
 
 def slash_wide(X, Y, px):
-    return crescent(X, Y, 0.05, 0.0, 0.8, 0.28, px, streaks=True)
+    return crescent(X, Y, 0.05, 0.0, 0.8, 0.28, px)
 
 
 def slash_double(X, Y, px):
@@ -237,14 +239,14 @@ def spark_star(X, Y, px):
     r = np.hypot(X, Y)
     core = fill(r - 0.06, px)
     halo = 0.55 * np.exp(-r * r * 22.0)
-    rays = [(0, 0.86, 0.075), (90, 0.86, 0.075), (180, 0.86, 0.075), (270, 0.86, 0.075),
-            (45, 0.5, 0.045), (135, 0.5, 0.045), (225, 0.5, 0.045), (315, 0.5, 0.045)]
+    rays = [(0, 0.78, 0.075), (90, 0.78, 0.075), (180, 0.78, 0.075), (270, 0.78, 0.075),
+            (45, 0.38, 0.045), (135, 0.38, 0.045), (225, 0.38, 0.045), (315, 0.38, 0.045)]
     for deg, length, width in rays:
         cs, sn = math.cos(math.radians(deg)), math.sin(math.radians(deg))
         along = X * cs + Y * sn
         perp = np.abs(-X * sn + Y * cs)
         k = np.clip(1.0 - along / length, 0.0, 1.0) * (along > 0.0)
-        sd = np.where(along > 0.0, perp - width * k, 1.0)
+        sd = np.where((along > 0.0) & (along < length), perp - width * k, 1.0)
         core = np.maximum(core, fill(sd, px))
         halo = np.maximum(halo, 0.3 * np.exp(-perp / 0.035) * k * k)
     return 0.9 + 0.1 * core, core + halo * (1.0 - core)
@@ -257,8 +259,8 @@ def smoke_blobs(seed, count=7):
     blobs = []
     for i in range(count):
         ang = rng.uniform(0.0, TAU)
-        dist = rng.uniform(0.0, 0.3) if i else 0.0
-        blobs.append((math.cos(ang) * dist, math.sin(ang) * dist * 0.8, rng.uniform(0.24, 0.36)))
+        dist = rng.uniform(0.0, 0.26) if i else 0.0
+        blobs.append((math.cos(ang) * dist, math.sin(ang) * dist * 0.8, rng.uniform(0.24, 0.34)))
     return blobs
 
 
@@ -267,15 +269,16 @@ def smoke_density(X, Y, blobs, seed, drift):
     for bx, by, br in blobs:
         dens = np.maximum(dens, 1.0 - np.hypot(X - bx, Y - by) / br)
     n = fbm((X + 1.0) * 2.0, (Y + 1.0) * 2.0 - drift, seed, period=8, octaves=4)
-    return dens + (n - 0.5) * 0.9
+    fine = fbm((X + 1.0) * 6.0, (Y + 1.0) * 6.0 - drift * 3.0, seed + 7, period=24, octaves=3)
+    return dens + (n - 0.5) * 0.8 + (fine - 0.5) * 0.35
 
 
-def smoke(X, Y, blobs, seed, thr=0.2, drift=0.0, opacity=0.9):
-    """Lumpy cel-shaded puff: lit rim toward the top-left, darker body."""
+def smoke(X, Y, blobs, seed, thr=-0.05, drift=0.0, opacity=0.85):
+    """Soft wispy puff: noise-broken silhouette, long alpha falloff, lit toward the top-left."""
     d = smoke_density(X, Y, blobs, seed, drift)
     d_lit = smoke_density(X - 0.05, Y + 0.07, blobs, seed, drift)
-    a = ss(thr - 0.015, thr + 0.015, d) * opacity
-    c = 0.97 - 0.27 * ss(thr + 0.06, thr + 0.16, d_lit)
+    a = ss(thr - 0.1, thr + 0.6, d) ** 1.5 * opacity
+    c = 0.96 - 0.22 * ss(thr + 0.1, thr + 0.6, d_lit)
     return c, a
 
 
@@ -288,53 +291,57 @@ def smoke_puff(X, Y, px):
 
 
 def smoke_frame(X, Y, px, t):
-    s = 0.5 + 0.55 * (1.0 - (1.0 - t) ** 2)
-    rise = 0.12 * t
-    c, a = smoke(X / s, (Y - rise) / s, SMOKE_BLOBS, 13, thr=0.2 + 0.6 * t ** 1.7, drift=1.2 * t)
-    return c, a * (1.0 - ss(0.75, 1.0, t))
+    zoom = 0.64 - 0.12 * (1.0 - (1.0 - t) ** 2)  # coordinate zoom: smaller = bigger puff
+    c, a = smoke(X * zoom, (Y - 0.05 * t) * zoom, SMOKE_BLOBS, 13, thr=-0.05 + 0.35 * t ** 1.5, drift=1.0 * t)
+    return c, a * (1.0 - ss(0.4, 1.0, t))
 
 
 # ---------------------------------------------------------------- explosion
 
 def explosion_frame(X, Y, px, t):
-    """Flash and shock ring, swelling fireball, then breaks up into fading smoke."""
+    """White-hot flash, billowing fireball, then breaks up into smoke and fades out."""
     r = np.hypot(X, Y)
-    R = 0.22 + 0.58 * (1.0 - (1.0 - t) ** 2.5)
-    n = fbm((X / R + 2.0) * 1.5, (Y / R + 2.0) * 1.5, 21, period=8, octaves=4)
-    dens = 1.0 - r / R + (n - 0.5) * (0.7 + 0.6 * t)
-    thr = 0.02 + 0.7 * t ** 1.5
-    a = ss(thr - 0.02, thr + 0.02, dens) * (1.0 - 0.15 * t)
-    hot = ss(thr + 0.12, thr + 0.4, dens) * (1.0 - t) ** 0.7
-    base = 0.92 - 0.3 * t
+    R = 0.6 + 0.3 * (1.0 - (1.0 - t) ** 2)
+    n = fbm((X / R + 2.0) * 1.5, (Y / R + 2.0) * 1.5 - 1.5 * t, 21, period=8, octaves=4)
+    dens = 1.0 - r / R + (n - 0.5) * (0.6 + 0.9 * t)
+    thr = 0.02 + 0.65 * t ** 1.6
+    a = ss(thr - 0.03, thr + 0.05 + 0.2 * t, dens) * (1.0 - 0.2 * t)
+    hot = ss(thr + 0.1, thr + 0.35, dens) * (1.0 - ss(0.1, 0.5, t))
+    base = 0.95 - 0.33 * ss(0.15, 0.6, t)
+    flash = 1.0 - ss(0.0, 0.25, t)
     layers = [(base + (1.0 - base) * hot, a),
-              (1.0, 0.5 * (1.0 - t) ** 3 * np.exp(-2.0 * (r / (R * 1.2)) ** 2))]
-    if t < 0.35:
-        k = 1.0 - t / 0.35
-        sd = np.abs(r - (0.3 + 1.6 * t)) - 0.02 * k
+              (1.0, flash * fill(r - (0.3 + 0.25 * t), px)),
+              (1.0, 0.8 * flash * np.exp(-2.0 * (r / 0.55) ** 2))]
+    if t < 0.3:
+        k = 1.0 - t / 0.3
+        sd = np.abs(r - (0.4 + 1.4 * t)) - 0.02 * k
         layers.append((1.0, (fill(sd, px) + glow(sd, 0.03, 0.3)) * k))
     c, a = union(*layers)
-    return c, a * (1.0 - ss(0.8, 1.0, t))
+    return c, a * (1.0 - ss(0.65, 1.0, t))
 
 
 # ---------------------------------------------------------------- fire
 
 def fire_frame(X, Y, px, t):
-    """Looping flame tongue; noise scrolls up exactly one period per loop."""
-    h = (Y + 0.8) / 1.62
+    """Licking flame tongues. Two noise layers scroll up at different whole-period
+    speeds, so shapes change every frame and frame 16 wraps back to frame 1."""
+    h = (Y + 0.82) / 1.64
     hc = np.clip(h, 0.0, 1.0)
-    sway = 0.06 * np.sin(TAU * (2.0 * t + 1.3 * hc)) * hc
-    U = (X + 1.0) * 2.0
-    V = (Y + 1.0) * 2.0 - 4.0 * t
-    n = fbm(U, V, 31, period=4, octaves=4)
-    n2 = fbm(U + 1.7, V, 37, period=4, octaves=3)
-    xw = X - sway - (n2 - 0.5) * 0.35 * hc
-    width = 0.44 * (1.0 - hc) ** 0.85 * np.sqrt(np.clip(h * 5.0, 0.0, 1.0))
-    env = np.where((h > 0.0) & (h < 1.0), 1.0 - np.abs(xw) / np.maximum(width, 1e-3), -1.0)
-    dens = env - (n - 0.35) * 1.4 * hc ** 1.2
-    a = ss(0.0, 0.05, dens)
-    core = ss(0.35, 0.5, dens + 0.25 * (1.0 - hc))
-    halo = 0.3 * np.exp(-np.maximum(-dens, 0.0) / 0.25) * ss(-0.1, 0.1, h) * (1.0 - ss(0.8, 1.05, h))
-    return union((0.8 + 0.2 * core, a), (1.0, halo))
+    V = (Y + 1.0) * 2.0
+    warp = fbm((X + 1.0) * 1.5 + 3.1, V - 8.0 * t, 37, period=8, octaves=2)
+    xw = X + (warp - 0.5) * 0.8 * hc
+    n1 = fbm((xw + 1.0) * 3.0, V - 8.0 * t, 31, period=8, octaves=3)
+    n2 = fbm((xw + 1.0) * 6.0, V * 2.0 - 32.0 * t, 33, period=16, octaves=2)
+    n = 0.65 * n1 + 0.35 * n2
+    width = 0.72 - 0.38 * hc
+    across = xw / width
+    g = (1.0 - hc) ** 0.5 * np.clip(1.0 - across ** 2, 0.0, 1.0) * ss(-0.02, 0.12, h - 0.12 * across ** 2)
+    # Noise only eats into the flame, so nothing appears outside it.
+    F = g * 2.0 - n * (0.6 + 1.4 * hc)
+    a = ss(0.04, 0.12, F)
+    core = ss(0.55, 0.8, F + 0.3 * (1.0 - hc))
+    halo = 0.25 * ss(-0.25, 0.05, F) * (1.0 - hc) * ss(-0.05, 0.1, h)
+    return union((0.78 + 0.22 * core, a), (1.0, halo))
 
 
 # ---------------------------------------------------------------- lightning
@@ -365,7 +372,7 @@ def lightning_strip(w=512, h=128):
                  (0.92, np.clip(1.4 - d2, 0.0, 1.0) * 0.7),
                  (1.0, 0.5 * np.exp(-d1 / 7.0)),
                  (1.0, 0.22 * np.exp(-d2 / 6.0)))
-    a = a * (1.0 - ss(0.85, 1.0, np.abs(yrow) / (h / 2.0)))
+    a = a * (1.0 - ss(0.8, 0.92, np.abs(yrow) / (h / 2.0)))
     return finish(c, a)
 
 
@@ -434,17 +441,20 @@ def ground_crack(X, Y, px):
 
 
 def ground_scorch(X, Y, px):
-    """Burn mark with a ragged, splattered edge. Tint dark for soot, or by element."""
+    """Charred ragged ring with splatter, ash-lighter centre. Tint dark for soot, or by element."""
     r = np.hypot(X, Y)
     U = (np.arctan2(Y, X) + math.pi) / TAU * 12.0
     zero = np.zeros_like(U)
-    edge_n = fbm(U, zero, 61, period=12, octaves=3)
-    spikes = vnoise(U * 4.0, zero, 62, 48) ** 6
-    edge = 0.45 + (edge_n - 0.5) * 0.3 + spikes * 0.3 - r
-    mott = fbm((X + 1.0) * 4.0, (Y + 1.0) * 4.0, 63, period=8)
-    body = ss(0.0, 0.03, edge) * (0.5 + 0.4 * ss(0.0, 0.35, edge)) * (0.75 + 0.5 * (mott - 0.5))
-    halo = 0.2 * np.exp(-np.maximum(-edge, 0.0) / 0.05)
-    return union((0.8 + 0.2 * mott, body), (1.0, halo))
+    grain = fbm((X + 1.0) * 16.0, (Y + 1.0) * 16.0, 63, period=32, octaves=3)
+    rr = 0.44 + (fbm(U, zero, 61, period=12, octaves=4) - 0.5) * 0.25 + (grain - 0.5) * 0.08
+    spikes = vnoise(U * 4.0, zero, 62, 48) ** 5
+    ring = np.exp(-((r - rr) / 0.075) ** 2)
+    centre = 0.55 * ss(rr, rr - 0.15, r)
+    splat = spikes * ss(rr + 0.08 + 0.2 * spikes, rr, r)
+    body = np.maximum(np.maximum(ring, centre), splat)
+    # Grain breaks the char into flecks instead of a smooth cloud.
+    body = body * ss(0.3, 0.5, grain + 0.3 * body)
+    return 0.18 + 0.3 * ss(rr * 0.9, 0.0, r), np.clip(body, 0.0, 1.0) * 0.95
 
 
 # ---------------------------------------------------------------- impact
@@ -607,12 +617,29 @@ def save_png(path, rgba):
     bpy.data.images.remove(img)
 
 
+def check_border(name, rgba, margin=4):
+    """Alpha must be 0 within `margin` px of every edge (per frame for flipbooks)."""
+    grid = 4 if "flipbook" in name else 1
+    h, w = rgba.shape[0] // grid, rgba.shape[1] // grid
+    worst = 0.0
+    for row in range(grid):
+        for col in range(grid):
+            a = rgba[row * h:(row + 1) * h, col * w:(col + 1) * w, 3]
+            edges = [a[:margin], a[-margin:]]
+            if name != "vfx_lightning_strip":  # tiles along X, so its ends are meant to touch
+                edges += [a[:, :margin], a[:, -margin:]]
+            worst = max(worst, max(float(e.max()) for e in edges))
+    if worst >= 1.0 / 255.0:
+        print(f"[vfx] WARNING {name}: alpha {worst:.3f} within {margin}px of the border")
+
+
 def main():
     out = output_dir()
     out.mkdir(parents=True, exist_ok=True)
     made = []
     for name, build in TEXTURES:
         rgba = build()
+        check_border(name, rgba)
         save_png(out / f"{name}.png", rgba)
         made.append((name, rgba))
         print(f"[vfx] {name}.png {rgba.shape[1]}x{rgba.shape[0]}")
