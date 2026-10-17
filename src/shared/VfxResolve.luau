@@ -278,7 +278,7 @@ function VfxResolve.resolve(
 			upright = usage.upright == true,
 			sprite = sprite,
 			scale = (traits.scale or 1) * (usage.scale or 1),
-			tile = traits.tile,
+			tile = if usage.stretch then nil else traits.tile,
 			light = usage.light or traits.light,
 			shade = traits.shade,
 			opacity = usage.opacity or 1,

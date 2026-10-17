@@ -67,7 +67,7 @@ function def.event(run, event): boolean
 		Kit.groove(run, 0, 0.6, blue, run:ground(), to, 0.3)
 		-- Lightning tearing a line in the ground: arcs along it, sparks and scorch marks behind.
 		-- A thick jagged bolt along the ground, 3 strands, renewed once so it holds ~0.45 s.
-		local lift = Vector3.new(0, 0.45, 0)
+		local lift = Vector3.new(0, 0.9, 0)
 		local from = run:ground()
 		VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 3, 1.3 * run:scale(), 0.3)
 		run:at(run:designTime() + 0.15, function()

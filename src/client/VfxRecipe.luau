@@ -122,10 +122,11 @@ local LIGHTNING = {
 	segments = { 3, 6 },
 	segmentLength = 1.1, -- studs per segment, within `segments`
 	push = 0.22, -- sideways push of a kink, share of the arc's length
-	coreWidth = 0.14, -- the bright core, share of the width (0.4 without the kit's glow)
+	coreWidth = 0.2, -- the bright core, share of the width (0.4 without the kit's glow)
+	minFacing = 0.5, -- end-on thinning never draws a glow narrower than this share
+	strike = { size = 0.9, lifetime = 0.08 }, -- the small flash at a strike's end (x width)
 	coreWhite = 0.5, -- how far the core's color goes toward white (the glow keeps the full color)
 	strands = { 2, 2, 3, 4, 5 }, -- VfxRecipe.arcs by tier
-	light = { brightness = 2.5, seconds = 0.15 },
 }
 VfxRecipe.LIGHTNING = LIGHTNING
 
@@ -295,7 +296,13 @@ function VfxRecipe.light(run, at: Vector3, radius: number, color: Color3, k: num
 		return
 	end
 	local config = D.light
-	ImpactEffects.light(at, color, config.brightness * (k or 1), math.max(4, radius * config.range), config.seconds)
+	ImpactEffects.light(
+		at + Vector3.new(0, 1.5, 0),
+		color,
+		config.brightness * (k or 1),
+		math.max(4, radius * config.range),
+		config.seconds
+	)
 end
 
 -- The white-hot core: one short, small starburst frame.
@@ -541,7 +548,7 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 				+ Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * (0.95 + 0.35 * math.random())
 			VfxRecipe.arc(
 				air + Vector3.new(0, 0.4, 0),
-				edge + Vector3.new(0, 0.3, 0),
+				edge + Vector3.new(0, 0.7, 0),
 				theme.crackle,
 				LIGHTNING.burstWidth * k * run:scale(),
 				LIGHTNING.life,
@@ -689,7 +696,7 @@ function VfxRecipe.arc(
 				local along = q - p
 				if not isCore and camera and along.Magnitude > 1e-3 then
 					local facing = math.abs(along.Unit:Dot(camera.CFrame.LookVector))
-					w *= math.clamp(math.sqrt(1 - facing * facing), 0.15, 1)
+					w *= math.clamp(math.sqrt(1 - facing * facing), LIGHTNING.minFacing, 1)
 				end
 				part.Size = Vector3.new(w, w, math.max((q - p).Magnitude, 0.05))
 				part.CFrame = CFrame.lookAt((p + q) / 2, q)
@@ -700,14 +707,20 @@ function VfxRecipe.arc(
 		end
 	end
 	if lit then
+		-- No PointLight here (near the floor it paints a hard disc): a small, short camera-facing
+		-- flash where it strikes, raised off the ground.
 		ImpactEffects.later(delay, function()
-			ImpactEffects.light(
-				a:Lerp(b, 0.5),
-				color:Lerp(WHITE, 0.25),
-				LIGHTNING.light.brightness,
-				math.max(4, length * 0.8),
-				LIGHTNING.light.seconds
-			)
+			local size = width * LIGHTNING.strike.size
+			ImpactEffects.emit(b + Vector3.new(0, 0.3 + size * 0.5, 0), {
+				usage = "flash",
+				count = 1,
+				color = colors({ { 0, color:Lerp(WHITE, 0.6) }, { 1, color } }),
+				size = curve({ { 0, size }, { 1, size * 1.4 } }),
+				transparency = curve({ { 0, 0.1 }, { 1, 1 } }),
+				lifetime = { LIGHTNING.strike.lifetime, LIGHTNING.strike.lifetime },
+				lightEmission = 1,
+				brightness = 2,
+			})
 		end)
 	end
 end
@@ -718,7 +731,7 @@ end
 function VfxRecipe.crackle(run, at: Vector3, reach: number, theme: Theme?, count: number?)
 	local t = themeOf(theme)
 	local color = t.crackle or t.edge
-	for i = 1, count or 3 do
+	for i = 1, if run.reduced then math.ceil((count or 3) / 2) else count or 3 do
 		local direction = Vector3.new(math.random() - 0.5, math.random() - 0.3, math.random() - 0.5)
 		direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
 		local from = at + direction * reach * 0.1
@@ -729,7 +742,7 @@ function VfxRecipe.crackle(run, at: Vector3, reach: number, theme: Theme?, count
 			LIGHTNING.crackleWidth * math.clamp(reach / 1.6, 0.7, 1.6),
 			LIGHTNING.life * 0.6,
 			0.03 * (i - 1),
-			i == 1 and not run.reduced
+			false
 		)
 	end
 	VfxRecipe.sparks(at, 0.35, 6, t.spark)
@@ -752,7 +765,6 @@ function VfxRecipe.arcs(run, a: Vector3, b: Vector3, theme: Theme?, strands: num
 			i == 1 and not run.reduced
 		)
 	end
-	VfxRecipe.light(run, a:Lerp(b, 0.5), math.max(2, (b - a).Magnitude * 0.3), color:Lerp(WHITE, 0.3), 0.6)
 end
 
 -- A small pop at `at` (a snap, a palm, a muzzle): a one-frame flash, a pop of stars, a little light,

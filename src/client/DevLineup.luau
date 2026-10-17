@@ -990,6 +990,21 @@ local function close()
 	end
 end
 
+-- Judge an ultimate: replay it (as key 3) at 0.25x, particles included, then back to 1x.
+local function slowReplay(s: Stage)
+	local slow = 0.25
+	timeScale = slow
+	ImpactEffects.setTimeScale(slow)
+	cast(s)
+	print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
+	task.delay(14, function()
+		if timeScale == slow then
+			timeScale = 1
+			ImpactEffects.setTimeScale(1)
+		end
+	end)
+end
+
 local function toggle()
 	if folder then
 		close()
@@ -1162,37 +1177,35 @@ function DevLineup.start()
 			step(-1)
 			return
 		end
-		if processed then
-			return
-		end
-		if key == Enum.KeyCode.L then
-			toggle()
-		elseif key == Enum.KeyCode.O then
+		-- O is the default camera's zoom-out key and S a movement key: Roblox marks both processed,
+		-- so while the lineup is open they are handled before that check.
+		if folder and key == Enum.KeyCode.O and not UserInputService:GetFocusedTextBox() then
 			-- Freeze every live effect (time 0, particles too) and print each instance; O again resumes.
 			if timeScale ~= 0 then
 				frozenScale = timeScale
 				timeScale = 0
 				ImpactEffects.setTimeScale(0)
-				VfxDebug.dumpLive()
 				print("[DevLineup] effects frozen (O again to resume)")
+				local ok, problem = pcall(VfxDebug.dumpLive)
+				if not ok then
+					warn("[DevLineup] live-effects dump failed: " .. tostring(problem))
+				end
 			else
 				timeScale = frozenScale or 1
 				ImpactEffects.setTimeScale(timeScale)
 				print("[DevLineup] effects resumed")
 			end
-		elseif key == Enum.KeyCode.S and stage then
-			-- Judge an ultimate: replay it (as key 3) at 0.25x, particles included, then back to 1x.
-			local slow = 0.25
-			timeScale = slow
-			ImpactEffects.setTimeScale(slow)
-			cast(stage)
-			print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
-			task.delay(14, function()
-				if timeScale == slow then
-					timeScale = 1
-					ImpactEffects.setTimeScale(1)
-				end
-			end)
+			return
+		end
+		if folder and key == Enum.KeyCode.S and stage then
+			slowReplay(stage)
+			return
+		end
+		if processed then
+			return
+		end
+		if key == Enum.KeyCode.L then
+			toggle()
 		elseif key == Enum.KeyCode.V then
 			-- A/B: every effect with its kit texture, or its neon fallback.
 			Vfx.setEnabled(not Vfx.enabled())

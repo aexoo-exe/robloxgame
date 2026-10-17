@@ -969,8 +969,11 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 end
 
 -- A light flash (see stepLights): `brightness` at once, out over `duration`.
+-- At most MAX_LIGHTS at once: each PointLight paints a hard-edged disc on the floor, so many small
+-- ones read as a ring of flat ovals.
+local MAX_LIGHTS = 3
 function ImpactEffects.light(position: Vector3, color: Color3, brightness: number, range: number, duration: number)
-	if not level.rings then
+	if not level.rings or #lights >= MAX_LIGHTS then
 		return
 	end
 	local part = table.remove(spareLights)

@@ -513,6 +513,48 @@ function VfxDebug.dumpLive(): string
 		end
 	end
 	table.insert(lines, string.format("==== %d live effect instances ====", count))
+
+	-- Anything else that draws lines or overlays, anywhere (a stray beam, trail, rope, adornment or
+	-- UI path left in the place, or carried by an avatar accessory): its full path, to delete it.
+	local strays = 0
+	local function stray(item: Instance, what: string)
+		strays += 1
+		table.insert(lines, string.format("STRAY %s [%s] %s", item:GetFullName(), item.ClassName, what))
+	end
+	local scan = { workspace }
+	local player = game:GetService("Players").LocalPlayer
+	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+	if playerGui then
+		table.insert(scan, playerGui)
+	end
+	for _, root in scan do
+		for _, item in root:GetDescendants() do
+			local inEffects = false
+			for _, effects in roots do
+				if item:IsDescendantOf(effects) then
+					inEffects = true
+					break
+				end
+			end
+			if inEffects then
+				continue
+			end
+			if item:IsA("Beam") and item.Enabled then
+				stray(item, "enabled beam")
+			elseif item:IsA("Trail") and item.Enabled then
+				stray(item, "enabled trail")
+			elseif item:IsA("Constraint") and (item :: any).Visible == true then
+				stray(item, "visible constraint")
+			elseif item:IsA("PVAdornment") or item:IsA("SelectionBox") or item:IsA("SelectionSphere") then
+				stray(item, "adornment")
+			elseif item.ClassName == "Path2D" then
+				stray(item, "UI path (a line with control points)")
+			elseif item:IsA("ScreenGui") and item.Parent == playerGui then
+				table.insert(lines, string.format("gui %s enabled=%s", item:GetFullName(), tostring(item.Enabled)))
+			end
+		end
+	end
+	table.insert(lines, string.format("==== %d strays (beams, trails, ropes, adornments, UI paths) ====", strays))
 	local text = table.concat(lines, "\n")
 	print(text)
 	return text

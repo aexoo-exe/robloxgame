@@ -151,6 +151,9 @@ return deepFreeze({
 			width = 2.4,
 			light = 0.5,
 			brightness = 2.5,
+			-- the whole jagged strip over each short segment (tiled, a short segment showed a thin,
+			-- often empty slice of it)
+			stretch = true,
 		},
 		-- motes drawn in or pushed out, spiral orbs: twinkling star sparks
 		mote = {
