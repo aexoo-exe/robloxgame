@@ -5,16 +5,16 @@
 --   -0.10  he lowers his shoulder and stomps in (dust)
 --    0     the ram on the real hit: a big impact, the enemy shoved back on the real knockback with a
 --          scrape on the ground; the stun stars are the real ones
--- Layers: the shared recipe (VfxRecipe steam, dust and an impact theme in gold, tier 1).
+-- Layers: the shared recipe (VfxRecipe steam, dust and an impact theme in gold, tier 1) and the
+-- batch 2 kit: steam billows (fx_steam_billow) trailing the charge; on the impact a dust burst
+-- (fx_dust_burst), debris and a shock ring (mesh_shock_ring). The gold sparks stay.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
-local FxKit = require(script.Parent.Parent.FxKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local GOLD = Color3.fromRGB(240, 200, 110)
 local STEAM = Color3.fromRGB(240, 238, 232)
-local DUST = Kit.DUST
 
 local def = {}
 
@@ -68,10 +68,13 @@ def.beats = {
 					span = 0.1,
 					size = 2 * run:scale(),
 				})
-				-- Dust kicked up along the rush.
+				-- Dust kicked up and steam billowing off him along the rush (fx_steam_billow).
+				local height = run.view.part.Size.Y
 				for i = 1, if run.reduced then 1 else 3 do
 					run:at(-0.1 + 0.03 * i, function()
-						VfxRecipe.dust(from:Lerp(to, i / 4), 1.4 * run:scale(), 1)
+						local at = from:Lerp(to, i / 4)
+						VfxRecipe.dust(at, 1.4 * run:scale(), 1)
+						VfxRecipe.kitSteam(at + Vector3.new(0, height * 0.55, 0), height * 0.6, 1, Vector3.yAxis, 2.5, 30)
 					end)
 				end
 			end
@@ -103,7 +106,10 @@ function def.event(run, event): boolean
 				1.1 * run:scale(),
 				VfxRecipe.colors({ { 0, STEAM }, { 1, STEAM:Lerp(Color3.fromRGB(160, 160, 165), 0.6) } })
 			)
-			FxKit.ring(floor, DUST, 4.5, 0.3)
+			-- The impact on the ground: dust bursting up (fx_dust_burst), stone chips, a shock ring.
+			VfxRecipe.kitDust(floor, 3 * run:scale(), if run.reduced then 2 else 3)
+			VfxRecipe.debris(floor, if run.reduced then 2 else 3, 0.28 * run:scale(), impact.debris, 1.6)
+			VfxRecipe.meshRing(floor, 3 * run:scale(), GOLD, 0.35)
 			run:hitStop(view, 0.09)
 			run:shake(0.12)
 			run:sound("whoosh", 0.6)

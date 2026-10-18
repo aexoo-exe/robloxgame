@@ -7,7 +7,10 @@
 --    0     on the real hit a spray of fragments across the cone's real cells, the nearest ones the
 --          biggest, dust bursting where they land
 --   +0.30  he stands tall; his armor glows
--- Layers: the shared recipe (VfxRecipe dust and debris, tier 3).
+-- Layers: the shared recipe (VfxRecipe dust and debris, tier 3) and the batch 2 kit: dust bursts
+-- (fx_dust_burst, 3-4 billows each, turned and sized 0.8-1.3x so they never stack into the same
+-- shape) where he crushes the boulder and at each rock's impact, debris, and a shock ring
+-- (mesh_shock_ring) on each impact.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -48,7 +51,7 @@ def.beats = {
 			run:at(-0.3, function()
 				-- The boulder crushed: dust bursting off it, chips flying.
 				local s = run:scale()
-				VfxRecipe.dust(side(run), 1.4 * s, if run.reduced then 2 else 4)
+				VfxRecipe.kitDust(side(run) - Vector3.new(0, run.view.part.Size.Y * 0.5, 0), 2.6 * s, if run.reduced then 2 else 4)
 				VfxRecipe.debris(
 					side(run) - Vector3.new(0, 0.5, 0),
 					if run.reduced then 3 else 6,
@@ -88,15 +91,13 @@ function def.event(run, event): boolean
 				end, Enum.Material.Slate)
 			end
 			run:at(0.2, function()
-				-- Dust bursting where the fragments land (bigger nearer him), a small impact flash
-				-- and sparks on the nearest cells.
-				VfxRecipe.dust(at, (0.8 + 1.2 * near) * run:scale(), if run.reduced then 1 else math.ceil(1 + 2 * near))
+				-- Each rock's impact: a dust burst (3-4 billows, bigger nearer him) and a shock ring;
+				-- the nearest cells also a brighter flash, sparks and chips thrown up.
+				local impact = VfxRecipe.impact()
+				VfxRecipe.kitDust(at, (1.6 + 1.6 * near) * run:scale(), if run.reduced then 2 elseif near > 0.6 then 4 else 3)
+				VfxRecipe.meshRing(at, (1.4 + 1.4 * near) * run:scale(), impact.edge, 0.3)
 				if near > 0.6 then
-					-- The nearest cells take the full blow: a brighter flash, a raised shock ring, sparks
-					-- and chips thrown up.
-					local impact = VfxRecipe.impact()
 					VfxRecipe.core(at + Vector3.new(0, 0.8, 0), 1.6 * near, 1, impact.core)
-					VfxRecipe.shock(at, 1.4 * near * run:scale(), impact.edge, 1.1)
 					VfxRecipe.sparks(at + Vector3.new(0, 0.5, 0), 0.6 * near, 18, impact.spark)
 					if not run.reduced then
 						VfxRecipe.debris(at, 2, 0.25 * run:scale(), impact.debris, 1.4)

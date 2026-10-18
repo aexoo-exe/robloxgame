@@ -10,7 +10,9 @@
 -- Shift back to human:
 --    0     a steam burst; the giant collapses into steam and he stumbles out
 -- Layers: the shared recipe (VfxRecipe: the steam theme, and a lightning theme in yellow for the
--- bolt; tier 3).
+-- bolt; tier 3) and the batch 2 kit: the transform's strike is yellow lightning bolts from above
+-- (fx_lightning) with steam billows (fx_steam_billow) bursting out at his feet; the blow throws a
+-- dust burst (fx_dust_burst) and a shock ring (mesh_shock_ring).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -86,8 +88,9 @@ function def.event(run, event): boolean
 		steamBurst(floor + Vector3.new(0, 0.5, 0), 8, 1.2)
 		FxKit.mark(floor, Kit.DUST, STEAM, 2.2 * run:scale(), "crack", 0.9)
 		FxKit.ring(floor, STEAM, 6 * run:scale(), 0.35)
-		-- Weight to the blow: a raised shock ring and stone chips off the crack.
-		VfxRecipe.shock(floor, 1.8 * run:scale(), STEAM, 1)
+		-- Weight to the blow: dust bursting up, a shock ring, stone chips off the crack.
+		VfxRecipe.kitDust(floor, 3.4 * run:scale(), if run.reduced then 2 else 3)
+		VfxRecipe.meshRing(floor, 3.2 * run:scale(), STEAM, 0.4)
 		VfxRecipe.debris(floor, if run.reduced then 2 else 4, 0.3 * run:scale(), nil, 1.8)
 		run:hitStop(view, 0.1)
 		run:shake(0.2)
@@ -101,10 +104,17 @@ function def.shift(run, event): boolean
 	if (event.formIndex or 1) >= 2 then
 		run:pose(ROAR)
 		local sky = ground + Vector3.new(0.6, 26, 0.4)
-		-- The bolt: yellow lightning arcs striking down, a huge flash and light.
-		VfxRecipe.arcs(run, sky, ground + Vector3.new(0, 1, 0), BOLT_THEME, 3, 1.4, 0.35)
+		-- The bolt: yellow lightning striking down from above, a flash and light.
+		VfxRecipe.kitBolts(sky, ground + Vector3.new(0, 1, 0), BOLT, if run.reduced then 2 else 3, 0.35, 1.3)
 		VfxRecipe.core(ground + Vector3.new(0, 3, 0), 6, 1, BOLT_THEME.core)
 		VfxRecipe.light(run, ground + Vector3.new(0, 3, 0), 6, BOLT, 1.3)
+		-- Steam billows bursting out at his feet as the titan emerges.
+		local height = run.view.part.Size.Y
+		for i = 1, if run.reduced then 4 else 7 do
+			local angle = (i / 7) * math.pi * 2 + math.random() * 0.4
+			local out = Vector3.new(math.cos(angle), 0.35, math.sin(angle)).Unit
+			VfxRecipe.kitSteam(ground + Vector3.new(0, height * 0.3, 0), height * 0.7, 1, out, 7, 10)
+		end
 		-- The massive steam explosion the titan emerges from, then rolling, rising steam.
 		VfxRecipe.burst(run, ground, 4.5 * run:scale(), { theme = STEAM_THEME, big = true })
 		VfxRecipe.aftermath(run, ground, 4.5 * run:scale(), { theme = STEAM_THEME })

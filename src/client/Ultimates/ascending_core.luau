@@ -100,11 +100,13 @@ local function powerUp(run)
 		end
 	end
 	run.memo.toCoreThree = toCoreThree
-	Kit.aura(run, -0.55, 0.3, gold, if run.reduced then 6 else 10, function(u)
-		return run.view.part.Size.Y * (0.5 + 0.9 * Kit.easeIn(u))
-	end)
-	-- The gold glow around him through the power-up (particles; the form looks have no glow shell).
-	VfxRecipe.aura(run, run.view, VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4)), 1, -0.55, 0.85)
+	-- The gold flame aura (fx_aura_spike): three overlapping sheets rising off him, turned a little
+	-- and flickering, through the power-up; gold motes and a soft glow under it (particles; the
+	-- form looks have no glow shell).
+	VfxRecipe.kitAuraSpike(run, run.view, gold, -0.55, 0.85, 3)
+	VfxRecipe.aura(run, run.view, VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4)), 0.8, -0.55, 0.85)
+	-- Small blue crackle over him (more on the way to Core III).
+	VfxRecipe.kitCrackleAura(run, run.view, run.style.primary, -0.5, 0.5, if toCoreThree then 2 else 1)
 	ImpactEffects.burst("glow", run:ground() + Vector3.new(0, 0.5, 0), Vector3.yAxis, {
 		color = gold,
 		count = 8,
@@ -114,21 +116,6 @@ local function powerUp(run)
 		spread = 40,
 		transparency = 0.4,
 	})
-	if toCoreThree and not run.reduced then
-		for i = 0, 5 do
-			run:at(-0.5 + i * 0.08, function()
-				local at = run:chest() + Vector3.new(math.random() - 0.5, math.random() * 1.5, math.random() - 0.5) * 2
-				FxKit.beam(
-					at,
-					at + Vector3.new(math.random() - 0.5, math.random(), math.random() - 0.5) * 2,
-					run.style.primary,
-					0.12,
-					0.1,
-					"jagged"
-				)
-			end)
-		end
-	end
 	run:sound("charge", if toCoreThree then 1.1 else 0.85)
 	run:at(-0.08, function()
 		local target = run:target()
@@ -267,6 +254,9 @@ function def.event(run, event): boolean
 		local burst = VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4))
 		VfxRecipe.burst(run, center, radius, { theme = burst })
 		VfxRecipe.aftermath(run, center, radius, { theme = burst })
+		-- Its impact: a gold-white hit star (fx_impact_star) and a shock ring (mesh_shock_ring).
+		VfxRecipe.kitHitStar(center + Vector3.new(0, 1.4, 0), radius * 1.2, WHITE:Lerp(gold, 0.5))
+		VfxRecipe.meshRing(center, radius * 1.1, gold, 0.4)
 		return true
 	elseif kind == "Form" then
 		-- The step up: an eruption of gold around him.

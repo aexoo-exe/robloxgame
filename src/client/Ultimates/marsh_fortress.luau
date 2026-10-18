@@ -72,9 +72,17 @@ function def.event(run, event): boolean
 		FxKit.ring(center, run.style.primary, radius * 2.4, 0.4)
 		VfxRecipe.burst(run, center, radius, { theme = water })
 		VfxRecipe.aftermath(run, center, radius, { theme = water })
-		-- The punch of the landing: a second, wider shock ring, a taller splash, mud clods thrown out.
+		-- The punch of the landing: one big crown splash (fx_water_splash, rendered to fill its frame:
+		-- emitted large, raised to clear the floor), dust bursting at the area's edges
+		-- (fx_dust_burst), a second wider shock ring, mud clods thrown out.
+		local size = radius * 2.2
+		VfxRecipe.kit(center + Vector3.new(0, size * 0.42, 0), "kitSplash", { size = size, rotation = { -6, 6 } })
+		for i = 1, if run.reduced then 2 else 4 do
+			local angle = (i / 4) * math.pi * 2 + math.random() * 0.5
+			local edge = center + Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * 0.9
+			VfxRecipe.kitDust(edge, radius * 0.9, 1)
+		end
 		VfxRecipe.shock(center, radius * 1.1, run.style.secondary, 1.3)
-		VfxRecipe.splash(center, radius * 1.3, water)
 		VfxRecipe.debris(center, if run.reduced then 2 else 4, 0.3 * run:scale(), MUD, radius)
 		VfxRecipe.smoke(
 			center,
