@@ -21,6 +21,7 @@
 -- playback sets its fight-time clock, so they follow the playback speed); particles run in real
 -- time.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -203,6 +204,8 @@ local FACES = {
 
 -- Calls waiting for their moment on the effects' clock (ImpactEffects.later).
 local waiting: { { at: number, run: () -> () } } = {}
+-- Effect meshes in flight (ImpactEffects.mesh): clones, destroyed when done.
+local meshes: { { part: BasePart, startsAt: number, duration: number, step: (BasePart, number) -> () } } = {}
 
 -- The full-screen impact frame (made on first use).
 local frameGui: ScreenGui? = nil
@@ -685,6 +688,24 @@ local function update()
 			end
 		end
 	end
+	for i = #meshes, 1, -1 do
+		local entry = meshes[i]
+		local progress = (now - entry.startsAt) / entry.duration
+		if progress >= 1 then
+			table.remove(meshes, i)
+			entry.part:Destroy()
+		elseif progress >= 0 then
+			if not entry.part.Parent then
+				entry.part.Parent = getFolder()
+			end
+			local ok, problem = pcall(entry.step, entry.part, progress)
+			if not ok then
+				report("mesh", problem)
+				table.remove(meshes, i)
+				entry.part:Destroy()
+			end
+		end
+	end
 	stepLights(now)
 	for i = #waiting, 1, -1 do
 		local call = waiting[i]
@@ -705,6 +726,44 @@ local function ensureRunning()
 	if not connection then
 		connection = RunService.RenderStepped:Connect(update)
 	end
+end
+
+-- Effect meshes (VFX kit batch 2) -------------------------------------------------------------------
+
+-- A clone of the effect mesh `name` (ReplicatedStorage.VfxMeshes, loaded by the server's VfxMeshes),
+-- shown for `duration` (the effects' clock) from `delay` on, driven each frame by
+-- `step(part, progress)`, then destroyed. Tagged "VfxMesh" (CollectionService) so checks can tell it
+-- from flat parts. Returns false when the mesh is not loaded (the caller draws its fallback) or the
+-- quality level has no shapes. Never a MeshPart made from script: always a clone of the loaded one.
+local MESH_TAG = "VfxMesh"
+function ImpactEffects.mesh(name: string, duration: number, step: (BasePart, number) -> (), delay: number?): boolean
+	if not level.rings then
+		return false
+	end
+	local loaded = ReplicatedStorage:FindFirstChild("VfxMeshes")
+	local template = loaded and loaded:FindFirstChild(name)
+	if not template or not template:IsA("BasePart") then
+		return false
+	end
+	local part = template:Clone()
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Transparency = 1
+	CollectionService:AddTag(part, MESH_TAG)
+	part:SetAttribute("vfx", "mesh " .. name)
+	ensureRunning()
+	table.insert(meshes, { part = part, startsAt = clock() + (delay or 0), duration = duration, step = step })
+	return true
+end
+
+-- The size an effect mesh was loaded at (its template's), or nil when it is not loaded.
+function ImpactEffects.meshSize(name: string): Vector3?
+	local loaded = ReplicatedStorage:FindFirstChild("VfxMeshes")
+	local template = loaded and loaded:FindFirstChild(name)
+	return if template and template:IsA("BasePart") then template.Size else nil
 end
 
 -- Particles -------------------------------------------------------------------------------------------
@@ -1397,6 +1456,10 @@ function ImpactEffects.clear()
 		table.insert(spareLights, entry.part)
 	end
 	table.clear(lights)
+	for _, entry in meshes do
+		entry.part:Destroy()
+	end
+	table.clear(meshes)
 	hideFrame()
 	trauma = 0
 end

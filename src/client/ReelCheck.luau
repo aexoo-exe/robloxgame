@@ -16,6 +16,7 @@
 -- ReelCheck.report() prints one line per unit ("OK", or "WARN: ..." with short findings).
 -- Presentation only: reads effects, never changes them.
 
+local CollectionService = game:GetService("CollectionService")
 local LogService = game:GetService("LogService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -48,6 +49,8 @@ type Record = {
 	leak: string?,
 	noCast: boolean?,
 	marks: { [Instance]: boolean }, -- crack and scorch marks seen (allowed on the floor)
+	meshes: { [Instance]: boolean }, -- kit meshes seen (tagged VfxMesh)
+	meshLeaks: number, -- kit meshes still alive after leakSeconds
 	stats: { [string]: number }?, -- ImpactEffects.emitStats over the unit
 	capped: number, -- textured shapes left neon or skipped by the quality cap, over its plays
 }
@@ -169,8 +172,15 @@ local function scan(record: Record): (number, number, Instance?)
 			end
 			count += 1
 			any = any or item
-			if item:IsA("BasePart") then
+			-- A flipbook burst counts toward the peak budget like a part.
+			local flipbook = item:IsA("ParticleEmitter") and item.FlipbookLayout ~= Enum.ParticleFlipbookLayout.None
+			if item:IsA("BasePart") or flipbook then
 				parts += 1
+			end
+			-- Kit meshes (ImpactEffects.mesh, tagged "VfxMesh"): counted on their own, never "flat".
+			if CollectionService:HasTag(item, "VfxMesh") then
+				record.meshes[item] = true
+				continue
 			end
 			if not floor or not at then
 				continue
@@ -234,7 +244,8 @@ end
 -- Starts recording `unitType`; `floor` gives the field floor's height (nil while no field shows).
 function ReelCheck.begin(unitType: string, tier: number, floor: () -> number?)
 	stopRecording()
-	local record: Record = { unit = unitType, tier = tier, peak = 0, errors = 0, marks = {}, capped = 0 }
+	local record: Record =
+		{ unit = unitType, tier = tier, peak = 0, errors = 0, marks = {}, meshes = {}, meshLeaks = 0, capped = 0 }
 	current = record
 	floorOf = floor
 	table.insert(results, record)
@@ -292,6 +303,12 @@ function ReelCheck.finish()
 		return
 	end
 	local _, count, any = scan(record)
+	-- Kit meshes still in the world (they are destroyed when done, so any here is a leak).
+	for _, mesh in CollectionService:GetTagged("VfxMesh") do
+		if mesh.Parent then
+			record.meshLeaks += 1
+		end
+	end
 	if count > 0 then
 		record.leak = string.format("leak: %d effects still live (%s)", count, if any then any:GetFullName() else "?")
 	end
@@ -365,13 +382,24 @@ function ReelCheck.report(note: string?)
 		for _ in record.marks do
 			marks += 1
 		end
+		local meshRings = 0
+		for _ in record.meshes do
+			meshRings += 1
+		end
+		if record.meshLeaks > 0 then
+			table.insert(findings, string.format("%d kit meshes still alive after %.0f s", record.meshLeaks, ReelConfig.leakSeconds))
+		end
+		local meshText = if meshRings > 0 or record.meshLeaks > 0
+			then string.format(", mesh rings: %d, leaked: %d", meshRings, record.meshLeaks)
+			else ""
 		local summary = string.format(
-			"peak %d/%d, emits: %d spawned, %d dropped%s",
+			"peak %d/%d, emits: %d spawned, %d dropped%s%s",
 			record.peak,
 			budget,
 			stats.spawned or 0,
 			stats.dropped or 0,
-			if marks > 0 then string.format(", %d ground marks", marks) else ""
+			if marks > 0 then string.format(", %d ground marks", marks) else "",
+			meshText
 		)
 		if #findings == 0 then
 			ok += 1

@@ -240,8 +240,10 @@ return deepFreeze({
 		kitHitStar = { on = true, roles = { "hitStar" }, modes = { "particle" } },
 		kitDust = { on = true, roles = { "dustBurst" }, modes = { "particle" } },
 		kitSplash = { on = true, roles = { "splash" }, modes = { "particle" } },
-		kitPoof = { on = true, roles = { "poof" }, modes = { "particle" } },
-		kitSwoosh = { on = true, roles = { "swoosh" }, modes = { "particle", "billboard" } },
+		-- Fallbacks while an id is missing: the poof falls back to the smoke puff (smoke:1), the swoosh
+		-- to the slash crescent (the next role is tried when a role has no loaded texture).
+		kitPoof = { on = true, roles = { "poof", "smoke" }, modes = { "particle" } },
+		kitSwoosh = { on = true, roles = { "swoosh", "crescent" }, modes = { "particle", "billboard" } },
 		kitCrescent = { on = true, roles = { "crescent" }, modes = { "particle", "billboard" } },
 		kitSlashLine = { on = true, roles = { "slashLine" }, modes = { "beam", "particle" } },
 		kitBrush = { on = true, roles = { "brush" }, modes = { "particle", "billboard" } },

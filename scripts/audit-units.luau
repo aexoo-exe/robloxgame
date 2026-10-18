@@ -510,6 +510,16 @@ loaded["src/client/ImpactEffects"] = {
 		expect(duration, "number", "light duration")
 	end,
 	setTimeScale = function() end,
+	-- Effect meshes (batch 2) are not loaded in the dry run: callers draw their particle fallback.
+	mesh = function(name, duration, step)
+		expect(name, "string", "mesh name")
+		expect(duration, "number", "mesh duration")
+		expect(step, "function", "mesh step")
+		return false
+	end,
+	meshSize = function()
+		return nil
+	end,
 	later = function(_delay, fn)
 		fn()
 	end,

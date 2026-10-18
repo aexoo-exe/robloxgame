@@ -1144,6 +1144,8 @@ export type KitEmit = {
 	lightEmission: number?,
 	brightness: number?,
 	zOffset: number?,
+	stretch: boolean?, -- turned along its velocity (a bolt along a path: give `direction`)
+	start: number?, -- starting transparency (default 0)
 }
 
 -- One batch 2 kit particle (or `count`) of `usage` at `at`: its flipbook plays over its life. Draws
@@ -1158,7 +1160,11 @@ function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
 		count = opts.count or 1,
 		color = ColorSequence.new(opts.color or WHITE),
 		size = curve({ { 0, opts.size }, { 1, opts.size * (opts.grow or 1) } }),
-		transparency = curve({ { 0, 0 }, { 0.85, 0.05 }, { 1, 1 } }),
+		transparency = curve({
+			{ 0, opts.start or 0 },
+			{ 0.85, math.min(1, (opts.start or 0) + 0.05) },
+			{ 1, 1 },
+		}),
 		lifetime = { life, life },
 		speed = opts.speed,
 		spread = opts.spread,
@@ -1167,7 +1173,208 @@ function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
 		lightEmission = opts.lightEmission or 0,
 		brightness = opts.brightness or 1,
 		zOffset = opts.zOffset,
+		stretch = opts.stretch,
 	})
+end
+
+-- Kit layers (batch 2) ---------------------------------------------------------------------------------
+-- Each draws nothing (or its stated fallback) until its texture or mesh is loaded.
+
+local function tinted(color: Color3, white: number): Color3
+	return color:Lerp(WHITE, white) -- white-cored kit textures keep a hot core when tinted
+end
+
+-- `count` lightning bolts (fx_lightning, a different bolt each frame) from `a` to `b`: each a
+-- particle as long as the path, turned along it, the ends jittered so strands fan a little.
+function VfxRecipe.kitBolts(a: Vector3, b: Vector3, color: Color3, count: number, life: number?, width: number?)
+	local along = b - a
+	local length = along.Magnitude
+	if length < 0.2 then
+		return
+	end
+	for _ = 1, count do
+		local jitter = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * length * 0.12
+		local from, to = a + jitter * 0.3, b + jitter
+		VfxRecipe.kit((from + to) / 2, "kitBolt", {
+			-- the bolt art fills ~85% of its frame's height
+			size = (to - from).Magnitude / 0.85 * (width or 1),
+			color = tinted(color, 0.3),
+			lifetime = (life or 0.22) * (0.8 + 0.4 * math.random()),
+			speed = { 0.01, 0.01 },
+			spread = 0,
+			direction = (to - from).Unit,
+			stretch = true,
+			lightEmission = 1,
+			brightness = 2,
+		})
+	end
+end
+
+-- Crackle crawling over a body (fx_crackle, Random frames) from design time `from` for `seconds`:
+-- short arcs flickering at points on it, `per` each step. `body` is a unit view.
+function VfxRecipe.kitCrackleAura(run, view: any, color: Color3, from: number, seconds: number, per: number?)
+	local every = 0.08
+	for j = 0, math.max(1, math.floor(seconds / every)) - 1 do
+		run:at(from + j * every, function()
+			local part = view and view.part
+			if not part or not part.Parent then
+				return
+			end
+			local size = part.Size
+			for _ = 1, if run.reduced then 1 else (per or 2) do
+				local at = part.Position
+					+ Vector3.new((math.random() - 0.5) * size.X, (math.random() - 0.4) * size.Y, (math.random() - 0.5) * size.Z)
+				VfxRecipe.kit(at, "kitCrackle", {
+					size = size.Y * (0.35 + 0.25 * math.random()),
+					color = tinted(color, 0.25),
+					lifetime = 0.12,
+					rotation = { 0, 360 },
+					lightEmission = 1,
+					brightness = 2,
+					zOffset = 1,
+				})
+			end
+		end)
+	end
+end
+
+-- A flame aura on a body (fx_aura_spike): `layers` overlapping sheets rising from the feet, each
+-- turned a little (+-10 degrees) and flickering, from design time `from` for `seconds`.
+function VfxRecipe.kitAuraSpike(run, view: any, color: Color3, from: number, seconds: number, layers: number?)
+	local every = 0.12
+	for j = 0, math.max(1, math.floor(seconds / every)) - 1 do
+		run:at(from + j * every, function()
+			local part = view and view.part
+			if not part or not part.Parent then
+				return
+			end
+			local height = part.Size.Y
+			for k = 1, if run.reduced then 1 else (layers or 3) do
+				VfxRecipe.kit(part.Position + Vector3.new(0, height * 0.05, 0), "kitAuraSpike", {
+					size = height * (1.25 + 0.2 * math.random()),
+					grow = 1.1,
+					color = tinted(color, 0.2),
+					lifetime = 0.3,
+					speed = { 0.6, 1.4 },
+					spread = 8,
+					direction = Vector3.yAxis,
+					rotation = { -10, 10 },
+					lightEmission = 1,
+					brightness = 1.6,
+					start = 0.25 + 0.15 * (k - 1),
+					zOffset = if k == 1 then -1 else 0.5, -- one sheet behind the body, the rest in front
+				})
+			end
+		end)
+	end
+end
+
+-- A hit star (fx_impact_star) at `at`, `size` studs, turned at random.
+function VfxRecipe.kitHitStar(at: Vector3, size: number, color: Color3)
+	VfxRecipe.kit(at, "kitHitStar", {
+		size = size,
+		color = tinted(color, 0.4),
+		rotation = { 0, 360 },
+		lightEmission = 1,
+		brightness = 2.5,
+		zOffset = 1,
+	})
+end
+
+-- A brief anime speed-lines flash (fx_speed_lines) centered on `at`.
+function VfxRecipe.kitSpeedLines(at: Vector3, size: number, color: Color3?, life: number?)
+	VfxRecipe.kit(at, "kitSpeedLines", {
+		size = size,
+		grow = 1.15,
+		color = tinted(color or WHITE, 0.5),
+		lifetime = life or 0.18,
+		rotation = { 0, 360 },
+		lightEmission = 1,
+		start = 0.15,
+		zOffset = -1,
+	})
+end
+
+-- Dust kicked up (fx_dust_burst, baked tan): `count` billows around `at` (ground), each 0.8-1.3x
+-- `size` and turned at random so they never stack into the same shape; raised to clear the floor.
+function VfxRecipe.kitDust(at: Vector3, size: number, count: number?)
+	for _ = 1, count or 3 do
+		local s = size * (0.8 + 0.5 * math.random())
+		local offset = Vector3.new((math.random() - 0.5) * size * 0.5, 0, (math.random() - 0.5) * size * 0.5)
+		VfxRecipe.kit(at + offset + Vector3.new(0, s * 0.38, 0), "kitDust", {
+			size = s,
+			rotation = { -12, 12 },
+		})
+	end
+end
+
+-- A fire bloom (fx_fire_burst, baked colors) at `at` (ground), raised to clear the floor.
+function VfxRecipe.kitFireBurst(at: Vector3, size: number, delay: number?)
+	ImpactEffects.later(delay, function()
+		VfxRecipe.kit(at + Vector3.new(0, size * 0.42, 0), "kitFireBurst", { size = size, rotation = { -15, 15 } })
+	end)
+end
+
+-- Steam billows (fx_steam_billow, baked white) from `at`, `count` of them thrown out along
+-- `direction` (default up) by `speed` studs/s.
+function VfxRecipe.kitSteam(at: Vector3, size: number, count: number?, direction: Vector3?, speed: number?, spread: number?)
+	VfxRecipe.kit(at, "kitSteam", {
+		size = size,
+		grow = 1.3,
+		count = count or 1,
+		speed = { (speed or 2) * 0.7, speed or 2 },
+		spread = spread or 25,
+		direction = direction,
+		rotation = { 0, 360 },
+	})
+end
+
+-- A swoosh ribbon (fx_swoosh_ribbon; fx_slash_crescent until it loads) at `at`, `size` studs,
+-- turned `angle` degrees on screen, in `color`.
+function VfxRecipe.kitSwoosh(at: Vector3, size: number, color: Color3, angle: number?, life: number?)
+	VfxRecipe.kit(at, "kitSwoosh", {
+		size = size,
+		grow = 1.15,
+		color = tinted(color, 0.25),
+		lifetime = life or 0.25,
+		rotation = { (angle or 0) - 8, (angle or 0) + 8 },
+		lightEmission = 1,
+		brightness = 2,
+		zOffset = 1,
+	})
+end
+
+-- A short expanding shock ring (mesh_shock_ring): it lies flat `lift` (>= 0.25) studs above the
+-- ground point `at`, grows from `diameter` to 3x and fades out over `seconds` (<= 0.45). Without the
+-- mesh, the camera-facing particle shock (VfxRecipe.shock) instead.
+function VfxRecipe.meshRing(at: Vector3, diameter: number, color: Color3, seconds: number?, lift: number?)
+	local life = math.min(seconds or 0.35, 0.45)
+	local base = ImpactEffects.meshSize("mesh_shock_ring")
+	local shown = false
+	if base then
+		-- Lie it flat on its thinnest side, however it was imported.
+		local turn, flat, wide
+		if base.Y <= base.X and base.Y <= base.Z then
+			turn, flat, wide = CFrame.identity, base.Y, math.max(base.X, base.Z)
+		elseif base.X <= base.Z then
+			turn, flat, wide = CFrame.Angles(0, 0, math.pi / 2), base.X, math.max(base.Y, base.Z)
+		else
+			turn, flat, wide = CFrame.Angles(math.pi / 2, 0, 0), base.Z, math.max(base.X, base.Y)
+		end
+		local height = math.max(lift or 0.3, 0.25)
+		shown = ImpactEffects.mesh("mesh_shock_ring", life, function(part, progress)
+			local eased = 1 - (1 - progress) * (1 - progress)
+			local scale = diameter / wide * (1 + 2 * eased) -- 1x -> 3x
+			part.Size = base * scale
+			part.CFrame = CFrame.new(at + Vector3.new(0, height + flat * scale * 0.5, 0)) * turn
+			part.Color = color
+			part.Material = Enum.Material.Neon
+			part.Transparency = 0.3 + 0.7 * progress
+		end)
+	end
+	if not shown then
+		VfxRecipe.shock(at, diameter / 2, color)
+	end
 end
 
 -- Theme presets: per layer, the usage that draws it. Batch 1 usages fill what batch 2 skipped (the
