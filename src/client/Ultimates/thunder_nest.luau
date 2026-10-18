@@ -5,13 +5,21 @@
 --          of lightning snapping out 1 hex around him on the real hit
 --   +0.10  the stunned enemies twitch with arcs
 --   +0.50  he stands, lightning dying along his arms
--- Layers: the shared recipe (VfxRecipe, a lightning theme in his blue, tier 3).
+-- Layers: the shared recipe (VfxRecipe, a lightning theme in his blue, tier 3) and the batch 2 kit:
+-- a cyan crackle aura crawling over his whole body for the whole ultimate (fx_crackle), cyan
+-- lightning bolts for the zig-zag and on each stunned enemy (fx_lightning), a small shock ring
+-- (mesh_shock_ring) on the final hit.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
+local CYAN = Color3.fromRGB(80, 225, 255)
+
+local function cyan(run): Color3
+	return run.style.primary:Lerp(CYAN, 0.6)
+end
 
 local def = {}
 
@@ -39,11 +47,8 @@ def.beats = {
 		at = -0.4,
 		run = function(run)
 			run:face(run:target())
-			for i = 0, (if run.reduced then 2 else 5) do
-				run:at(-0.38 + i * 0.06, function()
-					crackle(run, run:head(), 1.6)
-				end)
-			end
+			-- The crackle aura over his whole body, from the crouch to standing again.
+			VfxRecipe.kitCrackleAura(run, run.view, cyan(run), -0.4, 1.3, 2)
 			run:sound("tick", 1.6)
 		end,
 	},
@@ -55,7 +60,6 @@ end
 
 function def.event(run, event): boolean
 	local kind = event.kind
-	local blue = run.style.primary
 	if kind == "Dash" then
 		-- The zig-zag path: where he stood to where he lands, in three kinks.
 		local from = run:chest()
@@ -64,14 +68,7 @@ function def.event(run, event): boolean
 		side = if side.Magnitude > 1e-3 then side.Unit else Vector3.xAxis
 		local points = { from, from:Lerp(to, 0.33) + side * 1.2, from:Lerp(to, 0.66) - side * 1.2, to }
 		for i = 1, 3 do
-			VfxRecipe.arcs(run, points[i], points[i + 1], theme(run), 1, 1.1 * run:scale(), 0.35, false)
-		end
-		-- Bolts crackling over his body through the dash.
-		local now = run:designTime()
-		for i = 0, (if run.reduced then 0 else 1) do
-			run:at(now + i * 0.12, function()
-				crackle(run, run:chest(), 2.2 * run:scale())
-			end)
+			VfxRecipe.kitBolts(points[i], points[i + 1], cyan(run), if run.reduced then 1 else 2, 0.3)
 		end
 		VfxRecipe.pop(run, from, 1.4 * run:scale(), theme(run))
 		run:sound("whoosh", 1.9)
@@ -82,28 +79,23 @@ function def.event(run, event): boolean
 		end
 		run.memo.dome = true
 		local center, radius = run:area()
-		local air = center + Vector3.new(0, 1, 0)
-		Kit.shell(run, 0, 0.3, blue, air, function(u)
-			return radius * 2 * Kit.easeOut(u)
-		end, function(u)
-			return 0.3 + 0.7 * u
-		end)
-		-- The dome snapping out (above), then the recipe's lightning burst: core, glow sheet, arcs to
-		-- the edge of the area, shockwave, sparks, light, scorch; crackling residue.
+		-- The recipe's lightning burst (core, glow sheet, arcs to the edge of the area, shockwave,
+		-- sparks, light, scorch; crackling residue), and the shock ring snapping out on the hit.
 		VfxRecipe.burst(run, center, radius, { theme = theme(run) })
 		VfxRecipe.aftermath(run, center, radius, { theme = theme(run) })
+		VfxRecipe.meshRing(center, radius * 0.9, cyan(run), 0.35)
 		return true
 	elseif kind == "Stun" and event.target then
-		-- The stunned twitch with arcs for a moment.
+		-- Each strike: a cyan bolt down onto the stunned enemy, then it twitches with crackle.
 		local view = run.context.views[event.target]
 		if view then
-			for i = 1, 2 do
-				run:at(0.1 + i * 0.15, function()
-					if view.part.Parent then
-						crackle(run, view.part.Position, 1.4)
-					end
-				end)
-			end
+			local at = view.part.Position
+			VfxRecipe.kitBolts(at + Vector3.new(0.4, view.part.Size.Y * 1.4, 0.3), at, cyan(run), 1, 0.25)
+			run:at(0.1, function()
+				if view.part.Parent then
+					crackle(run, view.part.Position, 1.4)
+				end
+			end)
 		end
 		return false
 	elseif kind == "Damage" and event.target and not event.dot then

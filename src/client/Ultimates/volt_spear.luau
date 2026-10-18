@@ -5,7 +5,10 @@
 --   -0.15  he drops low, leaning in
 --    0     the lunge on the real dash: lightning tears a line in the ground; the strike: a burst of
 --          lightning through the target (the stun and the burn marker are the real ones)
--- Layers: the shared recipe (VfxRecipe, a lightning theme in his blue, tier 3).
+-- Layers: the batch 2 kit in his blue-white (no part-based arcs, no neon rod): a 0.4 s charge of
+-- crackle at his hand (fx_crackle), lightning bolts along the ground (fx_lightning), and on the
+-- thrust a burst of 4-6 bolts out of the target, a hit star (fx_impact_star) and a shock ring
+-- (mesh_shock_ring), over the recipe's core flash, glow sheet, sparks and light (tier 3).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
@@ -26,26 +29,19 @@ local function theme(run)
 	return run.memo.theme
 end
 
--- Thick crackle off a point: `count` blue arcs ~`reach` studs out (wider than VfxRecipe.crackle's).
-local function crackle(run, at: Vector3, reach: number, count: number)
-	local color = theme(run).crackle
-	for i = 1, if run.reduced then 1 else count do
-		local direction = Vector3.new(math.random() - 0.5, math.random() - 0.3, math.random() - 0.5)
-		direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
-		VfxRecipe.arc(at + direction * reach * 0.1, at + direction * reach, color, 0.9 * run:scale(), 0.25, 0.03 * (i - 1))
-	end
-	VfxRecipe.sparks(at, 0.35, 6, theme(run).spark)
+-- His blue-white: the kit's white-cored textures tinted toward his blue.
+local function blueWhite(run): Color3
+	return theme(run).crackle:Lerp(WHITE, 0.25)
 end
 
--- The bolt tearing along the ground from him to `to` (the real dash's end, or the target), a
--- second strand crossing it 0.1 s later, sparks and scorch behind (~0.45 s in all).
+-- The bolt tearing along the ground from him to `to` (the real dash's end, or the target): two
+-- kit bolts a stud up (a second 0.1 s later), sparks and scorch behind.
 local function groundBolt(run, to: Vector3)
-	-- Raised a full stud: its thin neon core never grazes the floor.
 	local lift = Vector3.new(0, 1, 0)
 	local from = run:ground()
-	VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 1, 1.6 * run:scale(), 0.4)
+	VfxRecipe.kitBolts(from + lift, to + lift, blueWhite(run), 1, 0.3, 1.2)
 	run:at(run:designTime() + 0.1, function()
-		VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 1, 1.2 * run:scale(), 0.35, false)
+		VfxRecipe.kitBolts(from + lift, to + lift, blueWhite(run), 1, 0.25)
 	end)
 	VfxRecipe.trail(run, from, to, { theme = theme(run), steps = 4, span = 0.1, size = 0.8 * run:scale(), sparks = false })
 end
@@ -70,12 +66,18 @@ def.beats = {
 			end, function(u)
 				return (0.4 + 0.4 * u) * run:scale()
 			end)
-			-- The chirping flicker: short arcs off the ball.
-			for i = 0, (if run.reduced then 3 else 6) do
-				run:at(-0.42 + i * 0.06, function()
-					-- An arc ~1.5 studs off the ball every beat; they overlap (each lives longer than a beat), so
-					-- several crackle at once, all the windup long.
-					crackle(run, run:hand("right"), 1.6, 1)
+			-- The charge: 0.4 s of blue-white crackle at his hand, flickering with a rapid chirp.
+			for i = 0, (if run.reduced then 4 else 8) do
+				run:at(-0.4 + i * 0.05, function()
+					VfxRecipe.kit(run:hand("right"), "kitCrackle", {
+						size = (1.4 + 0.08 * i) * run:scale(),
+						color = blueWhite(run),
+						lifetime = 0.1,
+						rotation = { 0, 360 },
+						lightEmission = 1,
+						brightness = 2,
+						zOffset = 1,
+					})
 					if i % 2 == 0 then
 						run:sound("tick", 2)
 					end
@@ -109,13 +111,22 @@ function def.event(run, event): boolean
 		if view and not run.memo.hit then
 			run.memo.hit = true -- one strike per cast (it hits one enemy)
 			local at = view.part.Position
-			-- The burst of lightning through the target: a core, a blue glow sheet, sparks, a light,
-			-- and arcs leaping off it.
-			-- A proper burst on the target: core, blue glow sheet, arcs out, shockwave, sparks, light.
 			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
-			VfxRecipe.burst(run, floor, 1.8 * run:scale(), { theme = theme(run) })
-			-- One thick arc leaping off it (more would pass the tier's part budget with the bolt).
-			crackle(run, at, 2.6 * run:scale(), 1)
+			local t = theme(run)
+			local s = run:scale()
+			-- The strike: 4-6 bolts bursting out of the target, a hit star, a shock ring, over a
+			-- core flash, a blue glow sheet, sparks and a light (no part-based arcs).
+			for _ = 1, if run.reduced then 4 else 6 do
+				local out = Vector3.new(math.random() - 0.5, math.random() * 0.8 - 0.2, math.random() - 0.5)
+				out = if out.Magnitude > 1e-3 then out.Unit else Vector3.xAxis
+				VfxRecipe.kitBolts(at, at + out * (2.5 + math.random()) * s, blueWhite(run), 1, 0.25)
+			end
+			VfxRecipe.kitHitStar(at, view.part.Size.Y * 1.3, blueWhite(run))
+			VfxRecipe.meshRing(floor, 3 * s, t.crackle, 0.35)
+			VfxRecipe.core(at, 1.6 * s, 1, t.core, 1.7)
+			VfxRecipe.explosion(at, 1.6 * s, t.blast, t.blastUsage, t.blastLight, 1.7)
+			VfxRecipe.sparks(at, 0.6 * s, 20, t.spark)
+			VfxRecipe.light(run, at, 1.8 * s, t.light, 0.9)
 			run:hitStop(view, 0.1)
 			run:shake(0.18)
 		end
