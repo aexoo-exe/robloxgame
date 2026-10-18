@@ -32,6 +32,11 @@
 --   C        the arena's fixed camera: gameplay (the match camera), close (3/4 on the caster and
 --            its target) or wide (the whole field). In an arena the camera never shakes or drifts,
 --            so every recording of a cast is framed the same.
+--   R        the reel (ReelConfig): plays a batch of ultimates in one clip, hands off; R again
+--            stops it. Per unit: a title card (id and tier), the ultimate at 1x, a pause, the
+--            ultimate at 0.25x, a gap; then "REEL END". It forces its arena and camera, hides the
+--            panel, and puts the arena, camera, lighting and time scale back when it ends. Other
+--            keys are ignored while it plays.
 -- Chat commands: /lineup (open or close), /look <unit_id> (close-up of that unit).
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
@@ -66,6 +71,7 @@ local CombatPlayback = require(script.Parent.CombatPlayback)
 local CombatFx = require(script.Parent.CombatFx)
 local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local ReelConfig = require(script.Parent.ReelConfig)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
 local Vfx = require(script.Parent.Vfx)
@@ -100,8 +106,9 @@ local ARENA_CAMERAS = { "gameplay", "close", "wide" }
 local GRAY_CENTER = HubConfig.center + Vector3.new(0, 700, 0) -- the board center in the gray arena
 local GRAY_SIZE = 400 -- the gray arena's floor, and the box of walls around it
 local GRAY_HEIGHT = 200
-local GRAY_FLOOR = Color3.fromRGB(128, 128, 128)
-local GRAY_BACKDROP = Color3.fromRGB(176, 179, 184)
+local GRAY_FLOOR = Color3.fromRGB(95, 95, 100) -- a true mid-gray
+local GRAY_BACKDROP = Color3.fromRGB(122, 122, 128) -- a little lighter, so the horizon reads
+local CLOSE_FILL = 0.6 -- the close camera: the caster and its target fill this much of the height
 local GRAY_LIGHTING: { [string]: any } = {
 	Ambient = Color3.fromRGB(110, 110, 110),
 	OutdoorAmbient = Color3.fromRGB(128, 128, 128),
@@ -165,6 +172,12 @@ local arenaMode = "off" -- ARENA_MODES
 local arenaCamera = "gameplay" -- ARENA_CAMERAS
 local arenaRestore: (() -> ())? = nil -- undoes what the shown arena changed outside the stage
 local titleText = "" -- the HUD title before the arena / camera suffix
+-- The reel (R): running, a token that ends its loop when bumped, the modes it replaced, its card.
+local reelRunning = false
+local reelToken = 0
+local reelSaved: { arena: string, camera: string }? = nil
+local reelGui: ScreenGui? = nil
+local reelCard: TextLabel? = nil
 local heartbeat: RBXScriptConnection? = nil
 local savedCamera: { cameraType: Enum.CameraType, cframe: CFrame }? = nil
 local hud: ScreenGui? = nil
@@ -182,7 +195,7 @@ local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
 	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate   O freeze + dump",
-	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)",
+	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)   R reel (ReelConfig)",
 }, "\n")
 
 -- The HUD title, with the arena and its camera in a close-up ("gray / close").
@@ -289,6 +302,25 @@ local function openHud()
 	help.Parent = gui
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	hud, hudTitle, hudHelp = gui, title, help
+	-- The reel's title card: large white text on a black bar across the top, readable in a
+	-- compressed recording. Its own gui, so it stays while the panel is hidden.
+	local cardGui = Instance.new("ScreenGui")
+	cardGui.Name = "DevLineupReelCard"
+	cardGui.ResetOnSpawn = false
+	cardGui.IgnoreGuiInset = true
+	cardGui.DisplayOrder = 100
+	cardGui.Enabled = false
+	local card = Instance.new("TextLabel")
+	card.Size = UDim2.new(1, 0, 0, 150)
+	card.BackgroundColor3 = Color3.new(0, 0, 0)
+	card.BackgroundTransparency = 0
+	card.BorderSizePixel = 0
+	card.TextColor3 = Color3.new(1, 1, 1)
+	card.Font = Enum.Font.GothamBlack
+	card.TextSize = 72
+	card.Parent = cardGui
+	cardGui.Parent = gui.Parent
+	reelGui, reelCard = cardGui, card
 	-- The emotes menu takes "."; off while the lineup is open.
 	local ok, enabled = pcall(StarterGui.GetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.EmotesMenu)
 	if ok then
@@ -302,6 +334,10 @@ local function closeHud()
 		hud:Destroy()
 	end
 	hud, hudTitle, hudHelp = nil, nil, nil
+	if reelGui then
+		reelGui:Destroy()
+	end
+	reelGui, reelCard = nil, nil
 	if emotesWereEnabled ~= nil then
 		pcall(StarterGui.SetCoreGuiEnabled, StarterGui, Enum.CoreGuiType.EmotesMenu, emotesWereEnabled)
 		emotesWereEnabled = nil
@@ -556,17 +592,22 @@ end
 -- is framed the same:
 --   gameplay  the match camera's angle and distance (Arena.boardCamera)
 --   close     a 3/4 view from behind the caster's side, the caster and the dummy in front of it
---             together, with room around them for their effects
+--             together filling CLOSE_FILL of the frame height (sized to the caster's height)
 --   wide      high and to the side over the whole field: the full area of an ultimate
-local function arenaFraming(offset: Vector3): CFrame
+local function arenaFraming(s: Stage, offset: Vector3): CFrame
 	if arenaCamera == "gameplay" then
 		return Arena.boardCamera() + offset
 	end
 	local caster = Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2]) + offset
 	if arenaCamera == "close" then
 		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
-		local between = caster:Lerp(target, 0.5) + Vector3.new(0, HEIGHT * 0.5, 0)
-		return CFrame.lookAt(between + Vector3.new(-13, 10, 17), between)
+		local height = HEIGHT * CharacterLook.of(s.unitType).scale * RenderConfig.starSizeScale[s.starLevel]
+		local between = caster:Lerp(target, 0.5) + Vector3.new(0, height * 0.5, 0)
+		-- What must fill the frame: the caster's height, plus the rise of the target behind it.
+		local shown = height + 1.5
+		local fov = math.rad(workspace.CurrentCamera.FieldOfView)
+		local distance = math.max(shown / (CLOSE_FILL * 2 * math.tan(fov / 2)), 8)
+		return CFrame.lookAt(between + Vector3.new(-13, 10, 17).Unit * distance, between)
 	end
 	local center = RenderConfig.arenaCenter + offset
 	center = Vector3.new(center.X, caster.Y, center.Z)
@@ -785,13 +826,13 @@ end
 
 -- Key 3: the unit's real ability, as a fight plays it, against several dummies on a small field so
 -- its lines, cones and areas show. Each press shows its next cast (forms that change with casts
--- step up); the playback starts just before the cast's wind-up.
-local function cast(s: Stage)
+-- step up); the playback starts just before the cast's wind-up. Returns whether a cast plays.
+local function cast(s: Stage): boolean
 	endFieldPreview(s)
 	local result, _, casts = fieldFight(s)
 	if not result or #casts == 0 then
 		print("[DevLineup] " .. s.unitType .. " did not cast in the preview fight")
-		return
+		return false
 	end
 	s.castPresses += 1
 	local index = (s.castPresses - 1) % #casts + 1
@@ -824,7 +865,7 @@ local function cast(s: Stage)
 	-- Frame the unit and the dummies from behind the unit's side, as the board camera does (in an
 	-- arena: its fixed camera).
 	s.fieldFocus = FIELD_ORIGIN:Lerp(middle, 0.6)
-	s.camera = if arenaMode == "off" then fieldFraming(s.fieldFocus) else arenaFraming(offset)
+	s.camera = if arenaMode == "off" then fieldFraming(s.fieldFocus) else arenaFraming(s, offset)
 	local startedAt = stageClock()
 	CombatPlayback.preview(result, fieldFolder, offset, from, function()
 		return from + (stageClock() - startedAt)
@@ -842,6 +883,7 @@ local function cast(s: Stage)
 	if ultimate and ultimate.look ~= "" then
 		print(string.format("[Ultimate] %s (tier %d): %s", s.unitType, ultimate.tier, ultimate.look))
 	end
+	return true
 end
 
 -- The dummy attacks the unit.
@@ -981,7 +1023,7 @@ local function nextArenaCamera(s: Stage)
 	arenaCamera = cycle(ARENA_CAMERAS, arenaCamera)
 	print("[DevLineup] arena camera: " .. arenaCamera .. (if arenaMode == "off" then " (T: an arena to use it)" else ""))
 	if s.fieldPreview and s.fieldOffset and arenaMode ~= "off" then
-		s.camera = arenaFraming(s.fieldOffset)
+		s.camera = arenaFraming(s, s.fieldOffset)
 	end
 	refreshTitle()
 end
@@ -1192,7 +1234,42 @@ local function open()
 	report()
 end
 
+-- The reel's title card; nil hides it.
+local function showCard(text: string?)
+	if reelGui and reelCard then
+		reelCard.Text = text or ""
+		reelGui.Enabled = text ~= nil
+	end
+end
+
+-- Ends the reel (R again, its end, or the lineup closing): its loop stops, and the arena, camera,
+-- lighting (the arena's, with the field preview), time scale and panel are put back.
+local function finishReel()
+	if not reelRunning then
+		return
+	end
+	reelRunning = false
+	reelToken += 1
+	showCard(nil)
+	if hud then
+		hud.Enabled = true
+	end
+	timeScale = 1
+	frozenScale = nil
+	ImpactEffects.setTimeScale(1)
+	if reelSaved then
+		arenaMode, arenaCamera = reelSaved.arena, reelSaved.camera
+		reelSaved = nil
+	end
+	if stage then
+		endFieldPreview(stage)
+	end
+	refreshTitle()
+	print("[Reel] stopped at " .. string.format("%.3f", os.clock()))
+end
+
 local function close()
+	finishReel()
 	closeStage()
 	closeHud()
 	-- Never leave the effects frozen (Dump FX / O) or slowed (S) after the lineup closes.
@@ -1262,6 +1339,118 @@ local function showUnit(unitType: string)
 	warn("[DevLineup] no roster unit " .. unitType)
 end
 
+-- The reel (R) -------------------------------------------------------------------------------------
+
+-- ReelConfig.units (roster units only), or every roster unit with an ultimate by tier then id.
+local function reelUnits(): { string }
+	local roster = {}
+	for _, entry in entries do
+		roster[entry.unitType] = true
+	end
+	local list = {}
+	if #ReelConfig.units > 0 then
+		for _, unitType in ReelConfig.units do
+			if roster[unitType] then
+				table.insert(list, unitType)
+			else
+				warn("[Reel] no roster unit " .. unitType .. " (skipped)")
+			end
+		end
+		return list
+	end
+	for unitType, ultimate in UltimateConfig.units do
+		if roster[unitType] and type(ultimate) == "table" then
+			table.insert(list, unitType)
+		end
+	end
+	table.sort(list, function(a, b)
+		local tierA, tierB = UltimateConfig.units[a].tier or 0, UltimateConfig.units[b].tier or 0
+		return if tierA ~= tierB then tierA < tierB else a < b
+	end)
+	return list
+end
+
+-- Plays the reel, or stops it if it is playing. Its waits are in real seconds.
+local function startReel()
+	if reelRunning then
+		finishReel()
+		return
+	end
+	if not folder then
+		open()
+	end
+	local units = reelUnits()
+	if #units == 0 then
+		warn("[Reel] no units to play")
+		return
+	end
+	reelRunning = true
+	reelToken += 1
+	local token = reelToken
+	reelSaved = { arena = arenaMode, camera = arenaCamera }
+	arenaMode, arenaCamera = ReelConfig.arena, ReelConfig.camera
+	if hud then
+		hud.Enabled = false -- a clean clip: only the title cards
+	end
+	print(string.format("[Reel] %d units, %s / %s (R stops)", #units, arenaMode, arenaCamera))
+
+	-- Waits `seconds`; false once the reel was stopped.
+	local function hold(seconds: number): boolean
+		local endsAt = os.clock() + seconds
+		repeat
+			task.wait()
+			if token ~= reelToken then
+				return false
+			end
+		until os.clock() >= endsAt
+		return true
+	end
+	-- The unit's first cast (its ultimate) at `scale`, through its whole preview.
+	local function play(s: Stage, scale: number): boolean
+		timeScale = scale
+		ImpactEffects.setTimeScale(scale)
+		s.castPresses = 0
+		local length = if cast(s) then AbilityFx.windupLength(s.unitType) + 0.5 + FIELD_AFTER else 0
+		return hold(length / scale)
+	end
+
+	task.spawn(function()
+		for _, unitType in units do
+			showUnit(unitType)
+			local s = stage
+			if token ~= reelToken then
+				return
+			end
+			if s then
+				local ultimate = UltimateConfig.units[unitType]
+				local tier = if type(ultimate) == "table" and ultimate.tier then ultimate.tier else 0
+				showCard(string.format("%s   ·   TIER %d", unitType, tier))
+				if not hold(ReelConfig.titleSeconds) then
+					return
+				end
+				showCard(nil)
+				print(string.format("[Reel] %s start at %.3f", unitType, os.clock()))
+				if
+					not play(s, 1)
+					or not hold(ReelConfig.pauseSeconds)
+					or not play(s, ReelConfig.slowScale)
+				then
+					return
+				end
+				timeScale = 1
+				ImpactEffects.setTimeScale(1)
+				if not hold(ReelConfig.gapSeconds) then
+					return
+				end
+			end
+		end
+		showCard("REEL END")
+		if hold(ReelConfig.endSeconds) then
+			finishReel()
+		end
+	end)
+end
+
 local function command(alias: string, run: (string) -> ())
 	local chatCommand = Instance.new("TextChatCommand")
 	chatCommand.Name = "DevLineup" .. alias
@@ -1280,7 +1469,9 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (Stage) -> () } = {
 	[Enum.KeyCode.Two] = function(s)
 		attack(s, true)
 	end,
-	[Enum.KeyCode.Three] = cast,
+	[Enum.KeyCode.Three] = function(s)
+		cast(s)
+	end,
 	[Enum.KeyCode.Four] = getHit,
 	[Enum.KeyCode.Five] = function(s)
 		if UnitView.isAlive(s.actor) then
@@ -1398,6 +1589,13 @@ function DevLineup.start()
 			return -- typing (chat, a text box)
 		end
 		local key = input.KeyCode
+		-- While the reel plays, only R (stop) does anything.
+		if reelRunning then
+			if key == Enum.KeyCode.R then
+				finishReel()
+			end
+			return
+		end
 		-- Roblox's emotes menu (and the default camera, for the arrows) mark these keys processed:
 		-- while the lineup is open they still step.
 		if folder and NEXT_KEYS[key] then
@@ -1436,6 +1634,8 @@ function DevLineup.start()
 			nextArena(stage)
 		elseif key == Enum.KeyCode.C and stage then
 			nextArenaCamera(stage)
+		elseif key == Enum.KeyCode.R and folder then
+			startReel()
 		elseif stage and PREVIEW_KEYS[key] then
 			if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
 				endFieldPreview(stage)
