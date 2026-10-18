@@ -4,7 +4,10 @@
 --   -0.22  a palm blast under him: a rocket jump up and toward the fight
 --    0     the real hit: a big orange-black explosion on the target and its neighbors, smoke
 --   +0.25  he drops into a crouch, sparks crackling, an orange glow for the buff
--- Layers: the shared recipe (VfxRecipe, fire theme, tier 2: smaller and quicker than snapfire).
+-- Layers: the shared recipe (VfxRecipe, fire theme, tier 2: smaller and quicker than snapfire) and
+-- the batch 2 kit: the hit is a chain of three fire blooms (fx_fire_burst) from his palm to the
+-- target, each bigger, with embers and debris, the smoke aftermath, a shock ring
+-- (mesh_shock_ring) on the last.
 
 local FxKit = require(script.Parent.Parent.FxKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
@@ -55,11 +58,25 @@ end
 function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
-		-- The orange-black explosion over the real area (core, explosion, shockwave, sparks, light,
-		-- scorch), then flames and dark smoke.
+		-- The chain: three fire blooms from his palm to the target, each bigger, the last on the
+		-- real area with a shock ring, sparks, debris and a light; then flames and dark smoke.
 		local center, radius = run:area()
-		VfxRecipe.burst(run, center, radius)
-		VfxRecipe.aftermath(run, center, radius)
+		local palm = run:hand("right")
+		local palmGround = Vector3.new(palm.X, center.Y, palm.Z)
+		local fire = VfxRecipe.themes.fire
+		for i = 1, 3 do
+			local at = palmGround:Lerp(center, i / 3)
+			VfxRecipe.kitFireBurst(at, radius * (0.6 + 0.4 * i), 0.08 * (i - 1))
+		end
+		run:at(run:designTime() + 0.16, function()
+			VfxRecipe.meshRing(center, radius * 1.2, fire.edge, 0.4)
+			VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 0.85, nil, fire.spark)
+			VfxRecipe.debris(center, if run.reduced then 2 else 4, 0.3 * run:scale(), nil, radius)
+			VfxRecipe.embers(run, center + Vector3.new(0, 0.8, 0), run:scale(), nil, 14)
+			VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, fire.light, 0.9)
+			VfxRecipe.aftermath(run, center, radius)
+		end)
+		run:shake(0.18)
 		run:sound("whoosh", 0.7)
 		return true
 	elseif kind == "Buff" and event.target == run.unitIndex then

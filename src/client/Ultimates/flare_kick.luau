@@ -3,7 +3,10 @@
 --   -0.15  he spins on one leg; the leg catches fire, red-orange
 --    0     a flaming dash kick along the real dash, a trail of fire; a flame burst on the real hit
 --   +0.30  he lands balanced on one foot and straightens his tie
--- Layers: the shared recipe (VfxRecipe, fire theme, tier 2).
+-- Layers: the shared recipe (VfxRecipe, fire theme, tier 2) and the batch 2 kit: the fire flipbook
+-- loop licking up the leg (shin and foot) through the spin and the kick, an orange-red swoosh
+-- (fx_swoosh_ribbon; the slash crescent until it loads) on the kick, a fire bloom (fx_fire_burst)
+-- on the hit, embers.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
@@ -82,13 +85,17 @@ function def.event(run, event): boolean
 	elseif kind == "Damage" and event.target and not event.dot then
 		local view = run.context.views[event.target]
 		if view then
-			-- The fire burst on the real hit (the recipe's fire burst: core, fireball, shock ring,
-			-- sparks, light, scorch), flames licking up the target, sparks flung along the kick.
+			-- The kick: an orange-red swoosh across the target, the fire bloom on the hit, flames
+			-- licking up it, sparks flung along the kick, embers, a light.
 			local at = view.part.Position
 			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
-			VfxRecipe.burst(run, floor, 1.3 * run:scale())
+			local s = run:scale()
+			VfxRecipe.kitSwoosh(at, view.part.Size.Y * 1.5, Color3.fromRGB(255, 95, 40), 30, 0.22)
+			VfxRecipe.kitFireBurst(floor, view.part.Size.Y * 1.3 * s)
 			VfxRecipe.sparks(at, 0.6, 18, nil, run:forward())
-			VfxRecipe.flames(at - Vector3.new(0, view.part.Size.Y * 0.4, 0), 3, 1.3 * run:scale())
+			VfxRecipe.flames(at - Vector3.new(0, view.part.Size.Y * 0.4, 0), 3, 1.3 * s)
+			VfxRecipe.embers(run, at, s, nil, 10)
+			VfxRecipe.light(run, at, 1.8 * s, VfxRecipe.themes.fire.light, 0.8)
 			run:hitStop(view, 0.06)
 			run:shake(0.1)
 			run:sound("whoosh", 1.6)

@@ -11,7 +11,9 @@
 --          puffs rising and spreading, embers drifting up, the scorch fading. A second, bigger and
 --          redder burst when his target was already burning
 --   +0.30  he lowers his hand, unbothered (the burning markers are the real burns)
--- The layers and their tuned values are the shared recipe (src/client/VfxRecipe.luau).
+-- The layers and their tuned values are the shared recipe (src/client/VfxRecipe.luau), with the
+-- batch 2 kit at the hit: a tiny spark at his fingers on the snap, then 2-3 staggered fire blooms
+-- (fx_fire_burst) over the target, the largest last, then the smoke-flipbook aftermath.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -84,11 +86,12 @@ def.beats = {
 		run = function(run)
 			local s = run:scale()
 			local at = run:hand("right")
+			-- A tiny spark, not a flash ball: the snap is small, the fire is big.
 			ImpactEffects.emit(at, {
 				usage = "flash",
 				count = 1,
 				color = palettes.flash,
-				size = curve({ { 0, 1.4 * s }, { 1, 1.9 * s } }),
+				size = curve({ { 0, 0.6 * s }, { 1, 0.85 * s } }),
 				transparency = curve({ { 0, 0 }, { 1, 1 } }),
 				lifetime = { 0.07, 0.08 },
 				lightEmission = 1,
@@ -146,15 +149,27 @@ function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
 		local center, radius = run:area()
-		VfxRecipe.burst(run, center, radius, false)
-		VfxRecipe.aftermath(run, center, radius)
 		local target = run:find("Damage")
-		if target and target.target and wasBurning(run, target.target) then
-			-- Already burning: the bigger, redder second burst.
-			run:at(0.12, function()
-				VfxRecipe.burst(run, center, radius, true)
-			end)
+		local burning = target and target.target and wasBurning(run, target.target)
+		-- Staggered fire blooms over the target, the largest last (a fourth, bigger and redder one
+		-- when it was already burning), then the shock, sparks and light of the hit.
+		local blooms = if run.reduced then 2 else 3
+		for i = 1, blooms do
+			local offset = if i < blooms then VfxRecipe.within(center, radius * 0.6) - center else Vector3.zero
+			-- radius x 1.0, 1.4, 1.8: the last about as wide as the area
+			VfxRecipe.kitFireBurst(center + offset, radius * (0.6 + 0.4 * i), 0.07 * (i - 1))
 		end
+		if burning then
+			VfxRecipe.kitFireBurst(center, radius * 2.2, 0.07 * blooms + 0.05)
+		end
+		local fire = VfxRecipe.themes.fire
+		VfxRecipe.shock(center, radius, fire.edge, 1)
+		VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 1, nil, fire.spark)
+		VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, fire.light, 1)
+		-- The aftermath: ground flames, smoke-flipbook puffs, embers, the scorch.
+		run:at(0.15, function()
+			VfxRecipe.aftermath(run, center, radius)
+		end)
 		run:sound("whoosh", 0.9)
 		return true
 	elseif kind == "Damage" and event.target and not event.dot then

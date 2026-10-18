@@ -3,10 +3,17 @@
 --   -0.20  the blade drawn back in both hands, low; embers glow along it
 --    0     one wide circular slash leaving a ring of fire; it bursts out over the real splash
 --   +0.30  the blade held forward, a warm glow for his attack speed
--- Layers: the shared recipe (VfxRecipe, fire theme, tier 1: small, quick, a short aftermath).
+-- Layers: the shared recipe (VfxRecipe, fire theme, tier 1: small, quick, a short aftermath) and
+-- the batch 2 kit: the slash is a fire spiral of three swoosh ribbons (fx_swoosh_ribbon; the slash
+-- crescent until it loads) turning around the target, tinted yellow -> orange -> crimson, with
+-- fire-flipbook flames trailing the arc and embers drifting up.
 
 local FxKit = require(script.Parent.Parent.FxKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
+
+local rgb = Color3.fromRGB
+-- The spiral's three turns, hottest first.
+local SPIRAL = { rgb(255, 225, 90), rgb(255, 140, 40), rgb(200, 35, 30) }
 
 local def = {}
 
@@ -38,10 +45,17 @@ function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
 		local center, radius = run:area()
-		local at = center + Vector3.new(0, 1.2, 0)
-		FxKit.slashArc(at, at - run.view.part.Position, run.style.primary, radius * 2.4, 0.15, 0.3)
-		-- The ring of fire the slash leaves, then it bursts out over the real splash.
+		local at = center + Vector3.new(0, 1.4, 0)
+		-- The fire spiral: three swooshes turning around the target, each bigger, hotter first.
+		for i, color in SPIRAL do
+			run:at(run:designTime() + 0.04 * (i - 1), function()
+				VfxRecipe.kitSwoosh(at, radius * (1.6 + 0.35 * i), color, -40 + 120 * (i - 1), 0.28)
+			end)
+		end
+		-- Flames trailing the arc (the ring of fire it leaves), embers drifting up, then it bursts out
+		-- over the real splash.
 		VfxRecipe.flameRing(center, radius * 1.1, if run.reduced then 6 else 10, 1.3 * run:scale())
+		VfxRecipe.embers(run, center + Vector3.new(0, 1, 0), run:scale(), nil, 14)
 		run:at(0.05, function()
 			VfxRecipe.burst(run, center, radius)
 			VfxRecipe.aftermath(run, center, radius)

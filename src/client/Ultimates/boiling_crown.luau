@@ -11,6 +11,10 @@
 -- Layers at the eruption: the shared recipe (VfxRecipe, steam theme: white -> pale gray clouds,
 -- droplets, rising steam columns and bubbling; tier 5: the biggest, most side blasts, the longest
 -- aftermath). Nothing at the eruption is fire.
+-- Batch 2 kit: the chest glow is a warm red-orange particle aura over his body (no neon parts);
+-- the eruption throws 8-12 large steam billows (fx_steam_billow) out in a ring from his body, orange
+-- embers rise, a brief speed-lines flash (fx_speed_lines) marks the peak, a shock ring
+-- (mesh_shock_ring) runs out. The scorched ground is the crack mark only (no flat disc).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -21,7 +25,6 @@ local Kit = UltimateKit
 local WHITE = Kit.WHITE
 local HOT = Color3.fromRGB(255, 140, 60)
 local EMBER = Color3.fromRGB(255, 80, 40)
-local CHAR = Color3.fromRGB(26, 18, 16)
 
 local def = {}
 
@@ -31,11 +34,6 @@ def.pose = {
 	tremble = { { -0.6, 0 }, { -0.3, 1 }, { -0.16, 2 }, { -0.15, 0, "hold" }, { 0.05, 1.2 }, { 0.5, 0 } },
 	rise = { { -0.02, 0 }, { 0.06, 0.6, "snap" }, { 0.55, 0 } },
 }
-
--- A point just in front of his chest (the model has no hands).
-local function chestFront(run): Vector3
-	return run:chest() + run:forward() * run.view.part.Size.Z * 0.35 + Vector3.new(0, run.view.part.Size.Y * 0.1, 0)
-end
 
 def.beats = {
 	{
@@ -71,19 +69,11 @@ def.beats = {
 		-- The chest glow and the ground going black and cracking.
 		at = -0.6,
 		run = function(run)
-			Kit.orb(run, -0.6, 0.05, EMBER, function()
-				return chestFront(run)
-			end, function(u)
-				return (0.6 + 1.6 * Kit.easeIn(u)) * run:scale()
-			end)
+			-- The glow building in him: a warm red-orange aura over his whole body, stronger near the end.
+			local warm = VfxRecipe.energy(EMBER, HOT)
+			VfxRecipe.aura(run, run.view, warm, 1.2, -0.6, 0.35)
+			VfxRecipe.aura(run, run.view, warm, 1.8, -0.25, 0.3)
 			local center, radius = run:area()
-			Kit.pool(run, -0.6, 1.4, CHAR, center, function()
-				local t = run:designTime()
-				return radius * 2.1 * Kit.easeOut((t + 0.6) / 0.5)
-			end, function()
-				local t = run:designTime()
-				return 0.2 + 0.8 * Kit.smooth((t - 0.6) / 0.8)
-			end)
 			run:at(-0.4, function()
 				FxKit.mark(center, EMBER, HOT, radius * 0.95, "crack", run:span(-0.4, 0.4) + 1.4)
 			end)
@@ -107,10 +97,21 @@ function def.event(run, event): boolean
 		-- The column of superheated steam, the eruption over the real area (core, fire blast and side
 		-- blasts, shockwave, sparks, light, scorch), a second white shock ring, then flames, pale steam
 		-- rolling out and embers for the longest (tier 5) aftermath.
-		FxKit.column(center, WHITE:Lerp(HOT, 0.12), height, radius * 0.9, 0.7)
 		VfxRecipe.burst(run, center, radius, { theme = theme })
-		FxKit.ring(center, WHITE, radius * 2, 0.3)
 		VfxRecipe.aftermath(run, center, radius, { theme = theme })
+		-- The eruption: large steam billows thrown out in a ring from his body, a column of them
+		-- rising, orange embers, the speed-lines flash at the peak, a shock ring running out.
+		local body = run.view.part.Position
+		local billows = if run.reduced then 8 else 12
+		for i = 1, billows do
+			local angle = (i / billows) * math.pi * 2 + math.random() * 0.3
+			local out = Vector3.new(math.cos(angle), 0.25, math.sin(angle)).Unit
+			VfxRecipe.kitSteam(body + out * 0.8, height * 0.55, 1, out, radius * 2.2, 8)
+		end
+		VfxRecipe.kitSteam(body + Vector3.new(0, height * 0.3, 0), height * 0.6, 2, Vector3.yAxis, height * 1.2, 15)
+		VfxRecipe.embers(run, center + Vector3.new(0, 1, 0), run:scale() * 1.4, VfxRecipe.energy(EMBER, HOT).ember, 22)
+		VfxRecipe.kitSpeedLines(run:chest(), height * 1.6, HOT, 0.2)
+		VfxRecipe.meshRing(center, radius * 1.1, WHITE:Lerp(HOT, 0.3), 0.45)
 		if not run.reduced then
 			-- A second wave of steam further out, rolling across the area.
 			run:at(0.4, function()
