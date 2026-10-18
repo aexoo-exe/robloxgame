@@ -4,29 +4,7 @@
 return {
 	-- Unit ids to play, in order, e.g. { "thunder_nest", "volt_spear" }. Empty: every roster unit
 	-- with an ultimate (UltimateConfig.units), by tier then id.
-	-- Now: the units already on VfxRecipe (batches 1-3).
-	units = {
-		"snapfire",
-		"cinder_arc",
-		"burst_vector",
-		"flare_kick",
-		"boiling_crown",
-		"infinite_collapse",
-		"ascending_core",
-		"thunder_nest",
-		"volt_spear",
-		"zero_field",
-		"titanheart",
-		"echo_legion",
-		"starless_burst",
-		"final_argument",
-		"skyboulder",
-		"marsh_fortress",
-		"iron_rush",
-		"reelbreaker",
-		"blooming_aid",
-		"clockbreaker",
-	} :: { string },
+	units = { "iron_rush", "blooming_aid", "volt_spear" } :: { string },
 	arena = "gray", -- the test arena during the reel: "off", "gray" or "bright"
 	camera = "close", -- its fixed camera: "gameplay", "close" or "wide"
 	titleSeconds = 1.0, -- the title card (unit id and tier) before each unit
