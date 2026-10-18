@@ -3,12 +3,11 @@
 --   -0.20  the blade drawn back in both hands, low; embers glow along it
 --    0     one wide circular slash leaving a ring of fire; it bursts out over the real splash
 --   +0.30  the blade held forward, a warm glow for his attack speed
--- Layers: the shared recipe (VfxRecipe, fire theme, tier 1: small, quick, a short aftermath) and
--- the batch 2 kit: the slash is a fire spiral of three swoosh ribbons (fx_swoosh_ribbon; the slash
--- crescent until it loads) turning around the target, tinted yellow -> orange -> crimson, with
--- fire-flipbook flames trailing the arc and embers drifting up.
+-- Layers (tier 1, within its 14): the batch 2 kit's fire spiral is the hero: three swoosh ribbons
+-- (fx_swoosh_ribbon; the slash crescent until it loads) turning around him, tinted yellow -> orange
+-- -> crimson, each trailing fire-flipbook flames, embers drifting up; one modest fire bloom
+-- (fx_fire_burst) over the real splash. No recipe burst (its glow sheet washed out the screen).
 
-local FxKit = require(script.Parent.Parent.FxKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local rgb = Color3.fromRGB
@@ -45,26 +44,35 @@ function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
 		local center, radius = run:area()
-		local at = center + Vector3.new(0, 1.4, 0)
-		-- The fire spiral: three swooshes turning around the target, each bigger, hotter first.
+		local s = run:scale()
+		local height = run.view.part.Size.Y
+		local body = run:chest()
+		local ground = run:ground()
+		-- The hero: a fire spiral of three big swooshes turning around him (yellow -> orange ->
+		-- crimson, each bigger and a beat later), each trailing two fire-flipbook flames on its
+		-- turn around him.
 		for i, color in SPIRAL do
-			run:at(run:designTime() + 0.04 * (i - 1), function()
-				VfxRecipe.kitSwoosh(at, radius * (1.6 + 0.35 * i), color, -40 + 120 * (i - 1), 0.28)
+			local turn = math.rad(120 * (i - 1))
+			run:at(run:designTime() + 0.05 * (i - 1), function()
+				VfxRecipe.kitSwoosh(body, height * (1.9 + 0.45 * i) * s, color, -40 + 120 * (i - 1), 0.3)
+				local reach = height * (0.55 + 0.15 * i) * s
+				for k = 0, if run.reduced then 0 else 1 do
+					local angle = turn + math.rad(50 * k)
+					local at = ground + Vector3.new(math.cos(angle), 0, math.sin(angle)) * reach
+					VfxRecipe.flames(at + Vector3.new(0, 0.1, 0), 1, (1.3 + 0.2 * i) * s)
+				end
 			end)
 		end
-		-- Flames trailing the arc (the ring of fire it leaves), embers drifting up, then it bursts out
-		-- over the real splash.
-		VfxRecipe.flameRing(center, radius * 1.1, if run.reduced then 6 else 10, 1.3 * run:scale())
-		VfxRecipe.embers(run, center + Vector3.new(0, 1, 0), run:scale(), nil, 14)
-		run:at(0.05, function()
-			VfxRecipe.burst(run, center, radius)
-			VfxRecipe.aftermath(run, center, radius)
-		end)
+		-- Embers drifting up off the spiral, and the cut bursting out over the real splash: one
+		-- modest fire bloom (no big glow sheet: the spiral is the hero). Tier 1: ~11 layers live.
+		VfxRecipe.embers(run, body, s, nil, 14)
+		VfxRecipe.kitFireBurst(center, radius * 0.9, 0.12)
 		run:sound("whoosh", 1.4)
 		return true
 	elseif kind == "Buff" and event.target == run.unitIndex then
+		-- The attack speed glow: embers off the blade (no ring).
 		run:at(0.3, function()
-			FxKit.ring(run:ground(), run.style.secondary, 3.5, 0.35)
+			VfxRecipe.embers(run, run:hand("right"), run:scale(), nil, 8)
 		end)
 		return true
 	elseif kind == "Damage" and event.target and not event.dot then

@@ -25,6 +25,8 @@ local rgb = Color3.fromRGB
 local curve = VfxRecipe.curve
 local palettes = VfxRecipe.palettes
 local WARM = rgb(255, 170, 70)
+-- The aftermath's smoke: dark gray, a little lighter as it thins.
+local SMOKE_GRAY = VfxRecipe.colors({ { 0, rgb(72, 70, 70) }, { 1, rgb(52, 51, 52) } })
 
 local def = {}
 
@@ -166,9 +168,15 @@ function def.event(run, event): boolean
 		VfxRecipe.shock(center, radius, fire.edge, 1)
 		VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 1, nil, fire.spark)
 		VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, fire.light, 1)
-		-- The aftermath: ground flames, smoke-flipbook puffs, embers, the scorch.
+		-- The aftermath: ground flames, embers, the scorch, and the smoke-flipbook puffs half size,
+		-- dark gray (not red) and gone within ~1.2 s (one wave).
 		run:at(0.15, function()
-			VfxRecipe.aftermath(run, center, radius)
+			VfxRecipe.aftermath(run, center, radius, {
+				smokeScale = 0.5,
+				smokeLifetime = { 0.7, 0.95 },
+				smoke = SMOKE_GRAY,
+				smokeWaves = 1,
+			})
 		end)
 		run:sound("whoosh", 0.9)
 		return true

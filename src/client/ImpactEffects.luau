@@ -946,10 +946,21 @@ end
 -- Fully specified particles (the showcase recipe) ----------------------------------------------------
 
 function ImpactEffects.setTimeScale(scale: number)
+	local before = math.max(particleTimeScale, 0.05)
 	particleTimeScale = math.clamp(scale, 0, 1)
+	local after = math.max(particleTimeScale, 0.05)
+	-- Particles already out now age at the new speed: a host's "busy until" (real time) is rescaled,
+	-- or a host that emitted in slow motion would stay "live" long after its particles died.
+	local real = os.clock()
 	for _, list in hosts do
 		for _, emitter in list do
 			emitter.TimeScale = particleTimeScale
+			local busy = busyUntil[emitter]
+			if busy and busy > real then
+				busy = real + (busy - real) * before / after
+				busyUntil[emitter] = busy
+				emitter:SetAttribute("liveUntil", busy)
+			end
 		end
 	end
 end

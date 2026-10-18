@@ -81,7 +81,8 @@ function def.event(run, event): boolean
 		local center, radius = run:area()
 		-- The recipe's lightning burst (core, glow sheet, arcs to the edge of the area, shockwave,
 		-- sparks, light, scorch; crackling residue), and the shock ring snapping out on the hit.
-		VfxRecipe.burst(run, center, radius, { theme = theme(run) })
+		-- (Its ground mark half size and much softer: the full one was too big and too dark.)
+		VfxRecipe.burst(run, center, radius, { theme = theme(run), scorchScale = 0.5, scorchStart = 0.6 })
 		VfxRecipe.aftermath(run, center, radius, { theme = theme(run) })
 		VfxRecipe.meshRing(center, radius * 0.9, cyan(run), 0.35)
 		return true

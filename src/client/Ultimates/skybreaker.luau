@@ -38,7 +38,7 @@ def.beats = {
 		run = function(run)
 			run:face(run:target())
 			-- Green-cyan crackle crawling over him through the wind-up and the smash.
-			VfxRecipe.kitCrackleAura(run, run.view, greenCyan(run), -0.3, 0.45, 2)
+			VfxRecipe.kitCrackleAura(run, run.view, greenCyan(run), -0.3, 0.45, 3, 1.6)
 		end,
 	},
 }
@@ -86,9 +86,9 @@ function def.event(run, event): boolean
 			local at = view.part.Position
 			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
 			-- The smash: a hit star, dust bursting up, a shock ring, the pressure cone onward.
-			VfxRecipe.kitHitStar(at, view.part.Size.Y * 1.3, greenCyan(run):Lerp(WHITE, 0.3))
-			VfxRecipe.kitDust(floor, 3.2 * run:scale(), if run.reduced then 2 else 3)
-			VfxRecipe.meshRing(floor, 3 * run:scale(), greenCyan(run), 0.35)
+			VfxRecipe.kitHitStar(at, view.part.Size.Y * 1.7, greenCyan(run):Lerp(WHITE, 0.3))
+			VfxRecipe.kitDust(floor, 4.4 * run:scale(), if run.reduced then 2 else 4)
+			VfxRecipe.meshRing(floor, 4 * run:scale(), greenCyan(run), 0.4)
 			FxKit.pressureCone(at, at - run.view.part.Position, 6, math.rad(16), run.style.primary, 0.4)
 			run:hitStop(view, 0.08)
 			run:shake(0.12)

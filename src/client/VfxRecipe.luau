@@ -17,6 +17,7 @@ local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local Vfx = require(script.Parent.Vfx)
 
 local VfxRecipe = {}
 
@@ -343,7 +344,7 @@ local within = VfxRecipe.within
 
 -- A burnt patch (the kit's ground_scorch, soot-dark), `radius` studs, fading over the last half of
 -- `seconds`; soft dark discs without the kit.
-function VfxRecipe.scorch(at: Vector3, radius: number, seconds: number, color: Color3?)
+function VfxRecipe.scorch(at: Vector3, radius: number, seconds: number, color: Color3?, start: number?)
 	local tint = color or rgb(40, 30, 25)
 	local texture = FxKit.textured("scorch", tint, "plane")
 	if not texture then
@@ -357,7 +358,8 @@ function VfxRecipe.scorch(at: Vector3, radius: number, seconds: number, color: C
 		local grown = radius * 2.2 * (0.6 + 0.4 * math.min(1, progress * 8) + 0.15 * progress)
 		part.Size = Vector3.new(grown, 0.05, grown)
 		part.CFrame = base
-		part.Transparency = 0.2 + 0.8 * math.max(0, progress - 0.5) * 2
+		local first = start or 0.2 -- how see-through it starts (`start`: a softer mark)
+		part.Transparency = first + (1 - first) * math.max(0, progress - 0.5) * 2
 	end, nil, nil, texture, true)
 end
 
@@ -508,7 +510,14 @@ end
 
 -- Small puffs: `count` of them from points across the area, rising and spreading outward, fading by
 -- ~1.4 s.
-function VfxRecipe.smoke(center: Vector3, radius: number, count: number, palette: ColorSequence?, start: number?)
+function VfxRecipe.smoke(
+	center: Vector3,
+	radius: number,
+	count: number,
+	palette: ColorSequence?,
+	start: number?,
+	lifetime: { number }?
+)
 	local config = D.smoke
 	local first = start or config.startTransparency
 	for i = 1, count do
@@ -527,7 +536,7 @@ function VfxRecipe.smoke(center: Vector3, radius: number, count: number, palette
 				{ 1, radius * config.size[3] },
 			}),
 			transparency = curve({ { 0, 1 }, { 0.08, first }, { 0.45, math.min(1, first + 0.15) }, { 1, 1 } }),
-			lifetime = config.lifetime,
+			lifetime = lifetime or config.lifetime,
 			speed = { 2, 3.5 },
 			spread = 25,
 			direction = (Vector3.yAxis * 1.4 + heading).Unit,
@@ -642,7 +651,17 @@ function VfxRecipe.embers(run, at: Vector3, s: number, palette: ColorSequence?, 
 	})
 end
 
-export type Options = { big: boolean?, theme: Theme?, tier: number? }
+export type Options = {
+	big: boolean?,
+	theme: Theme?,
+	tier: number?,
+	scorchScale: number?, -- burst: the scorch's size, times (default 1)
+	scorchStart: number?, -- burst: the scorch's starting transparency (default 0.2; higher is softer)
+	smokeScale: number?, -- aftermath: the smoke puffs' size, times (default 1)
+	smokeLifetime: { number }?, -- aftermath: the smoke puffs' life { min, max } (default DEFAULTS)
+	smoke: ColorSequence?, -- aftermath: the smoke's colors (default the theme's)
+	smokeWaves: number?, -- aftermath: 1 for a single wave of puffs (default 2)
+}
 
 local function optionsOf(opts: (Options | boolean)?): Options
 	if type(opts) == "boolean" then
@@ -718,7 +737,7 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 	end
 	VfxRecipe.light(run, air, radius, if o.big then theme.lightBig else theme.light, k * tier.light)
 	if theme.scorch then
-		VfxRecipe.scorch(center, radius * k, 1.8 * tier.after, theme.scorch)
+		VfxRecipe.scorch(center, radius * k * (o.scorchScale or 1), 1.8 * tier.after, theme.scorch, o.scorchStart)
 	end
 	run:shake((if o.big then 0.22 else 0.16) * tier.k)
 end
@@ -791,13 +810,16 @@ function VfxRecipe.aftermath(run, center: Vector3, radius: number, opts: Options
 		1,
 		math.floor((if run.reduced then D.smoke.reducedPuffs else D.smoke.puffs) * math.min(tier.after, 1.4))
 	)
-	local first = math.ceil(puffs * 0.6)
+	local smokeRadius = radius * (o.smokeScale or 1)
+	local smokeColors = o.smoke or theme.smoke
+	local single = o.smokeWaves == 1
+	local first = if single then puffs else math.ceil(puffs * 0.6)
 	run:at(now + 0.1, function()
-		VfxRecipe.smoke(center, radius, first, theme.smoke, theme.smokeTransparency)
+		VfxRecipe.smoke(center, smokeRadius, first, smokeColors, theme.smokeTransparency, o.smokeLifetime)
 	end)
 	if puffs > first then
 		run:at(now + 0.3, function()
-			VfxRecipe.smoke(center, radius, puffs - first, theme.smoke, theme.smokeTransparency)
+			VfxRecipe.smoke(center, smokeRadius, puffs - first, smokeColors, theme.smokeTransparency, o.smokeLifetime)
 		end)
 	end
 	if theme.embers ~= false then
@@ -1151,8 +1173,9 @@ export type KitEmit = {
 -- One batch 2 kit particle (or `count`) of `usage` at `at`: its flipbook plays over its life. Draws
 -- nothing until the texture is uploaded and loaded (never the plain sparkle fallback).
 function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
-	if not FxKit.textured(usage, opts.color or WHITE, "particle") then
-		return
+	local texture = FxKit.textured(usage, opts.color or WHITE, "particle")
+	if not texture or not Vfx.isLoaded(texture.id) then
+		return -- not uploaded, still loading, or failed to load: nothing (never a blank square)
 	end
 	local life = opts.lifetime or VfxRecipe.flipbookLife(usage, opts.color) or 0.6
 	ImpactEffects.emit(at, {
@@ -1205,14 +1228,22 @@ function VfxRecipe.kitBolts(a: Vector3, b: Vector3, color: Color3, count: number
 			direction = (to - from).Unit,
 			stretch = true,
 			lightEmission = 1,
-			brightness = 2,
+			brightness = 3,
 		})
 	end
 end
 
 -- Crackle crawling over a body (fx_crackle, Random frames) from design time `from` for `seconds`:
 -- short arcs flickering at points on it, `per` each step. `body` is a unit view.
-function VfxRecipe.kitCrackleAura(run, view: any, color: Color3, from: number, seconds: number, per: number?)
+function VfxRecipe.kitCrackleAura(
+	run,
+	view: any,
+	color: Color3,
+	from: number,
+	seconds: number,
+	per: number?,
+	scale: number? -- arc size, times (default 1: about half the body's height)
+)
 	local every = 0.08
 	for j = 0, math.max(1, math.floor(seconds / every)) - 1 do
 		run:at(from + j * every, function()
@@ -1225,7 +1256,7 @@ function VfxRecipe.kitCrackleAura(run, view: any, color: Color3, from: number, s
 				local at = part.Position
 					+ Vector3.new((math.random() - 0.5) * size.X, (math.random() - 0.4) * size.Y, (math.random() - 0.5) * size.Z)
 				VfxRecipe.kit(at, "kitCrackle", {
-					size = size.Y * (0.35 + 0.25 * math.random()),
+					size = size.Y * (0.35 + 0.25 * math.random()) * (scale or 1),
 					color = tinted(color, 0.25),
 					lifetime = 0.12,
 					rotation = { 0, 360 },

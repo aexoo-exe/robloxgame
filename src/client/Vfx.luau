@@ -263,6 +263,12 @@ function Vfx.status(id: number): string
 end
 
 -- Whether the preload call has returned.
+-- Whether image `id` has really loaded (its holder label's IsLoaded): batch 2 kit layers draw only
+-- then, so an image that failed (or has not loaded yet) never draws as a blank square.
+function Vfx.isLoaded(id: number): boolean
+	return isLoaded(id)
+end
+
 function Vfx.preloaded(): boolean
 	return preloaded
 end

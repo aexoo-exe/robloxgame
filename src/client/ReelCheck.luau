@@ -56,6 +56,9 @@ type Record = {
 }
 
 local results: { Record } = {}
+-- Content failures seen during the reel, by asset id (the full message, and the unit that hit it).
+local contentErrors: { [string]: { unit: string, message: string } } = {}
+local contentOrder: { string } = {}
 local current: Record? = nil
 local floorOf: () -> number? = function()
 	return nil
@@ -259,6 +262,13 @@ function ReelCheck.begin(unitType: string, tier: number, floor: () -> number?)
 		end
 		record.errors += 1
 		record.firstError = record.firstError or string.sub(message, 1, 70)
+		-- A content failure (an asset that would not load): kept whole, once per asset id, for the
+		-- report's own section. Roblox logs it once per session, under whichever unit used it first.
+		local id = string.match(message, "rbxassetid://(%d+)")
+		if id and not contentErrors[id] then
+			contentErrors[id] = { unit = record.unit, message = message }
+			table.insert(contentOrder, id)
+		end
 	end)
 	local mine = token
 	task.spawn(function()
@@ -410,8 +420,29 @@ function ReelCheck.report(note: string?)
 		end
 	end
 	table.insert(lines, string.format("summary: %d ok, %d with warnings", ok, warned))
+	if #contentOrder > 0 then
+		-- Each asset that failed to load, its full message, once (with the kit texture it is).
+		local names = {}
+		for _, role in VfxConfig.roles do
+			for _, pick in VfxConfig.picks[role] or {} do
+				if pick.image then
+					names[string.format("%d", pick.image)] = pick.name
+				end
+			end
+		end
+		table.insert(lines, "content failures (full text, once per asset):")
+		for _, id in contentOrder do
+			local entry = contentErrors[id]
+			table.insert(
+				lines,
+				string.format("  %s (%s, first under %s): %s", id, names[id] or "not a kit texture", entry.unit, entry.message)
+			)
+		end
+	end
 	print(table.concat(lines, "\n"))
 	table.clear(results)
+	table.clear(contentErrors)
+	table.clear(contentOrder)
 end
 
 return ReelCheck

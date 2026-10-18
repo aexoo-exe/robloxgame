@@ -55,9 +55,11 @@ function def.event(run, event): boolean
 	if kind == "Dash" then
 		local from = run:chest()
 		local to = run.context.toWorld(event.column, event.row) + Vector3.new(0, run.view.part.Size.Y * 0.6, 0)
-		-- The dash: a speed-lines flash where he leaves, gold bolts along the whole path.
+		-- The dash: a speed-lines flash where he leaves, big bright gold bolts along the whole path and
+		-- a thin gold streak (a bar at chest height, never flat on the floor).
 		VfxRecipe.kitSpeedLines(from, run.view.part.Size.Y * 2.2, GOLD, 0.15)
-		VfxRecipe.kitBolts(from, to, GOLD, if run.reduced then 3 else 5, 0.25)
+		VfxRecipe.kitBolts(from, to, GOLD, if run.reduced then 3 else 5, 0.32, 1.6)
+		FxKit.beam(from, to, GOLD, 0.08, 0.2, "straight")
 		run:sound("whoosh", 2)
 		return true -- the bolts replace the afterimages: no visible run
 	elseif kind == "Damage" and event.target and not event.dot then
@@ -66,8 +68,10 @@ function def.event(run, event): boolean
 			run.memo.hit = true -- one cut per cast (it hits one enemy)
 			run:at(DELAY, function()
 				local at = view.part.Position + Vector3.new(0, view.part.Size.Y * 0.1, 0)
-				FxKit.slashArc(at, run:forward(), WHITE, 3, 0.15, 0.2)
-				VfxRecipe.kitHitStar(at, view.part.Size.Y * 1.1, GOLD:Lerp(WHITE, 0.4))
+				-- The cut: a gold-white hit star (the old slash plane drew a flat white slab without
+				-- its texture) and one short bolt across the target.
+				VfxRecipe.kitHitStar(at, view.part.Size.Y * 1.3, GOLD:Lerp(WHITE, 0.4))
+				VfxRecipe.kitBolts(at - run:forward() * 1.4, at + run:forward() * 1.4, GOLD, 1, 0.18, 1.2)
 				run:hitStop(view, 0.05)
 				run:shake(0.06)
 			end)
