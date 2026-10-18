@@ -43,31 +43,40 @@ def arc_band(X, Y, cx, cy, R, start, span):
 # ---------------------------------------------------------------- 11 swoosh ribbon
 
 def swoosh_ribbon(X, Y, px):
-    """A thick curved ribbon (crescent): hot core along the leading edge, soft tail, and the
-    trailing (inner) edge breaking into petals."""
-    u, across, inarc = arc_band(X, Y, 0.0, -0.15, 0.62, math.radians(20), math.radians(160))
+    """A thick curved ribbon (crescent) filling the cell: a hot white core along the leading
+    (outer) edge, a soft fading tail, and petals breaking off the trailing (inner) edge."""
+    R = 0.7
+    u, across, inarc = arc_band(X, Y, 0.0, -0.1, R, math.radians(-25), math.radians(230))
     uc = np.clip(u, 0.0, 1.0)
-    half = 0.03 + 0.17 * np.sin(math.pi * uc ** 0.75) ** 1.2  # thick toward the head, tapered ends
+    # A thick band toward the head (u ~ 0.7), needle tapered at both ends.
+    half = 0.01 + 0.17 * np.sin(math.pi * uc ** 1.1) ** 1.1
+    v = across / np.maximum(half, 1e-3)  # -1 trailing (inner) edge -> +1 leading (outer) edge
+    # The trailing edge is torn into petals: a scalloped inner boundary whose leaves come loose
+    # (separate shapes with gaps), more of them toward the tail.
+    leaf_u = uc * 34.0
+    scallop = np.abs((leaf_u % 1.0) - 0.5) * 2.0  # 0 at a leaf's middle, 1 between leaves
+    loose = vnoise(np.floor(leaf_u), np.zeros_like(uc) + 0.5, 211, 64)  # per leaf
+    inner_edge = -0.15 - 0.85 * (1.0 - scallop ** 1.5)  # leaves reach down to the inner edge
+    gap = (loose < 0.35 + 0.35 * (1.0 - uc)) & (v < -0.25)  # some leaves broke off: a gap
+    sd_band = np.maximum(np.abs(across) - half, (inner_edge - v) * half)
+    body = fill(sd_band, px) * inarc * np.where(gap, 0.0, 1.0)
+    # The hot white core along the leading edge.
+    core = fill((np.abs(v - 0.55) - 0.32) * half, px) * inarc * ss(0.08, 0.3, uc) * (1.0 - ss(0.93, 1.0, uc))
+    tail = 0.3 + 0.7 * ss(0.0, 0.5, uc)  # the tail fades out
     d = np.abs(across) - half
-    body = fill(d, px) * inarc
-    # Petals: the inner (trailing) half breaks up, more toward the tail.
-    petals = vnoise(uc * 26.0, across * 0 + 0.5, 211, 64) * 0.6 + fbm(uc * 14.0, across * 9.0, 212, period=16) * 0.4
-    inner = ss(0.15, -0.9, across / np.maximum(half, 1e-3))  # 0 at the outer edge -> 1 at the inner
-    broken = ss(0.25 + 0.5 * uc, 0.45 + 0.5 * uc, petals + 0.6 * (1.0 - inner))
-    body = body * np.where(across < 0.0, broken, 1.0)
-    lead = np.clip(1.0 - np.abs(across - half * 0.45) / np.maximum(half * 0.5, 1e-3), 0.0, 1.0) * inarc
-    core = fill(np.abs(across - half * 0.45) - half * 0.22, px) * inarc * ss(0.05, 0.3, uc)
-    halo = glow(d, 0.05, 0.4) * inarc * ss(0.0, 0.25, uc) * (1.0 - ss(0.92, 1.0, uc))
-    c = 0.8 + 0.2 * np.maximum(core, lead * 0.5)
-    a = np.clip(body * (0.55 + 0.45 * ss(0.0, 0.35, uc)) + core, 0.0, 1.0)
+    halo = glow(d, 0.05, 0.35) * inarc * ss(0.05, 0.4, uc) * (1.0 - ss(0.9, 1.0, uc))
+    c = 0.88 + 0.12 * core
+    a = np.clip(body * tail * (0.75 + 0.25 * ss(-0.4, 0.4, v)) + core, 0.0, 1.0)
     return c, a + halo * (1.0 - a)
 
 
 # ---------------------------------------------------------------- 12 slash crescent
 
 def slash_crescent(X, Y, px):
-    """A big sharp crescent blade wave: white core, thin darker rim, needle-tapered ends."""
-    cx, cy, R, d = 0.12, 0.0, 0.8, 0.3
+    """A big sharp crescent blade wave: white core, thin darker rim, needle-tapered ends. Scaled to
+    the cell's height and centered (its thickest point on the cell's middle)."""
+    R, d = 0.86, 0.36
+    cx, cy = -R + d * 0.5, 0.0
     sd_outer = np.hypot(X - cx, Y - cy) - R
     sd_inner = np.hypot(X - cx + d, Y - cy) - R
     sd = np.maximum(sd_outer, -sd_inner)
@@ -84,38 +93,69 @@ def slash_crescent(X, Y, px):
 # ---------------------------------------------------------------- 13 slash line (1024 x 128)
 
 def slash_line(X, Y, px):
-    """A long razor-thin slash: white core, thin dark edge, very tapered ends."""
-    u = (X + 0.96) / 1.92
+    """A long razor slash: a white core (twice the first pass's), thin dark edge, very tapered
+    ends, inside a faint soft glow."""
+    u = (X + 0.94) / 1.88
     uc = np.clip(u, 0.0, 1.0)
-    half = 0.022 * np.sin(math.pi * uc) ** 0.7
+    along = np.sin(math.pi * uc)
+    half = 0.044 * along ** 0.8
     d = np.where((u >= 0.0) & (u <= 1.0), np.abs(Y) - half, 1.0)
     inside = fill(d, px)
-    edge = fill(np.abs(d + 0.004) - 0.0035, px) * inside
+    edge = fill(np.abs(d + 0.005) - 0.004, px) * inside
     c = np.where(edge > 0.5, 0.3, 1.0)
-    halo = 0.3 * np.exp(-np.maximum(d, 0.0) / 0.012) * np.sin(math.pi * uc) ** 1.5
+    # A faint soft halo: tight bright glow plus a wide faint one, both fading toward the tips.
+    out = np.maximum(d, 0.0)
+    halo = (0.32 * np.exp(-out / 0.012) + 0.16 * np.exp(-out / 0.035)) * along ** 1.3
     a = np.maximum(inside, edge)
-    return c, a + halo * (1.0 - a)
+    return c, np.clip(a + halo * (1.0 - a), 0.0, 1.0)
 
 
 # ---------------------------------------------------------------- 14 brush swirl
 
 def brush_swirl(X, Y, px):
-    """A painterly dry-brush arc: thick wet start, bristle streaks along the stroke, rough edges,
-    a dry broken tail."""
-    u, across, inarc = arc_band(X, Y, 0.0, -0.05, 0.58, math.radians(200), math.radians(250))
+    """A dry-brush stroke arc of ~270 degrees filling the cell: many parallel bristle streaks with
+    gaps between them, ragged broken ends, uneven pressure (thick start, thinning, a tail that
+    splits), and a few stray flecks."""
+    R = 0.64
+    u, across, inarc = arc_band(X, Y, 0.0, 0.0, R, math.radians(225), math.radians(270))
     uc = np.clip(u, 0.0, 1.0)
-    half = 0.16 * (1.0 - 0.55 * uc) * np.sqrt(ss(0.0, 0.06, uc))
-    rough = (fbm(uc * 20.0, np.zeros_like(uc) + 0.3, 221, period=32, octaves=3) - 0.5) * 0.06
-    d = np.abs(across + rough) - half
-    body = fill(d, px * 2.0) * inarc
-    # Bristles: fine streaks along the stroke (high frequency across, low along).
-    v = across / np.maximum(half, 1e-3)
-    bristle = fbm(uc * 3.0, (v + 2.0) * 9.0, 222, period=16, octaves=3)
-    dry = ss(0.35, 1.0, uc)  # the tail runs dry
-    keep = ss(0.2 + 0.45 * dry, 0.3 + 0.45 * dry, bristle + 0.15 * (1.0 - np.abs(v)))
-    a = body * keep
-    c = 0.82 + 0.18 * (1.0 - np.abs(v)) * (1.0 - 0.5 * dry)
-    return c, np.clip(a, 0.0, 1.0)
+    # Pressure: a quick heavy press, then thinning; a little wobble along the way.
+    wob = (fbm(uc * 6.0, np.zeros_like(uc) + 0.2, 220, period=8, octaves=2) - 0.5) * 0.25
+    half = 0.2 * (1.0 - 0.7 * uc ** 0.9 + wob) * np.sqrt(ss(0.0, 0.05, uc))
+    rng = np.random.default_rng(221)
+    streaks = 15
+    a = np.zeros_like(X)
+    c = np.zeros_like(X)
+    for k in range(streaks):
+        offset = -0.92 + 1.84 * k / (streaks - 1) + rng.uniform(-0.04, 0.04)
+        # Half width as a share of the band's half width: streaks sit ~0.13 apart, so gaps show.
+        width = rng.uniform(0.03, 0.058)
+        start = rng.uniform(0.0, 0.06)
+        # Outer bristles run out first: the tail splits and frays.
+        end = 1.0 - abs(offset) * rng.uniform(0.25, 0.55) - rng.uniform(0.0, 0.1)
+        # The tail splits: streaks drift apart as the brush lifts.
+        spread = 1.0 + 0.5 * ss(0.6, 1.0, uc)
+        centre = offset * half * spread
+        dist = np.abs(across - centre) - width * np.maximum(half, 0.02)
+        line = fill(dist, px) * inarc * (uc >= start) * (uc <= end)
+        # Ragged ends and dry breaks along the streak.
+        ragged = 1.0 - ss(end - 0.08, end, uc) * (fbm(uc * 40.0 + k * 3.1, np.zeros_like(uc) + k, 222, period=64, octaves=2) < 0.55)
+        dry = fbm(uc * 22.0 + k * 1.7, np.zeros_like(uc) + 0.5 * k, 223, period=32, octaves=3)
+        keep = ss(0.32 + 0.25 * uc, 0.38 + 0.25 * uc, dry)
+        stroke = line * ragged * keep
+        shade = rng.uniform(0.82, 1.0)
+        c = np.where(stroke > a, shade, c)
+        a = np.maximum(a, stroke)
+    # Stray flecks flicked off near the tail and the outer edge.
+    for _ in range(18):
+        fu = rng.uniform(0.45, 1.0)
+        ang = math.radians(225) + math.radians(270) * fu
+        r = R + rng.uniform(-0.3, 0.3)
+        fx, fy = math.cos(ang) * r, math.sin(ang) * r
+        dot = fill(np.hypot(X - fx, Y - fy) - rng.uniform(0.006, 0.016), px)
+        c = np.where(dot > a, 0.9, c)
+        a = np.maximum(a, dot)
+    return np.where(a > 0.0, c, 1.0), a
 
 
 # ---------------------------------------------------------------- 15 rune circle (original)
@@ -211,38 +251,57 @@ def speed_lines(X, Y, px):
 
 # ---------------------------------------------------------------- 18 fist blur
 
+FIST = {"x": 0.5, "hw": 0.29, "hh": 0.27}
+
+
+def capsule(X, Y, a, b, r):
+    sd, _ = seg_distance(X, Y, [a, b], [r, r])
+    return sd
+
+
 def fist_sd(X, Y, px):
-    """A fist from the side, pointing right: a rounded box with three knuckle bumps."""
-    bx, by, hw, hh, rad = 0.3, 0.0, 0.2, 0.15, 0.06
-    q = np.maximum(np.abs(X - bx) - (hw - rad), 0.0), np.maximum(np.abs(Y - by) - (hh - rad), 0.0)
-    box = np.hypot(q[0], q[1]) - rad
+    """A fist from the side, punching right: a rounded block of curled fingers with four knuckle
+    bumps on the front, a thumb wrapped along the bottom, a short wrist behind."""
+    bx, hw, hh = FIST["x"], FIST["hw"], FIST["hh"]
+    rad = 0.1
+    q = np.maximum(np.abs(X - bx) - (hw - rad), 0.0), np.maximum(np.abs(Y) - (hh - rad), 0.0)
+    block = np.hypot(q[0], q[1]) - rad
     knuckles = np.full_like(X, 10.0)
-    for ky in (-0.09, 0.0, 0.09):
-        knuckles = np.minimum(knuckles, np.hypot(X - (bx + hw - 0.02), Y - ky) - 0.055)
-    thumb = np.hypot((X - (bx - 0.02)) / 1.6, Y + hh) - 0.05
-    return np.minimum(np.minimum(box, knuckles), thumb)
+    for ky in (-0.15, -0.05, 0.05, 0.15):
+        knuckles = np.minimum(knuckles, np.hypot(X - (bx + hw - 0.05), Y - ky) - 0.072)
+    thumb = capsule(X, Y, (bx - 0.14, -hh + 0.02), (bx + 0.16, -hh + 0.06), 0.075)
+    wrist = capsule(X, Y, (bx - hw - 0.12, 0.0), (bx - hw + 0.05, 0.0), 0.15)
+    return np.minimum(np.minimum(block, knuckles), np.minimum(thumb, wrist))
 
 
 def fist_blur(X, Y, px):
-    """A punch smear: the fist silhouette at the front, smeared back into a fading streak, with a
-    few speed lines."""
+    """A punch smear filling the cell's width: the rounded fist at the front (outlined, finger
+    grooves, thumb), smeared back into a long tapered streak, with a few speed lines."""
     a = np.zeros_like(X)
-    c = np.ones_like(X)
-    steps = 14
-    for k in range(steps):
-        shift = k * 0.07
-        sd = fist_sd(X + shift, Y, px)
-        weight = (1.0 - k / steps) ** 1.6
-        a = np.maximum(a, fill(sd, px) * weight)
-    front = fill(fist_sd(X, Y, px), px)
-    outline = fill(np.abs(fist_sd(X, Y, px) + 0.01) - 0.008, px)
-    for ly, L in ((-0.22, 0.9), (0.2, 0.7), (-0.05, 1.1), (0.1, 0.8)):
-        u = (X - 0.25 + L) / L
-        line = np.where((u > 0.0) & (u < 1.0), np.abs(Y - ly) - 0.008 * u, 1.0)
-        a = np.maximum(a, fill(line, px) * u * 0.7)
-    c = np.where(outline > 0.5, 0.45, 0.85 + 0.15 * front)
+    steps = 22
+    for k in range(1, steps):
+        shift = k * 0.062
+        squash = 1.0 - 0.7 * k / steps  # the smear tapers toward its tail
+        sd = fist_sd(X + shift, Y / squash, px) * squash
+        a = np.maximum(a, fill(sd, px) * 0.85 * (1.0 - k / steps) ** 1.2)
+    sd = fist_sd(X, Y, px)
+    front = fill(sd, px)
+    outline = fill(np.abs(sd + 0.012) - 0.01, px)
+    # Finger grooves between the knuckle rows and the thumb's edge.
+    bx, hw, hh = FIST["x"], FIST["hw"], FIST["hh"]
+    grooves = np.zeros_like(X)
+    for gy in (-0.1, 0.0, 0.1):
+        g = capsule(X, Y, (bx + 0.02, gy), (bx + hw - 0.06, gy), 0.008)
+        grooves = np.maximum(grooves, fill(g, px))
+    thumb_line = fill(np.abs(capsule(X, Y, (bx - 0.14, -hh + 0.02), (bx + 0.16, -hh + 0.06), 0.075)) - 0.008, px)
+    lines = np.maximum(grooves, thumb_line) * front
+    for ly, L in ((-0.3, 1.2), (0.3, 1.0), (-0.12, 1.5), (0.14, 1.3), (0.0, 0.9)):
+        u = (X - (bx - hw) + L) / L
+        line = np.where((u > 0.0) & (u < 1.0), np.abs(Y - ly) - 0.009 * u, 1.0)
+        a = np.maximum(a, fill(line, px) * u * 0.65)
+    c = np.where(np.maximum(outline, lines) > 0.5, 0.42, 0.88 + 0.12 * front)
     a = np.maximum(a, np.maximum(front, outline))
-    return c, a * (1.0 - ss(0.85, 0.97, np.abs(X)))
+    return c, a * (1.0 - ss(0.86, 0.95, np.abs(X)))
 
 
 # ---------------------------------------------------------------- 19 halftone burst
@@ -293,29 +352,42 @@ def shadow_pool(X, Y, px):
 
 # ---------------------------------------------------------------- 21 aura spike
 
+AURA_BASE, AURA_TOP = -0.86, 0.84
+
+
 def aura_spike(X, Y, px):
-    """A tall spiky flame aura sheet: sharp tongues rising from a hot band at the bottom, tallest
-    in the middle, licking at the top."""
-    h = (Y + 0.85) / 1.7
-    hc = np.clip(h, 0.0, 1.0)
+    """A flame aura sheet filling the cell's height: 9 curved flame tongues of uneven height that
+    lean and curl, wide at the base, pointed and wispy at the tips; a hot white core fading to a
+    soft outer edge. White/grayscale for tinting."""
+    full = AURA_TOP - AURA_BASE
+    h = np.clip((Y - AURA_BASE) / full, 0.0, 1.0)
     rng = np.random.default_rng(271)
-    # The hot base: a soft lens tapering at both ends (not a flat bar).
-    d = 1.0 - ((Y + 0.78) / (0.07 * np.sqrt(np.clip(1.0 - (X / 0.78) ** 2, 0.0, 1.0)) + 1e-3)) ** 2
-    for k in range(13):
-        x0 = -0.7 + 1.4 * k / 12 + rng.uniform(-0.03, 0.03)
-        top = (0.45 + 0.5 * (1.0 - abs(x0) / 0.75) ** 1.4) * rng.uniform(0.8, 1.0)
-        w0 = 0.07 + 0.03 * rng.uniform()
-        lean = rng.uniform(-0.06, 0.06)
-        u = np.clip(hc / top, 0.0, 1.0)
-        width = w0 * (1.0 - u) ** 1.1 + 1e-3
-        tongue = 1.0 - np.abs(X - x0 - lean * u * u) / width
-        d = np.maximum(d, np.where((h > 0.02) & (hc < top), tongue, -1.0))  # never below the base
-    n = fbm((X + 1.0) * 4.0, (Y + 1.0) * 2.0, 272, period=8, octaves=3)
-    F = d - (n - 0.5) * 0.35 * hc
-    a = ss(0.0, 0.08, F)
-    core = ss(0.35, 0.7, F) * (1.0 - ss(0.1, 0.55, hc))
-    c = 0.8 + 0.2 * np.maximum(core, bands(1.0 - hc, 3) * 0.5)
-    halo = 0.2 * ss(-0.35, 0.0, F) * (1.0 - ss(0.4, 0.9, hc))
+    # A soft hot base joining the tongues (a lens tapering at both ends).
+    d = 1.0 - (X / 0.7) ** 2 - ((Y - AURA_BASE - 0.05) / 0.09) ** 2
+    count = 9
+    for k in range(count):
+        x0 = -0.6 + 1.2 * k / (count - 1) + rng.uniform(-0.04, 0.04)
+        # Uneven heights, tallest toward the middle; the tallest reaches the top.
+        frac = (0.5 + 0.5 * (1.0 - abs(x0) / 0.7) ** 1.2) * rng.uniform(0.72, 1.0)
+        if k == count // 2:
+            frac = 1.0
+        top = full * frac
+        w0 = rng.uniform(0.11, 0.16)
+        lean = rng.uniform(-0.16, 0.16)
+        curl = rng.uniform(-0.09, 0.09)
+        u = np.clip((Y - AURA_BASE) / top, 0.0, 1.0)
+        centre = x0 + lean * u ** 1.5 + curl * np.sin(math.pi * u * 1.3) * u * u
+        flicker = 1.0 + 0.18 * np.sin(u * 9.0 + k * 1.7)
+        width = w0 * (1.0 - u) ** 0.75 * flicker + 1e-3
+        tongue = 1.0 - np.abs(X - centre) / width
+        d = np.maximum(d, np.where((Y > AURA_BASE) & (u < 1.0), tongue, -1.0))
+    # Wispy tips: noise eats into the flame more the higher it goes.
+    n = fbm((X + 1.0) * 5.0, (Y + 1.0) * 2.5, 272, period=16, octaves=3)
+    F = d - (n - 0.5) * (0.15 + 0.7 * h ** 1.4)
+    a = ss(0.0, 0.12, F) * (1.0 - 0.3 * ss(0.65, 1.0, h))
+    core = ss(0.45, 0.8, F) * (1.0 - ss(0.25, 0.8, h))  # hot white inside, lower down
+    c = 0.74 + 0.26 * core
+    halo = 0.22 * ss(-0.4, 0.0, F) * (1.0 - ss(0.5, 1.0, h))  # the soft outer edge
     return union((c, a), (1.0, halo))
 
 

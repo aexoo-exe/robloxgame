@@ -192,26 +192,38 @@ DUST_LIGHT = rgb(214, 196, 166)
 DUST_DARK = rgb(132, 120, 104)
 
 
+# Round billows on a low dome: (x -1..1 across, height 0..1, radius), bottom row widest.
+DUST_BILLOWS = [
+    (-0.86, 0.1, 0.19), (-0.44, 0.08, 0.22), (0.0, 0.1, 0.23), (0.44, 0.08, 0.22), (0.86, 0.1, 0.19),
+    (-0.5, 0.42, 0.24), (0.02, 0.45, 0.27), (0.5, 0.4, 0.24),
+    (-0.18, 0.75, 0.24), (0.22, 0.78, 0.23),
+]
+DUST_BASE = -0.84
+
+
 def dust_burst(X, Y, px, t, i):
-    """A ground dust kick: a low ring of puffs rolling outward (seen from the side, three
-    quarters), with a few plumes rising; tan on top, gray-brown underneath."""
-    grow = ease_out(t)
-    radius = 0.2 + 0.62 * grow
-    base = -0.42
-    e = np.hypot(X / 1.0, (Y - base) / 0.32)  # the ring, squashed: on the ground
-    ring = 1.0 - np.abs(e - radius) / (0.16 + 0.12 * grow)
-    n = fbm((X + 2.0) * 2.6, (Y + 2.0) * 2.6 - 0.9 * t, 181, period=8, octaves=4)
-    plume = np.full_like(X, -1.0)
-    for k, x0 in enumerate((-0.5, -0.15, 0.25, 0.55)):
-        px0 = x0 * (0.5 + 0.6 * grow)
-        h = 0.25 + 0.25 * ((k * 37) % 5) / 5.0
-        plume = np.maximum(plume, 1.0 - np.hypot((X - px0) / 0.2, (Y - base - h * grow) / (0.22 + 0.15 * grow)))
-    dens = np.maximum(ring, plume * 0.9) + (n - 0.5) * 0.9
-    thr = 0.05 + 0.5 * t ** 1.6
-    a = ss(thr - 0.05, thr + 0.3, dens) * (0.9 - 0.2 * t)
-    lit = bands(ss(-0.4, 0.5, Y - base + 0.25 * (n - 0.5)), 3)
+    """A ground dust kick: round puffy billows rolling up and out from the ground, filling the cell
+    by frame 8, then thinning away; soft edges, tan on top, darker toward the base."""
+    grow = ease_out(min(1.0, t * 1.9))  # full size by ~frame 8
+    spread = 0.3 + 0.7 * grow
+    lift = 0.2 + 0.8 * grow
+    dens = np.full_like(X, -1.0)
+    for bx, by, br in DUST_BILLOWS:
+        cx = bx * 0.66 * spread
+        cy = DUST_BASE + 0.12 + by * 1.25 * lift
+        r = br * (0.45 + 0.75 * grow)
+        dens = np.maximum(dens, 1.0 - np.hypot(X - cx, Y - cy) / r)
+    # Gentle, low-frequency noise: rounder billows, no hard bumps.
+    n = fbm((X + 2.0) * 1.8, (Y + 2.0) * 1.8 - 0.6 * t, 181, period=8, octaves=3)
+    dens = dens + (n - 0.5) * 0.3
+    thr = 0.02 + 0.55 * ss(0.45, 1.0, t)
+    a = ss(thr - 0.04, thr + 0.32, dens) * (0.92 - 0.15 * t)
+    # Lit from above (rounded billow tops), darker toward the ground.
+    top_light = ss(-0.3, 0.6, dens + 0.6 * (Y - DUST_BASE) - 0.3)
+    base_dark = ss(DUST_BASE, DUST_BASE + 0.45, Y)
+    lit = np.clip(0.25 + 0.75 * top_light * base_dark, 0.0, 1.0)
     col = DUST_DARK + (DUST_LIGHT - DUST_DARK) * lit[..., None]
-    return col, a * (1.0 - ss(0.6, 1.0, t))
+    return col, a * (1.0 - ss(0.7, 1.0, t))
 
 
 # ---------------------------------------------------------------- water splash (baked white-blue)
@@ -221,38 +233,47 @@ WATER_EDGE = rgb(95, 165, 230)
 DROPS = np.random.default_rng(190).uniform(0.0, 1.0, (14, 3))
 
 
+WATER_BASE = -0.84
+
+
 def water_splash(X, Y, px, t, i):
-    """A crown splash: spikes rise from a ring on the water then fall; droplets arc out."""
-    base = -0.5
-    rise = math.sin(math.pi * min(1.0, t * 1.25))  # up then back down
-    width = 0.6 + 0.15 * t
-    # The water ring seen from three quarters: an ellipse; the crown's spikes stand on its front
-    # half, a thin wall (only the spikes and a narrow lip, never a solid block).
+    """A tall crown splash filling the cell at its peak: it starts as a small splash, the crown's
+    spikes shoot up and fall back, big droplets fly up and out. No flat ring on the floor."""
+    rise = (0.18 + 0.82 * math.sin(math.pi * min(1.0, t / 0.85))) * (1.0 - 0.6 * ss(0.7, 1.0, t))
+    width = 0.3 + 0.52 * ease_out(min(1.0, t * 2.0))
+    # The crown on the front of the water ring (three quarters): a thin wall of spikes, tallest in
+    # the middle; between the spikes only a narrow lip.
     across = np.clip(X / width, -1.0, 1.0)
-    front = base - 0.11 * np.sqrt(1.0 - across * across)
+    front = WATER_BASE + 0.1 - 0.08 * np.sqrt(1.0 - across * across)
     h = Y - front
     spikes = 9
     f = (X / width * spikes / 2.0) % 1.0
-    tip = np.clip(1.0 - np.abs(f - 0.5) * 2.0, 0.0, 1.0) ** 1.8  # sharp points, narrow gaps
-    height = 0.04 + 0.6 * rise * tip * (1.0 - 0.55 * across ** 2)
-    sd = np.maximum(np.maximum(h - height, -h - 0.03), np.abs(X) - width)
+    tip = np.clip(1.0 - np.abs(f - 0.5) * 2.0, 0.0, 1.0) ** 1.6
+    height = 0.05 + 1.35 * rise * tip * (1.0 - 0.55 * across ** 2)
+    sd = np.maximum(np.maximum(h - height, -h - 0.04), np.abs(X) - width)
     body = fill(sd, px)
-    rim = np.exp(-((np.hypot(X / width, (Y - base) / 0.11) - 1.0) / 0.1) ** 2) * (1.0 - 0.6 * t)
-    layers = [(0.0, body), (0.0, rim * 0.8)]
-    # Droplets: parabolas out and down.
+    layers = [body]
+    # Big droplets thrown up and out on parabolas from the crown's tips.
     for k in range(len(DROPS)):
-        ang = (DROPS[k, 0] - 0.5) * 2.2
-        speed = 0.9 + 0.7 * DROPS[k, 1]
-        size = 0.025 + 0.03 * DROPS[k, 2]
-        dx = math.sin(ang) * speed * t
-        dy = math.cos(ang) * speed * t - 1.6 * t * t
-        d = np.hypot(X - dx, Y - (base + 0.35 + dy)) - size * (1.0 - 0.5 * t)
-        layers.append((1.0, fill(d, px) * (t > 0.08)))
-    _, a = union(*[(1.0, la) for _, la in layers])
-    # Color: white crests, blue body (by height in the crown).
-    crest = ss(0.0, 0.4, h)
+        side = (DROPS[k, 0] - 0.5) * 2.0
+        vx = side * (0.6 + 0.5 * DROPS[k, 1])
+        vy = 1.9 + 0.8 * DROPS[k, 2]
+        size = 0.04 + 0.04 * DROPS[k, 1]
+        dt = max(0.0, t - 0.06)
+        dx = vx * dt
+        dy = vy * dt - 2.6 * dt * dt
+        cy = WATER_BASE + 0.2 + dy
+        # Stretched along the motion a little: a teardrop streak.
+        stretch = 1.0 + 1.5 * abs(vy - 5.2 * dt)
+        d = np.hypot((X - dx) / 1.0, (Y - cy) / stretch * 1.0) - size * (1.0 - 0.4 * t)
+        layers.append(fill(d, px) * (t > 0.04))
+    a = np.maximum.reduce(layers)
+    # Color: white crests and drops, blue body low in the crown.
+    crest = ss(0.0, 0.5, h)
     col = WATER_EDGE + (WATER_CORE - WATER_EDGE) * bands(crest, 3)[..., None]
-    return col, a * (1.0 - ss(0.7, 1.0, t))
+    drops = np.maximum.reduce(layers[1:]) if len(layers) > 1 else np.zeros_like(X)
+    col = col + (WATER_CORE - col) * drops[..., None] * 0.8
+    return col, a * (1.0 - ss(0.8, 1.0, t))
 
 
 # ---------------------------------------------------------------- toon poof (white, ink outline)
