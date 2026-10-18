@@ -49,5 +49,170 @@ return {
 		impact = {
 			{ rank = 1, kind = "image", name = "impact_starburst", image = 89446325997439, asset = 113459028571259 },
 		},
+		fireBurst = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_fire_burst",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		steam = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_steam_billow",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		bolts = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_lightning",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		crackle = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_crackle",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		hitStar = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_impact_star",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		dustBurst = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_dust_burst",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		splash = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_water_splash",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		poof = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_toon_poof",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		swoosh = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_swoosh_ribbon",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		crescent = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_slash_crescent",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		slashLine = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_slash_line",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		brush = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_brush_swirl",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		runes = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_rune_circle",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+			{
+				rank = 2,
+				kind = "image",
+				name = "fx_tri_spiral_eye",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		speedLines = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_speed_lines",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		smear = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_fist_blur",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		halftone = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_halftone_burst",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		shadow = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_shadow_pool",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		auraSpike = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_aura_spike",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
+		ink = {
+			{
+				rank = 1,
+				kind = "image",
+				name = "fx_ink_splatter",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+			{
+				rank = 2,
+				kind = "image",
+				name = "fx_ink_spike_burst",
+				pending = "not uploaded yet (lune run scripts/vfx-upload)",
+			},
+		},
 	},
+	meshes = {},
 }

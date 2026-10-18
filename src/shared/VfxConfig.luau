@@ -39,6 +39,26 @@ return deepFreeze({
 		"energy",
 		"cracks",
 		"impact",
+		-- batch 2 (scripts/vfx-apply KIT): own roles, used by the kit* usages only
+		"fireBurst",
+		"steam",
+		"bolts",
+		"crackle",
+		"hitStar",
+		"dustBurst",
+		"splash",
+		"poof",
+		"swoosh",
+		"crescent",
+		"slashLine",
+		"brush",
+		"runes",
+		"speedLines",
+		"smear",
+		"halftone",
+		"shadow",
+		"auraSpike",
+		"ink",
 	},
 
 	-- What each kit texture is, by its name (VfxPicks `name`). Every kit texture is a white core on a
@@ -71,6 +91,32 @@ return deepFreeze({
 		-- glows read along beams too: a soft streak, fading at both ends (beam glows, grooves, streaks)
 		impact_starburst = { blend = "alpha", burst = true, beam = false }, -- one whole hit burst
 		ground_scorch = { blend = "alpha", shade = rgb(45, 40, 38) }, -- dark soot whatever the element
+
+		-- Batch 2 (assets/vfx/src_b2, scripts/blender/vfx_flipbooks.py and vfx_textures_b2.py). Every
+		-- flipbook is a 4x4 grid (16 frames of 256 px); Random shows a different bolt each frame.
+		-- Fire, steam, dust, water, the shadow pool and the ink splatter bake their own colors
+		-- (tint = false); the rest are white with a hot core and take the effect's color.
+		fx_fire_burst = { blend = "alpha", tint = false, flipbook = { layout = "4x4", mode = "OneShot", fps = 24 } },
+		fx_steam_billow = { blend = "alpha", tint = false, flipbook = { layout = "4x4", mode = "OneShot", fps = 20 } },
+		fx_lightning = { blend = "alpha", light = 1, flipbook = { layout = "4x4", mode = "Random", fps = 30 } },
+		fx_crackle = { blend = "alpha", light = 1, flipbook = { layout = "4x4", mode = "Random", fps = 30 } },
+		fx_impact_star = { blend = "alpha", burst = true, flipbook = { layout = "4x4", mode = "OneShot", fps = 30 } },
+		fx_dust_burst = { blend = "alpha", tint = false, flipbook = { layout = "4x4", mode = "OneShot", fps = 20 } },
+		fx_water_splash = { blend = "alpha", tint = false, flipbook = { layout = "4x4", mode = "OneShot", fps = 24 } },
+		fx_toon_poof = { blend = "alpha", flipbook = { layout = "4x4", mode = "OneShot", fps = 24 } },
+		fx_swoosh_ribbon = { blend = "alpha", beam = false },
+		fx_slash_crescent = { blend = "alpha", beam = false },
+		fx_slash_line = { blend = "alpha", light = 1 }, -- 1024 x 128: reads along a beam
+		fx_brush_swirl = { blend = "alpha", beam = false },
+		fx_rune_circle = { blend = "alpha", beam = false },
+		fx_tri_spiral_eye = { blend = "alpha", beam = false },
+		fx_speed_lines = { blend = "alpha", beam = false },
+		fx_fist_blur = { blend = "alpha", beam = false },
+		fx_halftone_burst = { blend = "alpha", burst = true, beam = false },
+		fx_shadow_pool = { blend = "alpha", tint = false, beam = false }, -- a particle just above the floor
+		fx_aura_spike = { blend = "alpha", beam = false },
+		fx_ink_splatter = { blend = "alpha", tint = false, beam = false },
+		fx_ink_spike_burst = { blend = "alpha", burst = true, beam = false }, -- black spikes stay black
 	},
 	-- Textures exported from a model pack (VfxPicks `textures`) are particle textures: additive unless
 	-- listed in `traits`. `packs` picks which of a pack's textures a role uses (1 = the most used).
@@ -184,6 +230,30 @@ return deepFreeze({
 		glowBlob = { on = true, roles = { "glow" }, modes = { "billboard" }, brightness = 1.8, scale = 1.5 },
 		-- ultimate releases (below): off (the kit has no full-screen impact frame)
 		impactFrame = { on = false, roles = { "impact" }, modes = { "screen" } },
+
+		-- Batch 2 kit (assets/vfx/src_b2): one usage per texture, used only by VfxRecipe.kitThemes
+		-- (no ultimate draws with them yet). Particles play their flipbooks (traits).
+		kitFireBurst = { on = true, roles = { "fireBurst" }, modes = { "particle" } },
+		kitSteam = { on = true, roles = { "steam" }, modes = { "particle" } },
+		kitBolt = { on = true, roles = { "bolts" }, modes = { "particle" } },
+		kitCrackle = { on = true, roles = { "crackle" }, modes = { "particle" } },
+		kitHitStar = { on = true, roles = { "hitStar" }, modes = { "particle" } },
+		kitDust = { on = true, roles = { "dustBurst" }, modes = { "particle" } },
+		kitSplash = { on = true, roles = { "splash" }, modes = { "particle" } },
+		kitPoof = { on = true, roles = { "poof" }, modes = { "particle" } },
+		kitSwoosh = { on = true, roles = { "swoosh" }, modes = { "particle", "billboard" } },
+		kitCrescent = { on = true, roles = { "crescent" }, modes = { "particle", "billboard" } },
+		kitSlashLine = { on = true, roles = { "slashLine" }, modes = { "beam", "particle" } },
+		kitBrush = { on = true, roles = { "brush" }, modes = { "particle", "billboard" } },
+		kitRunes = { on = true, roles = { "runes" }, modes = { "billboard", "particle" } },
+		kitEye = { on = true, roles = { "runes" }, first = { "runes:2" }, modes = { "billboard", "particle" } },
+		kitSpeedLines = { on = true, roles = { "speedLines" }, modes = { "particle", "billboard" } },
+		kitSmear = { on = true, roles = { "smear" }, modes = { "particle" } },
+		kitHalftone = { on = true, roles = { "halftone" }, modes = { "particle" } },
+		kitShadow = { on = true, roles = { "shadow" }, modes = { "particle", "billboard" } },
+		kitAuraSpike = { on = true, roles = { "auraSpike" }, modes = { "particle", "billboard" } },
+		kitInk = { on = true, roles = { "ink" }, modes = { "particle" } },
+		kitInkBurst = { on = true, roles = { "ink" }, first = { "ink:2" }, modes = { "particle" } },
 	},
 
 	-- Variants by element (AbilityFxConfig.units `element`) and by unit id: role -> "<role>:<rank>".

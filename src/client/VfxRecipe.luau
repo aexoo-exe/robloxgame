@@ -1113,4 +1113,98 @@ function VfxRecipe.trail(run, a: Vector3, b: Vector3, opts: TrailOptions?)
 	end
 end
 
+-- Batch 2 kit (assets/vfx/src_b2): flipbook particles and theme presets -----------------------------
+-- Not used by any ultimate yet (the next step wires units to them). Each preset names, per layer,
+-- the VfxConfig usage that draws it; the textures' flipbook layout, mode and frame rate come from
+-- the catalog (VfxConfig.traits), which ImpactEffects.emit applies to the particle.
+
+local FRAMES = { ["2x2"] = 4, ["4x4"] = 16, ["8x8"] = 64 }
+
+-- How long a particle of `usage` lives so its flipbook plays at the catalog's frame rate (OneShot:
+-- every frame once; Random and Loop: one cycle), or nil when it has no flipbook or no texture yet.
+function VfxRecipe.flipbookLife(usage: string, color: Color3?): number?
+	local texture = FxKit.textured(usage, color or WHITE, "particle")
+	local flipbook = texture and texture.flipbook
+	if not flipbook or not flipbook.fps then
+		return nil
+	end
+	return (FRAMES[flipbook.layout] or 16) / flipbook.fps
+end
+
+export type KitEmit = {
+	size: number, -- studs
+	grow: number?, -- end size, times `size` (default 1)
+	color: Color3?, -- tint for white textures (baked ones ignore it: tint = false); default white
+	count: number?,
+	lifetime: number?, -- default: the flipbook's own length (flipbookLife), else 0.6
+	speed: { number }?,
+	spread: number?,
+	direction: Vector3?,
+	rotation: { number }?, -- default upright (0)
+	lightEmission: number?,
+	brightness: number?,
+	zOffset: number?,
+}
+
+-- One batch 2 kit particle (or `count`) of `usage` at `at`: its flipbook plays over its life. Draws
+-- nothing until the texture is uploaded and loaded (never the plain sparkle fallback).
+function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
+	if not FxKit.textured(usage, opts.color or WHITE, "particle") then
+		return
+	end
+	local life = opts.lifetime or VfxRecipe.flipbookLife(usage, opts.color) or 0.6
+	ImpactEffects.emit(at, {
+		usage = usage,
+		count = opts.count or 1,
+		color = ColorSequence.new(opts.color or WHITE),
+		size = curve({ { 0, opts.size }, { 1, opts.size * (opts.grow or 1) } }),
+		transparency = curve({ { 0, 0 }, { 0.85, 0.05 }, { 1, 1 } }),
+		lifetime = { life, life },
+		speed = opts.speed,
+		spread = opts.spread,
+		direction = opts.direction,
+		rotation = opts.rotation or { 0, 0 },
+		lightEmission = opts.lightEmission or 0,
+		brightness = opts.brightness or 1,
+		zOffset = opts.zOffset,
+	})
+end
+
+-- Theme presets: per layer, the usage that draws it. Batch 1 usages fill what batch 2 skipped (the
+-- flame loop is "fire", the smoke billow "smoke"). `baked`: the preset's textures carry their own
+-- colors (draw them white); otherwise pass the unit's color.
+VfxRecipe.KIT = {
+	fire = { burst = "kitFireBurst", flame = "fire", smoke = "smoke", hit = "kitHitStar", swoosh = "kitSwoosh", baked = true },
+	lightning = { bolt = "kitBolt", crackle = "kitCrackle", hit = "kitHitStar", slash = "kitSlashLine" },
+	steam = { burst = "kitSteam", smoke = "kitSteam", hit = "kitHitStar", baked = true },
+	dust = { burst = "kitDust", smoke = "smoke", hit = "kitHitStar", baked = true },
+	water = { burst = "kitSplash", smoke = "kitSteam", hit = "kitHitStar", baked = true },
+	toon = { burst = "kitPoof", hit = "kitHitStar", lines = "kitSpeedLines", halftone = "kitHalftone", smear = "kitSmear" },
+	ink = {
+		burst = "kitInkBurst",
+		splatter = "kitInk",
+		brush = "kitBrush",
+		slash = "kitSlashLine",
+		crescent = "kitCrescent",
+	},
+	shadow = { pool = "kitShadow", smoke = "smoke", aura = "kitAuraSpike" },
+	aura = { aura = "kitAuraSpike", crackle = "kitCrackle", runes = "kitRunes" },
+}
+
+-- A preset's main burst at `at` (ground): its burst flipbook (raised so it clears the floor) and,
+-- if it has one, the hit star. `size` studs; `color` for white textures.
+function VfxRecipe.kitBurst(preset: string, at: Vector3, size: number, color: Color3?)
+	local kit = VfxRecipe.KIT[preset]
+	if not kit then
+		return
+	end
+	local tint = if kit.baked then WHITE else (color or WHITE)
+	if kit.burst then
+		VfxRecipe.kit(at + Vector3.new(0, size * 0.45, 0), kit.burst, { size = size, color = tint })
+	end
+	if kit.hit then
+		VfxRecipe.kit(at + Vector3.new(0, size * 0.4, 0), kit.hit, { size = size * 0.8, color = color or WHITE, lightEmission = 1 })
+	end
+end
+
 return VfxRecipe

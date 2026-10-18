@@ -15,14 +15,67 @@ local serde = require("@lune/serde")
 
 local IDS = "assets/vfx/ids.json"
 local DECALS = "assets/vfx/decals.json"
+local MESH_IDS = "assets/vfx/meshes.json"
 local TEXTURES = "assets/vfx/textures"
+local TEXTURES_B2 = "assets/vfx/src_b2"
 local OUT = "src/shared/VfxPicks.luau"
 
 -- Role -> kit texture names, in rank order (rank 1 is a role's default). VfxConfig.uses says which
--- roles each effect draws from.
-local ROLES =
-	{ "slash", "rings", "glow", "sparks", "smoke", "explosions", "fire", "lightning", "energy", "cracks", "impact" }
+-- roles each effect draws from. Batch 1 names drop their "vfx_" prefix; batch 2 names are the full
+-- file name ("fx_..."), in their own roles (no batch 1 role changes, so nothing switches by itself).
+local ROLES = {
+	"slash",
+	"rings",
+	"glow",
+	"sparks",
+	"smoke",
+	"explosions",
+	"fire",
+	"lightning",
+	"energy",
+	"cracks",
+	"impact",
+	-- batch 2
+	"fireBurst",
+	"steam",
+	"bolts",
+	"crackle",
+	"hitStar",
+	"dustBurst",
+	"splash",
+	"poof",
+	"swoosh",
+	"crescent",
+	"slashLine",
+	"brush",
+	"runes",
+	"speedLines",
+	"smear",
+	"halftone",
+	"shadow",
+	"auraSpike",
+	"ink",
+}
 local KIT = {
+	fireBurst = { "fx_fire_burst" },
+	steam = { "fx_steam_billow" },
+	bolts = { "fx_lightning" },
+	crackle = { "fx_crackle" },
+	hitStar = { "fx_impact_star" },
+	dustBurst = { "fx_dust_burst" },
+	splash = { "fx_water_splash" },
+	poof = { "fx_toon_poof" },
+	swoosh = { "fx_swoosh_ribbon" },
+	crescent = { "fx_slash_crescent" },
+	slashLine = { "fx_slash_line" },
+	brush = { "fx_brush_swirl" },
+	runes = { "fx_rune_circle", "fx_tri_spiral_eye" },
+	speedLines = { "fx_speed_lines" },
+	smear = { "fx_fist_blur" },
+	halftone = { "fx_halftone_burst" },
+	shadow = { "fx_shadow_pool" },
+	auraSpike = { "fx_aura_spike" },
+	ink = { "fx_ink_splatter", "fx_ink_spike_burst" },
 	slash = { "slash_thin", "slash_wide", "slash_double" },
 	rings = { "ring_thin", "ring_thick", "ring_segmented" },
 	glow = { "glow_soft", "glow_hard_core" },
@@ -52,14 +105,24 @@ local function readMap(path: string): { [string]: number }
 	return out
 end
 
+-- The file name (ids.json key) and its PNG for a KIT name.
+local function fileOf(name: string): (string, string)
+	if string.sub(name, 1, 3) == "fx_" then
+		return name, TEXTURES_B2 .. "/" .. name .. ".png"
+	end
+	return "vfx_" .. name, TEXTURES .. "/vfx_" .. name .. ".png"
+end
+
 local ids = readMap(IDS)
 local decals = readMap(DECALS)
+local meshes = readMap(MESH_IDS)
 local known = {}
 for _, role in ROLES do
 	for _, name in KIT[role] do
-		known["vfx_" .. name] = true
-		if not fs.isFile(TEXTURES .. "/vfx_" .. name .. ".png") then
-			print("WARNING: " .. TEXTURES .. "/vfx_" .. name .. ".png is missing")
+		local file, png = fileOf(name)
+		known[file] = true
+		if not fs.isFile(png) then
+			print("WARNING: " .. png .. " is missing")
 		end
 	end
 end
@@ -84,7 +147,7 @@ local report, uploaded, pending = {}, 0, 0
 for _, role in ROLES do
 	table.insert(lines, "\t\t" .. role .. " = {")
 	for rank, name in KIT[role] do
-		local file = "vfx_" .. name
+		local file = fileOf(name)
 		local fields = {
 			"rank = " .. rank,
 			'kind = "image"',
@@ -113,6 +176,18 @@ for _, role in ROLES do
 		)
 	end
 	table.insert(lines, "\t\t},")
+end
+table.insert(lines, "\t},")
+-- Effect meshes (batch 2, assets/vfx/meshes.json): name -> uploaded Model id, loaded on the server.
+local meshNames = {}
+for name in meshes do
+	table.insert(meshNames, name)
+end
+table.sort(meshNames)
+table.insert(lines, "\tmeshes = {")
+for _, name in meshNames do
+	table.insert(lines, string.format("\t\t%s = %d,", name, meshes[name]))
+	table.insert(report, string.format("  %-12s %-20s model %d", "mesh", name, meshes[name]))
 end
 table.insert(lines, "\t},")
 table.insert(lines, "}")

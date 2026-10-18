@@ -1,4 +1,5 @@
--- Uploads the VFX kit textures (assets/vfx/textures/vfx_*.png, not the contact sheet) to Roblox
+-- Uploads the VFX kit textures (batch 1: assets/vfx/textures/vfx_*.png, not the contact sheet;
+-- batch 2: assets/vfx/src_b2/fx_*.png) to Roblox
 -- through Open Cloud (Assets API) as Decals, waits for each upload to finish, resolves the Image id
 -- the Decal wraps (the id ParticleEmitter.Texture, Beam.Texture and ImageLabel.Image take), and
 -- writes assets/vfx/ids.json (texture name -> image id). Run from the repository root:
@@ -13,6 +14,11 @@
 -- uploaded but whose image id could not be resolved yet (assets/vfx/decals.json keeps every uploaded
 -- Decal id) is only resolved again, not uploaded twice.
 -- Then run lune run scripts/vfx-apply to put the ids into the game (src/shared/VfxPicks.luau).
+--
+-- Batch 2 meshes (assets/vfx/meshes/mesh_*.fbx) are uploaded as Models into assets/vfx/meshes.json
+-- (name -> model id), loaded at runtime on the server with InsertService:LoadAsset. If Open Cloud
+-- refuses FBX for this key, the textures still go up and the mesh is reported as failed: import it
+-- by hand in Studio instead (the steps are in the batch 2 handoff).
 
 local fs = require("@lune/fs")
 local net = require("@lune/net")
@@ -21,7 +27,13 @@ local roblox = require("@lune/roblox")
 local serde = require("@lune/serde")
 local task = require("@lune/task")
 
-local TEXTURES = "assets/vfx/textures"
+-- Texture folders and the file names each holds (batch 1, batch 2).
+local SOURCES = {
+	{ dir = "assets/vfx/textures", pattern = "^(vfx_[%w_]+)%.png$" },
+	{ dir = "assets/vfx/src_b2", pattern = "^(fx_[%w_]+)%.png$" },
+}
+local MESHES = "assets/vfx/meshes"
+local MESH_IDS = "assets/vfx/meshes.json"
 local IDS = "assets/vfx/ids.json"
 local DECALS = "assets/vfx/decals.json"
 local ASSETS_URL = "https://apis.roblox.com/assets/v1/assets"
@@ -40,8 +52,8 @@ if not userId or not string.match(userId, "^%d+$") then
 	print("Usage: lune run scripts/vfx-upload <userId>   (your numeric Roblox user id)")
 	process.exit(1)
 end
-if not fs.isDir(TEXTURES) then
-	print("Missing " .. TEXTURES .. ". Run from the repository root.")
+if not fs.isDir(SOURCES[1].dir) then
+	print("Missing " .. SOURCES[1].dir .. ". Run from the repository root.")
 	process.exit(1)
 end
 
@@ -114,13 +126,15 @@ local function describe(response: any): string
 	return string.format("HTTP %d: %s", response.statusCode, string.sub(response.body or "", 1, 300))
 end
 
--- Uploads one PNG as a Decal; returns the Decal's asset id, or nil and why.
-local function upload(name: string, bytes: string): (number?, string?)
+-- Uploads one file as an asset (a PNG as a Decal, or an FBX as a Model); returns the asset id, or
+-- nil and why.
+local function upload(name: string, bytes: string, kind: string?): (number?, string?)
+	local model = kind == "Model"
 	local boundary = "----vfxkit" .. string.format("%08x", math.random(0, 0x7fffffff))
 	local request = serde.encode("json", {
-		assetType = "Decal",
+		assetType = if model then "Model" else "Decal",
 		displayName = name,
-		description = "robloxgame VFX kit texture (" .. name .. ".png)",
+		description = "robloxgame VFX kit " .. (if model then "mesh (" .. name .. ".fbx)" else "texture (" .. name .. ".png)"),
 		creationContext = { creator = { userId = userId } },
 	})
 	local body = table.concat({
@@ -130,8 +144,12 @@ local function upload(name: string, bytes: string): (number?, string?)
 		"",
 		request,
 		"--" .. boundary,
-		string.format('Content-Disposition: form-data; name="fileContent"; filename="%s.png"', name),
-		"Content-Type: image/png",
+		string.format(
+			'Content-Disposition: form-data; name="fileContent"; filename="%s.%s"',
+			name,
+			if model then "fbx" else "png"
+		),
+		if model then "Content-Type: model/fbx" else "Content-Type: image/png",
 		"",
 		bytes,
 		"--" .. boundary .. "--",
@@ -234,10 +252,16 @@ end
 local ids = readMap(IDS)
 local decals = readMap(DECALS)
 local names = {}
-for _, file in fs.readDir(TEXTURES) do
-	local name = string.match(file, "^(vfx_[%w_]+)%.png$")
-	if name then
-		table.insert(names, name)
+local dirOf: { [string]: string } = {}
+for _, source in SOURCES do
+	if fs.isDir(source.dir) then
+		for _, file in fs.readDir(source.dir) do
+			local name = string.match(file, source.pattern)
+			if name then
+				table.insert(names, name)
+				dirOf[name] = source.dir
+			end
+		end
 	end
 end
 table.sort(names)
@@ -253,7 +277,7 @@ for _, name in names do
 	if decalId then
 		print(string.format("  already uploaded as decal %d: resolving its image", decalId))
 	else
-		local id, err = upload(name, fs.readFile(TEXTURES .. "/" .. name .. ".png"))
+		local id, err = upload(name, fs.readFile(dirOf[name] .. "/" .. name .. ".png"))
 		if not id then
 			print("  FAILED " .. tostring(err))
 			table.insert(failed, name)
@@ -289,6 +313,46 @@ print(
 		if #failed > 0 then ": " .. table.concat(failed, ", ") else ""
 	)
 )
+
+-- Meshes (batch 2): each FBX as a Model. A refusal is reported, not fatal: the manual Studio import
+-- covers it.
+local meshIds = readMap(MESH_IDS)
+local meshFailed = {}
+if fs.isDir(MESHES) then
+	local meshNames = {}
+	for _, file in fs.readDir(MESHES) do
+		local name = string.match(file, "^(mesh_[%w_]+)%.fbx$")
+		if name then
+			table.insert(meshNames, name)
+		end
+	end
+	table.sort(meshNames)
+	for _, name in meshNames do
+		if meshIds[name] then
+			continue
+		end
+		print(name)
+		local id, err = upload(name, fs.readFile(MESHES .. "/" .. name .. ".fbx"), "Model")
+		if id then
+			meshIds[name] = id
+			writeMap(MESH_IDS, meshIds)
+			print(string.format("  model %d", id))
+		else
+			print("  FAILED " .. tostring(err))
+			table.insert(meshFailed, name)
+		end
+	end
+	if #meshFailed > 0 then
+		print(
+			string.format(
+				"%d meshes not uploaded (%s): import them by hand in Studio (see the batch 2 handoff)",
+				#meshFailed,
+				table.concat(meshFailed, ", ")
+			)
+		)
+	end
+end
+
 if #failed > 0 then
 	process.exit(1)
 end
