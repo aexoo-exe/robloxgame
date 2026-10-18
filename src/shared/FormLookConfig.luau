@@ -38,11 +38,12 @@ local BLACK = rgb(28, 28, 33)
 local INK = rgb(20, 20, 26)
 local STEEL = rgb(200, 205, 215)
 
--- ascending_core: the gold forms keep the gi; the hair, eyes and aura step up.
+-- ascending_core: the gold forms keep the gi; the hair and eyes step up. No glow shell around the
+-- figure (a see-through Neon ball read as a cheap yellow bubble): its aura is the ultimate's
+-- particles (VfxRecipe.aura, Ultimates/ascending_core).
 local GI_ORANGE = rgb(240, 125, 35)
 local GI_BLUE = rgb(35, 55, 150)
 local GOLD_HAIR = rgb(250, 214, 80)
-local AURA = rgb(255, 225, 90)
 local core = {
 	skin = SKIN,
 	torso = GI_BLUE,
@@ -59,19 +60,6 @@ local core = {
 		{ shape = "disc", anchor = "hips", at = v(-0.085, 0.24, -0.102), size = 0.065, color = WHITE },
 	},
 }
--- A see-through glowing shell around the whole figure.
-local function aura(transparency: number)
-	return {
-		anchor = "hips",
-		shape = "Ball",
-		size = v(0.95, 0.95, 0.95),
-		at = v(0, 0.1, 0),
-		color = AURA,
-		material = "Neon",
-		transparency = transparency,
-		plain = true,
-	}
-end
 
 -- elastic_wardrum: Gear 2 keeps the red vest, yellow sash and blue shorts.
 local DARK_RED = rgb(92, 20, 26)
@@ -541,17 +529,15 @@ return deepFreeze({
 		},
 	},
 
-	-- The gold forms: the same gi; gold hair standing up, green eyes and a glow. Core III has taller,
-	-- spikier hair, a stronger glow and small sparks.
+	-- The gold forms: the same gi; gold hair standing up, green eyes. Core III has taller, spikier
+	-- hair and small sparks.
 	ascending_core = {
 		["Core II"] = with(core, {
 			hair = { style = "spiky", color = GOLD_HAIR, lift = 0.75 },
-			extras = { aura(0.86) },
 		}),
 		["Core III"] = with(core, {
 			hair = { style = "tall", color = GOLD_HAIR, tip = rgb(255, 244, 175) },
 			extras = {
-				aura(0.78),
 				{
 					anchor = "head",
 					shape = "Block",

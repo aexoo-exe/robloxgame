@@ -461,8 +461,9 @@ function VfxDebug.dumpLive(): string
 			local live = false
 			local detail = ""
 			if item:IsA("ParticleEmitter") then
-				-- emitters keep their particles until they die; an emitter whose part is parked has none
-				live = holder ~= nil and holder.Parent ~= nil
+				-- pooled host emitters stay parked; one is live while its particles are out (liveUntil)
+				local untilAt = item:GetAttribute("liveUntil")
+				live = holder ~= nil and holder.Parent ~= nil and type(untilAt) == "number" and untilAt > os.clock()
 				detail = string.format(
 					"orientation=%s zoffset=%.2f lightEmission=%.2f brightness=%.2f timeScale=%.2f size=[%s] transparency=[%s] color=[%s] texture=%s",
 					item.Orientation.Name,

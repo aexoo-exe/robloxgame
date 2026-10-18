@@ -7,7 +7,11 @@
 --             floor "oval"): the widest, with its path
 --   light     PointLights within LIGHT_NEAR studs of the floor: the lowest, with its path
 --   neon      kit images not loaded when a play started while effects drew their neon fallback
---   leak      effect instances still live ReelConfig.leakSeconds after the last play ended
+--   leak      effect instances still live ReelConfig.leakSeconds after the last play ended (a
+--             pooled host emitter is live only while its particles are out: its `liveUntil`)
+--   emits     ImpactEffects.emitStats: emits spawned and dropped by the particle cap, particles
+--             trimmed, busy hosts reused, shapes dropped, textured shapes capped, lights dropped
+--   marks     crack and scorch textures on the floor are counted, not warned (ground marks)
 --   no cast   the unit never cast in its preview fight
 -- ReelCheck.report() prints one line per unit ("OK", or "WARN: ..." with short findings).
 -- Presentation only: reads effects, never changes them.
@@ -18,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
 
+local ImpactEffects = require(script.Parent.ImpactEffects)
 local ReelConfig = require(script.Parent.ReelConfig)
 local Vfx = require(script.Parent.Vfx)
 
@@ -42,6 +47,9 @@ type Record = {
 	neon: string?,
 	leak: string?,
 	noCast: boolean?,
+	marks: { [Instance]: boolean }, -- crack and scorch marks seen (allowed on the floor)
+	stats: { [string]: number }?, -- ImpactEffects.emitStats over the unit
+	capped: number, -- textured shapes left neon or skipped by the quality cap, over its plays
 }
 
 local results: { Record } = {}
@@ -73,7 +81,10 @@ local function liveAt(item: Instance): (boolean, Vector3?)
 		elseif holder then holder.Position
 		else nil
 	if item:IsA("ParticleEmitter") then
-		return holder ~= nil and holder.Parent ~= nil, at
+		-- Host emitters stay parked in their pools (ImpactEffects takeHost): one is live only while
+		-- particles it emitted are still out.
+		local untilAt = item:GetAttribute("liveUntil")
+		return holder ~= nil and holder.Parent ~= nil and type(untilAt) == "number" and untilAt > os.clock(), at
 	elseif item:IsA("Beam") or item:IsA("PointLight") or item:IsA("SurfaceGui") or item:IsA("BillboardGui") then
 		return (item :: any).Enabled, at
 	elseif item:IsA("Decal") then
@@ -130,6 +141,13 @@ local function flatWidth(item: Instance): (number, string)
 	return 0, ""
 end
 
+-- A crack or scorch texture on the ground (VfxConfig role "cracks"): meant to lie on the floor.
+local function groundMark(item: Instance): boolean
+	local part = if item:IsA("BasePart") then item else item:FindFirstAncestorWhichIsA("BasePart")
+	local tag = part and part:GetAttribute("vfx")
+	return type(tag) == "string" and string.sub(tag, 1, 7) == "cracks:"
+end
+
 -- One scan: live effect parts (the peak, counted as the audit does), every live effect instance
 -- and one of them (leaks), and the flat and light findings.
 local function scan(record: Record): (number, number, Instance?)
@@ -160,7 +178,9 @@ local function scan(record: Record): (number, number, Instance?)
 				end
 			elseif math.abs(height) <= FLOOR_NEAR then
 				local wide, what = flatWidth(item)
-				if wide > FLAT_WIDE then
+				if wide > FLAT_WIDE and groundMark(item) then
+					record.marks[item] = true -- a crack or scorch: a ground mark by design
+				elseif wide > FLAT_WIDE then
 					record.flat = worse(
 						record.flat,
 						string.format("%s %.1f studs at floor (%s)", what, wide, item:GetFullName()),
@@ -206,10 +226,11 @@ end
 -- Starts recording `unitType`; `floor` gives the field floor's height (nil while no field shows).
 function ReelCheck.begin(unitType: string, tier: number, floor: () -> number?)
 	stopRecording()
-	local record: Record = { unit = unitType, tier = tier, peak = 0, errors = 0 }
+	local record: Record = { unit = unitType, tier = tier, peak = 0, errors = 0, marks = {}, capped = 0 }
 	current = record
 	floorOf = floor
 	table.insert(results, record)
+	ImpactEffects.resetEmitStats()
 	logConnection = LogService.MessageOut:Connect(function(message, kind)
 		if kind ~= Enum.MessageType.MessageWarning and kind ~= Enum.MessageType.MessageError then
 			return
@@ -248,6 +269,8 @@ function ReelCheck.playEnded()
 	if not record or not Vfx.enabled() then
 		return
 	end
+	-- The quality cap's count restarts with each preview (ImpactEffects.setClock): add this play's.
+	record.capped += ImpactEffects.emitStats().capped
 	local fallback = fallbackDraws()
 	if unloadedAtStart > 0 and fallback > 0 then
 		record.neon = string.format("neon: %d draws, %d kit images not loaded", fallback, unloadedAtStart)
@@ -264,6 +287,7 @@ function ReelCheck.finish()
 	if count > 0 then
 		record.leak = string.format("leak: %d effects still live (%s)", count, if any then any:GetFullName() else "?")
 	end
+	record.stats = ImpactEffects.emitStats()
 	stopRecording()
 end
 
@@ -308,13 +332,45 @@ function ReelCheck.report(note: string?)
 		if record.leak then
 			table.insert(findings, record.leak)
 		end
+		-- What the effects pipeline dropped or skipped (ImpactEffects.emitStats): any of it means
+		-- effects this unit asked for never showed.
+		local stats = record.stats or {}
+		local skipped = {}
+		local function why(count: number?, label: string)
+			if count and count > 0 then
+				table.insert(skipped, string.format("%d %s", count, label))
+			end
+		end
+		why(stats.trimmed, "particles cut by the particle cap")
+		why(stats.stolen, "busy hosts reused")
+		why(stats.shapesDropped, "shapes (pool full)")
+		why(record.capped, "textured shapes neon/skipped (quality cap)")
+		why(stats.lightsDropped, "lights (light cap)")
+		if (stats.dropped or 0) > 0 or #skipped > 0 then
+			table.insert(
+				findings,
+				string.format("%d emits dropped%s", stats.dropped or 0, if #skipped > 0 then " (" .. table.concat(skipped, ", ") .. ")" else "")
+			)
+		end
 		local name = record.unit .. string.rep(" ", math.max(1, 20 - #record.unit))
+		local marks = 0
+		for _ in record.marks do
+			marks += 1
+		end
+		local summary = string.format(
+			"peak %d/%d, emits: %d spawned, %d dropped%s",
+			record.peak,
+			budget,
+			stats.spawned or 0,
+			stats.dropped or 0,
+			if marks > 0 then string.format(", %d ground marks", marks) else ""
+		)
 		if #findings == 0 then
 			ok += 1
-			table.insert(lines, string.format("%s OK (peak %d/%d)", name, record.peak, budget))
+			table.insert(lines, string.format("%s OK (%s)", name, summary))
 		else
 			warned += 1
-			table.insert(lines, name .. " WARN: " .. table.concat(findings, "; "))
+			table.insert(lines, string.format("%s WARN (%s): %s", name, summary, table.concat(findings, "; ")))
 		end
 	end
 	table.insert(lines, string.format("summary: %d ok, %d with warnings", ok, warned))

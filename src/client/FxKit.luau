@@ -276,37 +276,25 @@ function FxKit.sweep(
 	end
 end
 
--- A flat disc on the ground, `diameter` across, fading from `start` transparency.
+-- A soft disc on the ground: draws nothing now. A disc lying on the floor read as a sticker (the
+-- reel check flags any plane at the floor); ground marks keep their crack or scorch texture alone.
+-- Kept so its callers stay as they are.
 function FxKit.disc(
-	position: Vector3,
-	color: Color3,
-	diameter: number,
-	duration: number,
-	start: number?,
-	delay: number?
-)
-	-- A picked soft texture (VfxConfig.uses `disc`): a soft-edged disc, a little wider.
-	local soft = textured("disc", color, "plane")
-	ImpactEffects.shape(if soft then "Block" else "Cylinder", color, duration, function(part, progress)
-		-- Swells in fast, then keeps spreading while it fades.
-		local swell = 1 - (1 - math.min(1, progress * 4)) ^ 2
-		local grown = diameter * (0.7 + 0.3 * swell + 0.2 * progress) * (if soft then 1.35 else 1)
-		part.Size = Vector3.new(0.06, grown, grown)
-		part.CFrame = CFrame.new(position + Vector3.new(0, 0.07, 0)) * FLAT
-		part.Transparency = holdFade(progress, start or 0.35, 0.5)
-	end, delay, Enum.Material.SmoothPlastic, soft)
-end
+	_position: Vector3,
+	_color: Color3,
+	_diameter: number,
+	_duration: number,
+	_start: number?,
+	_delay: number?
+) end
 
--- A ring that swells on the ground (a disc, see-through; the picked ring texture when there is
--- one), `diameter` at the end.
+-- A ring that swells out from `position` (ground), `diameter` at the end: camera-facing and raised
+-- off the ground (ImpactEffects.ring). It used to lie on the floor as a textured plane or a neon
+-- disc, which read as a flat sticker (the reel check's "SurfaceGui at floor" in every unit).
 function FxKit.ring(position: Vector3, color: Color3, diameter: number, duration: number, delay: number?)
-	local ring = textured("ring", color, "plane")
-	ImpactEffects.shape(if ring then "Block" else "Cylinder", color, duration, function(part, progress)
-		local grown = diameter * (0.25 + 0.75 * (1 - (1 - progress) ^ 2))
-		part.Size = Vector3.new(0.08, grown, grown)
-		part.CFrame = CFrame.new(position + Vector3.new(0, 0.12, 0)) * FLAT
-		part.Transparency = fadeIn(progress, if ring then 0.15 else 0.3)
-	end, delay, nil, ring)
+	ImpactEffects.later(delay, function()
+		ImpactEffects.ring(position, color, diameter, duration)
+	end)
 end
 
 -- A ground mark of `style` (AbilityFxConfig.elements `ground`) with `radius` studs.

@@ -35,8 +35,8 @@ local Vfx = require(script.Parent.Vfx)
 local ImpactEffects = {}
 
 local POOLS = AnimationConfig.pools
-local FLAT = CFrame.Angles(0, 0, math.pi / 2) -- a cylinder's axis (X) upright: a flat disc
 local RING_THICKNESS = 0.08
+local RING_MAX = 9 -- studs: the widest camera-facing ring (ImpactEffects.ring)
 
 -- Particle kinds: the built-in texture (kept when no picked texture fits), the physics that do not
 -- change per burst, and `usage`, the VfxConfig.uses entry that picks its texture.
@@ -157,9 +157,10 @@ local level = AnimationConfig.qualityLevels.high
 local vfxLevel = VfxConfig.quality.high
 
 local hosts: { [string]: { ParticleEmitter } } = {}
-local nextHost: { [string]: number } = {}
 local live: { { expires: number, count: number } } = {} -- particle batches, real time
 local liveCount = 0
+-- Particle time scale (slow-motion previews): every host emitter plays at this speed.
+local particleTimeScale = 1
 
 local free: { [string]: { Part } } = { ring = {}, ball = {} }
 local made: { [string]: number } = { ring = 0, ball = 0 }
@@ -708,19 +709,64 @@ end
 
 -- Particles -------------------------------------------------------------------------------------------
 
--- A pooled host emitter of `kind` drawing `texture` (nil: the kind's built-in texture), taken in turn.
-local function host(kind: string, texture: Vfx.Texture?): ParticleEmitter
-	local key = if texture then kind .. "|" .. texture.image else kind
+-- Host emitters per key (a kind or emit texture), up to HOST_CAP. A ParticleEmitter's Size, Color,
+-- Transparency, Drag and Acceleration also apply to the particles it already shows: a host still
+-- showing particles taken for another effect restyles them (a tiny ember's host turning a big
+-- flash into a dot, or a dot into a screen-filling ball). So an idle host (its particles all gone)
+-- is taken first, then a new one; only when HOST_CAP are all busy is the one that frees soonest
+-- reused (counted: emitStats.stolen).
+local HOST_CAP = POOLS.emitters * 4
+local busyUntil: { [ParticleEmitter]: number } = setmetatable({}, { __mode = "k" }) :: any
+
+-- What the particle budget and the host pools did since the last reset (ReelCheck's report).
+local emitStats = { spawned = 0, dropped = 0, trimmed = 0, stolen = 0, shapesDropped = 0, lightsDropped = 0 }
+
+local function takeHost(key: string, make: () -> ParticleEmitter, seconds: number): ParticleEmitter
 	local list = hosts[key]
 	if not list then
 		list = {}
 		hosts[key] = list
-		nextHost[key] = 0
 	end
-	local index = nextHost[key] % POOLS.emitters + 1
-	nextHost[key] = index
-	local emitter = list[index]
-	if not emitter or not emitter.Parent or not emitter.Parent.Parent then
+	local real = os.clock()
+	-- Real seconds its particles stay out (longer in slow motion; ImpactEffects.setTimeScale).
+	local busy = real + seconds / math.max(particleTimeScale, 0.05)
+	local soonest: ParticleEmitter? = nil
+	local soonestAt = math.huge
+	for i = #list, 1, -1 do
+		local emitter = list[i]
+		if not emitter.Parent or not emitter.Parent.Parent then
+			table.remove(list, i)
+			continue
+		end
+		local freeAt = busyUntil[emitter] or 0
+		if freeAt <= real then
+			busyUntil[emitter] = busy
+			emitter:SetAttribute("liveUntil", busy)
+			return emitter
+		end
+		if freeAt < soonestAt then
+			soonest, soonestAt = emitter, freeAt
+		end
+	end
+	local emitter: ParticleEmitter
+	if #list < HOST_CAP or not soonest then
+		emitter = make()
+		table.insert(list, emitter)
+	else
+		emitStats.stolen += 1
+		emitter = soonest :: ParticleEmitter
+		busy = math.max(busy, soonestAt)
+	end
+	busyUntil[emitter] = busy
+	emitter:SetAttribute("liveUntil", busy)
+	return emitter
+end
+
+-- A host emitter of `kind` drawing `texture` (nil: the kind's built-in texture) for particles living
+-- up to `seconds` (takeHost).
+local function host(kind: string, texture: Vfx.Texture?, seconds: number): ParticleEmitter
+	local key = if texture then kind .. "|" .. texture.image else kind
+	return takeHost(key, function()
 		local part = Instance.new("Part")
 		part.Name = kind
 		bare(part)
@@ -750,10 +796,8 @@ local function host(kind: string, texture: Vfx.Texture?): ParticleEmitter
 			created.FlipbookStartRandom = flipbook.mode == "Loop"
 		end
 		created.Parent = part
-		list[index] = created
-		emitter = created
-	end
-	return emitter
+		return created
+	end, seconds)
 end
 
 -- How many of `wanted` particles may be emitted now (quality share and the live cap).
@@ -765,10 +809,17 @@ local function budget(wanted: number, lifetime: number): number
 			table.remove(live, i)
 		end
 	end
-	local count = math.floor(wanted * level.particles + 0.5)
-	count = math.min(count, level.maxParticles - liveCount)
+	local share = math.floor(wanted * level.particles + 0.5)
+	local count = math.min(share, level.maxParticles - liveCount)
 	if count <= 0 then
+		if share > 0 then
+			emitStats.dropped += 1 -- the live particle cap is full: nothing drawn
+		end
 		return 0
+	end
+	emitStats.spawned += 1
+	if count < share then
+		emitStats.trimmed += share - count -- particles cut by the live cap
 	end
 	liveCount += count
 	table.insert(live, { expires = real + lifetime, count = count })
@@ -804,7 +855,7 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	if texture and texture.mode ~= "particle" then
 		texture = nil
 	end
-	local emitter = host(kind, texture)
+	local emitter = host(kind, texture, burst.lifetime[2])
 	local part = emitter.Parent :: BasePart
 	local aim = if direction and direction.Magnitude > 1e-3 then direction.Unit else Vector3.yAxis
 	part.CFrame = CFrame.lookAt(position, position + aim)
@@ -835,8 +886,6 @@ end
 
 -- Fully specified particles (the showcase recipe) ----------------------------------------------------
 
--- Particle time scale (slow-motion previews): every host emitter plays at this speed.
-local particleTimeScale = 1
 function ImpactEffects.setTimeScale(scale: number)
 	particleTimeScale = math.clamp(scale, 0, 1)
 	for _, list in hosts do
@@ -881,17 +930,8 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 		texture = nil
 	end
 	local content = if texture then texture.image else (spec.fallback or KINDS.spark.texture)
-	local key = "emit|" .. content
-	local list = hosts[key]
-	if not list then
-		list = {}
-		hosts[key] = list
-		nextHost[key] = 0
-	end
-	local index = nextHost[key] % POOLS.emitters + 1
-	nextHost[key] = index
-	local emitter = list[index]
-	if not emitter or not emitter.Parent or not emitter.Parent.Parent then
+	-- An idle host of this texture (takeHost): a busy one would restyle the particles it still shows.
+	local emitter = takeHost("emit|" .. content, function()
 		local part = Instance.new("Part")
 		part.Name = "emit"
 		bare(part)
@@ -912,9 +952,8 @@ function ImpactEffects.emit(position: Vector3, spec: Emit)
 			created.FlipbookStartRandom = flipbook.mode == "Loop"
 		end
 		created.Parent = part
-		list[index] = created
-		emitter = created
-	end
+		return created
+	end, spec.lifetime[2])
 	local scale = if texture then texture.scale or 1 else 1
 	local part = emitter.Parent :: BasePart
 	local aim = if spec.direction and spec.direction.Magnitude > 1e-3 then spec.direction.Unit else Vector3.yAxis
@@ -974,6 +1013,9 @@ end
 local MAX_LIGHTS = 3
 function ImpactEffects.light(position: Vector3, color: Color3, brightness: number, range: number, duration: number)
 	if not level.rings or #lights >= MAX_LIGHTS then
+		if level.rings then
+			emitStats.lightsDropped += 1
+		end
 		return
 	end
 	local part = table.remove(spareLights)
@@ -1074,6 +1116,7 @@ function ImpactEffects.shape(
 				end
 			end
 			if not part then
+				emitStats.shapesDropped += 1 -- the shape pool is full of other kinds
 				return
 			end
 		end
@@ -1167,43 +1210,30 @@ local function animate(
 	})
 end
 
--- A flat ring on the ground at `position` growing to `diameter` studs and fading: the picked ring
--- texture (VfxConfig.uses `ring`) on a plane, or a neon disc.
+-- A ring at `position` (ground) growing to `diameter` studs and fading: a soft camera-facing ring
+-- raised off the ground. Never a plane lying on the floor (the ring texture on a flat Block read as
+-- a sticker, the reel check's "SurfaceGui at floor").
 function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?, start: number?)
 	local seconds = duration or 0.35
 	local first = start or 0.25 -- the starting transparency
-	local texture = Vfx.texture("ring", color, "plane")
 	if not level.rings then
 		return
 	end
-	if not texture or skinned >= vfxLevel.maxSkinned then
-		-- No ring texture (or no room for one): a soft camera-facing ring raised off the ground,
-		-- never a flat neon disc on the floor.
-		ImpactEffects.emit(position + Vector3.new(0, 0.4 + diameter * 0.15, 0), {
-			usage = "shock",
-			fallback = KINDS.bubble.texture,
-			count = 1,
-			color = ColorSequence.new(color),
-			size = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, diameter * 0.3),
-				NumberSequenceKeypoint.new(1, diameter),
-			}),
-			transparency = NumberSequence.new(math.max(first, 0.45), 1),
-			lifetime = { seconds, seconds },
-			lightEmission = 1,
-		})
-		return
-	end
-	if texture then
-		local center = CFrame.new(position + Vector3.new(0, 0.1, 0)) * FLAT
-		ImpactEffects.shape("Block", color, seconds, function(part, progress)
-			local eased = 1 - (1 - progress) * (1 - progress)
-			local grown = diameter * (0.3 + 0.7 * eased)
-			part.Size = Vector3.new(0.05, grown, grown)
-			part.CFrame = center
-			part.Transparency = first + (1 - first) * progress
-		end, nil, nil, texture)
-	end
+	-- Camera-facing, a ring as wide as a big area would cover the whole close-up: capped.
+	diameter = math.min(diameter, RING_MAX)
+	ImpactEffects.emit(position + Vector3.new(0, 0.4 + diameter * 0.15, 0), {
+		usage = "shock",
+		fallback = KINDS.bubble.texture,
+		count = 1,
+		color = ColorSequence.new(color),
+		size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, diameter * 0.3),
+			NumberSequenceKeypoint.new(1, diameter),
+		}),
+		transparency = NumberSequence.new(math.max(first, 0.45), 1),
+		lifetime = { seconds, seconds },
+		lightEmission = 1,
+	})
 end
 
 -- A flash at `position` swelling to `diameter` studs and fading: the core of a hit or burst. With
@@ -1228,7 +1258,7 @@ function ImpactEffects.ball(
 		local config = VfxConfig.flash
 		local life = seconds * config.life
 		if budget(1, life) > 0 then
-			local emitter = host("flash", texture)
+			local emitter = host("flash", texture, life)
 			local part = emitter.Parent :: BasePart
 			part.CFrame = CFrame.new(position)
 			emitter.Color = ColorSequence.new(Vfx.tint(texture, tint))
@@ -1319,6 +1349,28 @@ function ImpactEffects.shakeOffset(): CFrame
 	local roll = math.noise(t, t * 0.5 + 3.1) * 2
 	return CFrame.new(x * config.maxOffset * power, y * config.maxOffset * power, 0)
 		* CFrame.Angles(0, 0, math.rad(config.maxRoll) * roll * power)
+end
+
+-- What the effects pipeline did since the last reset (ReelCheck): particle emits spawned, dropped
+-- whole by the live particle cap, particles trimmed by it, busy hosts reused (restyled), shapes
+-- dropped by a full pool, textured shapes left neon or skipped by the quality cap (maxSkinned),
+-- lights dropped by MAX_LIGHTS.
+function ImpactEffects.emitStats(): { [string]: number }
+	return {
+		spawned = emitStats.spawned,
+		dropped = emitStats.dropped,
+		trimmed = emitStats.trimmed,
+		stolen = emitStats.stolen,
+		shapesDropped = emitStats.shapesDropped,
+		capped = capped,
+		lightsDropped = emitStats.lightsDropped,
+	}
+end
+
+function ImpactEffects.resetEmitStats()
+	for name in emitStats do
+		emitStats[name] = 0
+	end
 end
 
 -- Removes every ring, ball, shape and the impact frame now (particles already emitted finish on

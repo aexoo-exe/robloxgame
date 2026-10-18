@@ -103,6 +103,8 @@ local function powerUp(run)
 	Kit.aura(run, -0.55, 0.3, gold, if run.reduced then 6 else 10, function(u)
 		return run.view.part.Size.Y * (0.5 + 0.9 * Kit.easeIn(u))
 	end)
+	-- The gold glow around him through the power-up (particles; the form looks have no glow shell).
+	VfxRecipe.aura(run, run.view, VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4)), 1, -0.55, 0.85)
 	ImpactEffects.burst("glow", run:ground() + Vector3.new(0, 0.5, 0), Vector3.yAxis, {
 		color = gold,
 		count = 8,
