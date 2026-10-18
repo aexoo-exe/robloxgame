@@ -5,7 +5,7 @@
 -- (`asset` the decal it came in); a texture without one is not uploaded yet (`pending`).
 
 return {
-	generated = "2026-10-17",
+	generated = "2026-10-18",
 	roles = {
 		slash = {
 			{ rank = 1, kind = "image", name = "slash_thin", image = 106612806680342, asset = 70403912553608 },
