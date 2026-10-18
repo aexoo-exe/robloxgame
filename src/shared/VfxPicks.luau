@@ -50,169 +50,69 @@ return {
 			{ rank = 1, kind = "image", name = "impact_starburst", image = 89446325997439, asset = 113459028571259 },
 		},
 		fireBurst = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_fire_burst",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_fire_burst", image = 102484028005916, asset = 93947430691639 },
 		},
 		steam = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_steam_billow",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_steam_billow", image = 80414161487307, asset = 104090005125774 },
 		},
 		bolts = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_lightning",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_lightning", image = 136304739164379, asset = 102069120194244 },
 		},
 		crackle = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_crackle",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_crackle", image = 114019519903016, asset = 111163913390408 },
 		},
 		hitStar = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_impact_star",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_impact_star", image = 90567699300232, asset = 78381368552616 },
 		},
 		dustBurst = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_dust_burst",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_dust_burst", image = 98086354228808, asset = 123055194660220 },
 		},
 		splash = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_water_splash",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_water_splash", image = 78225650580937, asset = 94165841098224 },
 		},
 		poof = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_toon_poof",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_toon_poof", image = 99844752520598, asset = 72466073726407 },
 		},
 		swoosh = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_swoosh_ribbon",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_swoosh_ribbon", image = 131788974067053, asset = 130789465766190 },
 		},
 		crescent = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_slash_crescent",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_slash_crescent", image = 113103546708653, asset = 111616618707770 },
 		},
 		slashLine = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_slash_line",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_slash_line", image = 126392652506822, asset = 78033269591676 },
 		},
 		brush = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_brush_swirl",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_brush_swirl", image = 79672713602638, asset = 90320806529988 },
 		},
 		runes = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_rune_circle",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "fx_tri_spiral_eye",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_rune_circle", image = 110141631284263, asset = 77424571239856 },
+			{ rank = 2, kind = "image", name = "fx_tri_spiral_eye", image = 97592372397785, asset = 73239812525968 },
 		},
 		speedLines = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_speed_lines",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_speed_lines", image = 82640789363274, asset = 88251104997107 },
 		},
 		smear = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_fist_blur",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_fist_blur", image = 120809744508468, asset = 91878513799429 },
 		},
 		halftone = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_halftone_burst",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_halftone_burst", image = 117796007830849, asset = 100258004144582 },
 		},
 		shadow = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_shadow_pool",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_shadow_pool", image = 117353391706465, asset = 116477183366902 },
 		},
 		auraSpike = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_aura_spike",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_aura_spike", image = 138320576952200, asset = 88527193225248 },
 		},
 		ink = {
-			{
-				rank = 1,
-				kind = "image",
-				name = "fx_ink_splatter",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
-			{
-				rank = 2,
-				kind = "image",
-				name = "fx_ink_spike_burst",
-				pending = "not uploaded yet (lune run scripts/vfx-upload)",
-			},
+			{ rank = 1, kind = "image", name = "fx_ink_splatter", image = 132278086797131, asset = 133257064030151 },
+			{ rank = 2, kind = "image", name = "fx_ink_spike_burst", image = 130865898737021, asset = 131899682285956 },
 		},
 	},
-	meshes = {},
+	meshes = {
+		mesh_shock_ring = 77207070986474,
+		mesh_slash_arc = 92711311956408,
+		mesh_spiral_rings = 91655154463870,
+		mesh_twister = 134233795999530,
+	},
 }
