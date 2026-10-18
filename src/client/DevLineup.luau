@@ -98,8 +98,11 @@ local FIELD_UNIT = { 4, 4 }
 local FIELD_DUMMY = "placeholder_creep" -- a PvE creep's look; its stats are replaced
 local FIELD_DUMMIES = { { 4, 4 }, { 5, 4 }, { 3, 4 }, { 4, 3 }, { 5, 3 }, { 3, 3 }, { 4, 2 } }
 -- For a unit whose cast heals a wounded ally: an ally beside it, worn down by the dummy across.
+-- Column 5 is on the far side from the arena cameras (they look from the -X side), so it never
+-- stands between the camera and the caster; it stays in the front row so the dummy across from it
+-- (FIELD_DUMMIES 5,4) is its nearest enemy and wears it down.
 local FIELD_ALLY = "placeholder_creep_big"
-local FIELD_ALLY_CELL = { 3, 4 }
+local FIELD_ALLY_CELL = { 5, 4 }
 local FIELD_ALLY_HEALTH = 1000
 local FIELD_MANA = 12 -- the unit's mana bar in the preview fight (one attack fills most of it)
 local FIELD_SECONDS = 25 -- how long the preview fight runs

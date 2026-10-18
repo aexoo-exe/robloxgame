@@ -40,7 +40,8 @@ end
 -- The bolt tearing along the ground from him to `to` (the real dash's end, or the target), a
 -- second strand crossing it 0.1 s later, sparks and scorch behind (~0.45 s in all).
 local function groundBolt(run, to: Vector3)
-	local lift = Vector3.new(0, 0.7, 0)
+	-- Raised a full stud: its thin neon core never grazes the floor.
+	local lift = Vector3.new(0, 1, 0)
 	local from = run:ground()
 	VfxRecipe.arcs(run, from + lift, to + lift, theme(run), 1, 1.6 * run:scale(), 0.4)
 	run:at(run:designTime() + 0.1, function()

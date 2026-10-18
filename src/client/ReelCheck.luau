@@ -95,9 +95,15 @@ local function liveAt(item: Instance): (boolean, Vector3?)
 	return false, nil
 end
 
+-- A part's sides, smallest to largest.
+local function sides(size: Vector3): (number, number, number)
+	local list = { size.X, size.Y, size.Z }
+	table.sort(list)
+	return list[1], list[2], list[3]
+end
+
 local function widest(size: Vector3): (number, number)
-	local thin = math.min(size.X, size.Y, size.Z)
-	local wide = math.max(size.X, size.Y, size.Z)
+	local thin, _, wide = sides(size)
 	return thin, wide
 end
 
@@ -120,8 +126,10 @@ end
 -- The flat-on-floor width of an item (0: not a flat visual), and what to call it.
 local function flatWidth(item: Instance): (number, string)
 	if item:IsA("BasePart") then
-		local thin, wide = widest(item.Size)
-		if item.Material == Enum.Material.Neon or thin < FLAT_THIN then
+		-- A plane (or a neon blob): two sides wide. A thin rod (a lightning core) is not flat.
+		local thin, middle, wide = sides(item.Size)
+		local plane = middle > FLAT_WIDE * 0.5
+		if plane and (item.Material == Enum.Material.Neon or thin < FLAT_THIN) then
 			return wide, "flat part"
 		end
 	elseif item:IsA("SurfaceGui") or item:IsA("Decal") then
