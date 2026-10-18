@@ -1,12 +1,14 @@
 -- clockbreaker (Tier 3): the barrage, from a spirit behind a calm user. The real cast hits his
 -- target four times over 0.75 s and then once hard with a stun at 1 s (a 1-second cast time).
---   -0.40  hands in his coat pockets, cap brim down; a purple spirit fades in behind him
+--   -0.40  hands in his coat pockets, cap brim down; a purple spirit (an aura of rising motes and
+--          a soft rim glow, no solid shape) fades in behind him
 --   -0.15  the spirit lunges forward past his shoulder
---    0     the barrage: fist afterimages pour into the target, a small impact on each real hit
+--    0     the barrage: fist streaks pour into the target, a small impact on each real hit
 --   +1.00  the final punch on the real last hit: a big purple burst, hit-stop
 --   +1.00  the spirit fades back; his hands never left his pockets
 -- Layers: the shared recipe (VfxRecipe, an energy theme in his purple with impact dust, tier 3).
 
+local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
@@ -38,36 +40,40 @@ local function alpha(t: number): number
 	return Kit.smooth((t + 0.4) / 0.2) * (1 - Kit.smooth((t - 1.05) / 0.25))
 end
 
+-- The spirit: a purple aura shaped around where it stands (VfxRecipe.aura; no see-through parts),
+-- stronger while it is fully in.
 local function buildSpirit(run)
-	local purple = run.style.primary
 	local h = run.view.part.Size.Y * 1.2
-	local parts = {
-		{ CFrame.new(0, 0, 0), Vector3.new(h * 0.38, h * 0.4, h * 0.22), purple },
-		{ CFrame.new(0, h * 0.31, 0), Vector3.one * h * 0.22, purple:Lerp(WHITE, 0.2) },
-	}
-	for _, piece in parts do
-		Kit.block(run, -0.4, 1.3, piece[3], function()
-			return spiritFrame(run, run:designTime()) * piece[1]
-		end, function()
-			return piece[2]
-		end, function()
-			return 1 - 0.55 * alpha(run:designTime())
-		end, Enum.Material.Neon)
+	local spirit = VfxRecipe.energy(run.style.primary, WHITE:Lerp(run.style.primary, 0.4))
+	VfxRecipe.aura(run, function()
+		local t = run:designTime()
+		if alpha(t) < 0.05 then
+			return nil, 0
+		end
+		return spiritFrame(run, t).Position, h
+	end, spirit, 1.1, -0.4, 1.7)
+end
+
+-- One fist afterimage: a short purple streak flying from the spirit into the target.
+local function fistStreak(from: Vector3, to: Vector3, color: Color3)
+	local along = to - from
+	if along.Magnitude < 1e-3 then
+		return
 	end
-	-- Two arms, punching in turn as fast as the eye allows.
-	for side = -1, 1, 2 do
-		Kit.block(run, -0.4, 1.3, purple, function()
-			local t = run:designTime()
-			local punch = if t >= 0 and t < 1.05 then math.abs(math.sin((t * 18) + (side + 1) * 0.8)) else 0
-			return spiritFrame(run, t)
-				* CFrame.new(side * h * 0.26, h * 0.05, -h * (0.05 + 0.45 * punch))
-				* CFrame.Angles(math.rad(-90 * math.min(1, punch * 2)), 0, 0)
-		end, function()
-			return Vector3.new(h * 0.11, h * 0.34, h * 0.11)
-		end, function()
-			return 1 - 0.55 * alpha(run:designTime())
-		end, Enum.Material.Neon)
-	end
+	ImpactEffects.emit(from, {
+		usage = "sparks",
+		count = 2,
+		color = VfxRecipe.colors({ { 0, WHITE:Lerp(color, 0.3) }, { 1, color } }),
+		size = VfxRecipe.curve({ { 0, 0.55 }, { 1, 0.2 } }),
+		transparency = VfxRecipe.curve({ { 0, 0.1 }, { 0.7, 0.3 }, { 1, 1 } }),
+		lifetime = { 0.1, 0.12 },
+		speed = { along.Magnitude / 0.11, along.Magnitude / 0.1 },
+		spread = 6,
+		direction = along.Unit,
+		lightEmission = 1,
+		brightness = 2.5,
+		stretch = true,
+	})
 end
 
 def.beats = {
@@ -93,11 +99,7 @@ def.beats = {
 					local from = spiritFrame(run, t).Position
 					local to = target.part.Position
 						+ Vector3.new((math.random() - 0.5) * 1.2, (math.random() - 0.5) * 1.2, 0)
-					Kit.live(run, t, t + 0.1, "Ball", run.style.primary, function(part, u)
-						part.Size = Vector3.one * 0.55
-						part.CFrame = CFrame.new(from:Lerp(to, u))
-						part.Transparency = 0.3 + 0.6 * u
-					end)
+					fistStreak(from, to, run.style.primary)
 				end)
 			end
 			run:sound("charge", 1.2)

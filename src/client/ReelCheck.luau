@@ -1,7 +1,7 @@
 -- Studio-only: the reel's CHECK pass (DevLineup, key R). While the reel plays a unit it records,
 -- from a scan of the effect folders every SAMPLE seconds (nothing per frame):
 --   errors    warnings and errors in Output during the unit's plays (LogService)
---   peak      the most live effect instances at once, against ReelConfig.budget[tier]
+--   peak      the most live effect parts at once (as the audit counts), against ReelConfig.budget[tier]
 --   flat      Neon or flat parts, SurfaceGuis, Decals and flat-oriented particles (VelocityPerpendicular)
 --             within FLOOR_NEAR studs of the field floor and wider than FLAT_WIDE studs (the old
 --             floor "oval"): the widest, with its path
@@ -130,10 +130,11 @@ local function flatWidth(item: Instance): (number, string)
 	return 0, ""
 end
 
--- One scan: the live count (for the peak) and the flat and light findings.
-local function scan(record: Record): (number, Instance?)
+-- One scan: live effect parts (the peak, counted as the audit does), every live effect instance
+-- and one of them (leaks), and the flat and light findings.
+local function scan(record: Record): (number, number, Instance?)
 	local floor = floorOf()
-	local count, any = 0, nil
+	local parts, count, any = 0, 0, nil
 	for _, root in roots() do
 		for _, item in root:GetDescendants() do
 			local live, at = liveAt(item)
@@ -142,6 +143,9 @@ local function scan(record: Record): (number, Instance?)
 			end
 			count += 1
 			any = any or item
+			if item:IsA("BasePart") then
+				parts += 1
+			end
 			if not floor or not at then
 				continue
 			end
@@ -166,7 +170,7 @@ local function scan(record: Record): (number, Instance?)
 			end
 		end
 	end
-	return count, any
+	return parts, count, any
 end
 
 -- Kit images not loaded now (drawn neon until they load).
@@ -219,8 +223,8 @@ function ReelCheck.begin(unitType: string, tier: number, floor: () -> number?)
 	local mine = token
 	task.spawn(function()
 		while mine == token do
-			local count = scan(record)
-			record.peak = math.max(record.peak, count)
+			local parts = scan(record)
+			record.peak = math.max(record.peak, parts)
 			task.wait(SAMPLE)
 		end
 	end)
@@ -256,7 +260,7 @@ function ReelCheck.finish()
 	if not record then
 		return
 	end
-	local count, any = scan(record)
+	local _, count, any = scan(record)
 	if count > 0 then
 		record.leak = string.format("leak: %d effects still live (%s)", count, if any then any:GetFullName() else "?")
 	end

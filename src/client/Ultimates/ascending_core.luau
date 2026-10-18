@@ -133,13 +133,25 @@ local function powerUp(run)
 		if not target then
 			return
 		end
+		-- The ki blast: a gold streak of glow crossing to the target (no solid ball).
 		local from = run:hand("right")
-		local to = target.part.Position
-		Kit.live(run, -0.08, 0, "Ball", WHITE:Lerp(gold, 0.4), function(part, u)
-			part.Size = Vector3.one * 0.9 * run:scale()
-			part.CFrame = CFrame.new(from:Lerp(to, Kit.easeIn(u)))
-			part.Transparency = 0.05
-		end)
+		local along = target.part.Position - from
+		if along.Magnitude > 1e-3 then
+			ImpactEffects.emit(from, {
+				usage = "sparks",
+				count = if run.reduced then 2 else 4,
+				color = VfxRecipe.colors({ { 0, WHITE:Lerp(gold, 0.35) }, { 1, gold } }),
+				size = VfxRecipe.curve({ { 0, 0.8 * run:scale() }, { 1, 0.35 * run:scale() } }),
+				transparency = VfxRecipe.curve({ { 0, 0.1 }, { 0.8, 0.3 }, { 1, 1 } }),
+				lifetime = { 0.08, 0.1 },
+				speed = { along.Magnitude / 0.09, along.Magnitude / 0.08 },
+				spread = 4,
+				direction = along.Unit,
+				lightEmission = 1,
+				brightness = 2.5,
+				stretch = true,
+			})
+		end
 		run:sound("whoosh", 1.4)
 	end)
 end
@@ -194,7 +206,9 @@ def.beats = {
 
 function def.release(run): boolean
 	if not run.memo.line then
-		ImpactEffects.ball(run:hand("right"), WHITE:Lerp(run.style.secondary, 0.4), 1.4 * run:scale(), 0.12)
+		-- The palm's pop (a short tinted flash and stars, not a white ball).
+		local gold = run.style.secondary
+		VfxRecipe.pop(run, run:hand("right"), 0.9 * run:scale(), VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4)))
 	end
 	return true
 end
@@ -254,10 +268,12 @@ function def.event(run, event): boolean
 		return true
 	elseif kind == "Form" then
 		-- The step up: an eruption of gold around him.
+		-- An eruption of gold off his body (an aura flaring up, not a see-through column).
 		local ground = run:ground()
-		FxKit.column(ground, gold, run.view.part.Size.Y * 2.2, 2.6 * run:scale(), 0.6)
 		FxKit.ring(ground, gold, HEX * 2.2, 0.5)
 		local power = VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4))
+		VfxRecipe.aura(run, run.view, power, 1.6, run:designTime(), 0.6)
+		VfxRecipe.embers(run, ground + Vector3.new(0, 0.5, 0), run:scale(), power.ember, 14)
 		VfxRecipe.core(run:chest(), run.view.part.Size.Y * 0.8, 1, power.core)
 		VfxRecipe.sparks(run:chest(), 0.7 * run:scale(), 30, power.spark)
 		VfxRecipe.light(run, run:chest(), 2.5 * run:scale(), power.light, 1)

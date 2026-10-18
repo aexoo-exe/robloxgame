@@ -36,8 +36,9 @@ return {
 	endSeconds = 2.0, -- the "REEL END" card
 
 	-- The CHECK pass (ReelCheck), printed at the reel's end.
-	-- Most live effect instances at once per ultimate tier (1-5); more is a warning. A starting
-	-- guess for the check, not a rule elsewhere: tune it from the reports.
-	budget = { 14, 18, 22, 26, 32 },
+	-- Most effect parts alive at once per ultimate tier (1-5): the audit's limits
+	-- (scripts/audit-units.luau PEAK_LIMIT; keep the two the same). ReelCheck counts live parts
+	-- for this, as the audit does.
+	budget = { 14, 18, 26, 34, 44 },
 	leakSeconds = 3.0, -- after a unit's last play: anything still live then is a leak
 }

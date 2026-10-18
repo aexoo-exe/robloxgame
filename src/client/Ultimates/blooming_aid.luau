@@ -1,8 +1,9 @@
 -- blooming_aid (Tier 1): soft healing, or a ground-cracking punch. The real cast heals her
 -- lowest-health ally if anyone is low, and otherwise hits her target, at the Cast event.
 -- Heal:
---   -0.20  green glow in her palms; she reaches toward the ally
---    0     green motes stream to the ally she really heals; it glows green with petals of light
+--   -0.20  a soft green-pink glow gathers around her; she reaches toward the ally
+--    0     green motes stream to the ally she really heals; it glows green (an aura), pink petals
+--          of light rise off it, a gentle green ring
 -- Punch:
 --   -0.20  she tugs her glove; her fist glows pink
 --    0     the punch into the ground: a crack races to the target and splits into a spiderweb, dust
@@ -22,6 +23,36 @@ local def = {}
 
 local function healing(run): boolean
 	return run:find("Heal") ~= nil
+end
+
+-- The heal's colors: her green with pink petals (motes pink -> green, a green glow).
+local function healTheme(run)
+	local green = run.style.secondary
+	local theme = VfxRecipe.energy(green, PETAL)
+	theme.ember = VfxRecipe.colors({ { 0, Color3.new(1, 1, 1):Lerp(PETAL, 0.6) }, { 0.4, PETAL }, { 1, green } })
+	theme.spark = VfxRecipe.colors({ { 0, PETAL }, { 1, green } })
+	return theme
+end
+
+-- Petals of light rising off a healed ally's feet and drifting up around it.
+local function petals(run, view, theme)
+	local part = view.part
+	ImpactEffects.emit(part.Position - Vector3.new(0, part.Size.Y * 0.4, 0), {
+		usage = "ember",
+		count = if run.reduced then 5 else 12,
+		color = theme.ember,
+		size = VfxRecipe.curve({ { 0, 0.3 * run:scale() }, { 0.7, 0.24 * run:scale() }, { 1, 0 } }),
+		transparency = VfxRecipe.curve({ { 0, 0.1 }, { 0.75, 0.3 }, { 1, 1 } }),
+		lifetime = { 0.9, 1.4 },
+		speed = { 1.5, 3.5 },
+		spread = 35,
+		direction = Vector3.yAxis,
+		drag = 1.2,
+		acceleration = Vector3.new(0, 1.5, 0),
+		lightEmission = 1,
+		brightness = 2,
+		rotSpeed = { -90, 90 },
+	})
 end
 
 local HEAL = {
@@ -47,11 +78,14 @@ def.beats = {
 		at = -0.2,
 		run = function(run)
 			local heal = healing(run)
-			if not heal then
-				run:face(run:target())
+			if heal then
+				-- A soft green-pink glow gathering around her (an aura, not a ball).
+				VfxRecipe.aura(run, run.view, healTheme(run), 0.8, -0.2, 0.35)
+				return
 			end
-			Kit.orb(run, -0.18, 0.02, if heal then run.style.secondary else PINK, function()
-				return if heal then (run:hand("left") + run:hand("right")) / 2 else run:hand("right")
+			run:face(run:target())
+			Kit.orb(run, -0.18, 0.02, PINK, function()
+				return run:hand("right")
 			end, function()
 				return 0.35 * run:scale()
 			end)
@@ -68,18 +102,20 @@ function def.event(run, event): boolean
 	if kind == "Heal" and event.target then
 		local view = run.context.views[event.target]
 		if view then
+			-- Green motes stream in; the ally glows (an aura of rising petals and a soft rim glow),
+			-- petals rise off its feet, a gentle raised ring of green.
+			local theme = healTheme(run)
 			Kit.converge(run, 0, 0.35, function()
 				return view.part.Position
-			end, run.style.secondary, 2.4, 4, false, 0.3)
-			ImpactEffects.burst("mote", view.part.Position, Vector3.yAxis, {
-				color = PETAL,
-				color2 = run.style.secondary,
-				count = 8,
-				size = 0.3,
-				speed = { 1, 3 },
-				lifetime = { 0.5, 0.8 },
-				spread = 60,
-			})
+			end, run.style.secondary, 2.4, if run.reduced then 4 else 8, false, 0.3)
+			VfxRecipe.aura(run, view, theme, 1, run:designTime(), 0.9)
+			petals(run, view, theme)
+			VfxRecipe.shock(
+				view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0),
+				1.1 * run:scale(),
+				run.style.secondary,
+				0.7
+			)
 		end
 		return true
 	elseif kind == "Damage" and event.target and not event.dot then
@@ -89,9 +125,12 @@ function def.event(run, event): boolean
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
 			Kit.groove(run, 0, 0.8, CRACK, run:ground() + run:forward() * 0.8, floor, 0.25)
 			FxKit.mark(floor, CRACK, PINK, 2.2, "crack", 0.9)
-			-- A small pink impact at the target (tier 1: quick), dust and a few chips.
+			-- A pink impact at the target (tier 1: quick): pink sparks (not white streaks), dust and
+			-- a few chips, a pink shock ring.
 			local impact = VfxRecipe.impact(PINK)
-			VfxRecipe.burst(run, floor, 1.3 * run:scale(), { theme = impact })
+			impact.spark = VfxRecipe.colors({ { 0, PETAL }, { 0.5, PINK }, { 1, PINK:Lerp(CRACK, 0.4) } })
+			impact.edge = PINK
+			VfxRecipe.burst(run, floor, 1.6 * run:scale(), { theme = impact })
 			VfxRecipe.dust(floor, 1.2 * run:scale(), if run.reduced then 1 else 2)
 			run:hitStop(view, 0.05)
 		end

@@ -30,11 +30,8 @@ def.beats = {
 		at = -0.2,
 		run = function(run)
 			run:face(run:target())
-			Kit.shell(run, -0.2, -0.05, GOLD, run.view.part.Position, function(u)
-				return run.view.part.Size.Y * (1 + 0.1 * u)
-			end, function(u)
-				return 0.6 + 0.4 * u
-			end)
+			-- The armor hardening: a gold aura flaring off the plates (no see-through shell).
+			VfxRecipe.aura(run, run.view, VfxRecipe.energy(GOLD), 1.3, -0.2, 0.3)
 			-- Steam venting off the plates.
 			VfxRecipe.steamColumn(
 				run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.2, 0),
@@ -46,8 +43,20 @@ def.beats = {
 	{
 		at = -0.1,
 		run = function(run)
-			-- The stomp: dust kicked up at his feet.
+			-- The stomp: dust kicked up at his feet, then the charge's trail of dust and grinding sparks
+			-- racing to the target.
 			VfxRecipe.dust(run:ground(), 1.2 * run:scale(), if run.reduced then 1 else 3)
+			local target = run:target()
+			if target then
+				local to = target.part.Position - Vector3.new(0, target.part.Size.Y / 2, 0)
+				VfxRecipe.trail(run, run:ground(), to, {
+					theme = VfxRecipe.impact(GOLD),
+					steps = if run.reduced then 3 else 5,
+					from = -0.1,
+					span = 0.1,
+					size = 1.2 * run:scale(),
+				})
+			end
 			run:sound("tick", 0.5)
 		end,
 	},
@@ -63,16 +72,22 @@ function def.event(run, event): boolean
 		local view = run.context.views[event.target]
 		if view and not run.memo.ram then
 			run.memo.ram = true
-			-- The ram: a gold impact (core, dust cloud, sparks along the charge, a light), dust and
-			-- chips at the target's feet.
+			-- The ram: the recipe's gold impact burst at the target (core, dust cloud, raised shock
+			-- ring, sparks, stone debris, light), sparks along the charge, a burst of steam off the
+			-- plates, dust rolling out after.
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
 			local impact = VfxRecipe.impact(GOLD)
-			VfxRecipe.hit(run, view.part.Position, view.part.Size.Y, impact, run:forward())
-			VfxRecipe.dust(floor, 1.4 * run:scale(), if run.reduced then 1 else 3)
-			VfxRecipe.debris(floor, if run.reduced then 2 else 4, 0.25 * run:scale(), impact.debris, 1.2)
+			VfxRecipe.burst(run, floor, 1.5 * run:scale(), { theme = impact })
+			VfxRecipe.aftermath(run, floor, 1.5 * run:scale(), { theme = impact })
+			VfxRecipe.sparks(view.part.Position, 0.6, 20, impact.spark, run:forward())
+			VfxRecipe.steamColumn(
+				run:chest(),
+				0.7 * run:scale(),
+				VfxRecipe.colors({ { 0, STEAM }, { 1, STEAM:Lerp(Color3.fromRGB(160, 160, 165), 0.6) } })
+			)
 			FxKit.ring(floor, DUST, 4.5, 0.3)
-			run:hitStop(view, 0.07)
-			run:shake(0.08)
+			run:hitStop(view, 0.09)
+			run:shake(0.12)
 			run:sound("whoosh", 0.6)
 		end
 		return true

@@ -92,9 +92,15 @@ function def.event(run, event): boolean
 				-- and sparks on the nearest cells.
 				VfxRecipe.dust(at, (0.8 + 1.2 * near) * run:scale(), if run.reduced then 1 else math.ceil(1 + 2 * near))
 				if near > 0.6 then
+					-- The nearest cells take the full blow: a brighter flash, a raised shock ring, sparks
+					-- and chips thrown up.
 					local impact = VfxRecipe.impact()
-					VfxRecipe.core(at + Vector3.new(0, 0.8, 0), 1.2 * near, 1, impact.core)
-					VfxRecipe.sparks(at + Vector3.new(0, 0.5, 0), 0.4 * near, 12, impact.spark)
+					VfxRecipe.core(at + Vector3.new(0, 0.8, 0), 1.6 * near, 1, impact.core)
+					VfxRecipe.shock(at, 1.4 * near * run:scale(), impact.edge, 1.1)
+					VfxRecipe.sparks(at + Vector3.new(0, 0.5, 0), 0.6 * near, 18, impact.spark)
+					if not run.reduced then
+						VfxRecipe.debris(at, 2, 0.25 * run:scale(), impact.debris, 1.4)
+					end
 				end
 			end)
 		end
@@ -104,12 +110,9 @@ function def.event(run, event): boolean
 	elseif kind == "Buff" and event.target == run.unitIndex then
 		-- His armor hardening: a short earthen glow.
 		local glow = run.style.secondary
+		-- An earthen aura flaring off him (no see-through shell).
+		VfxRecipe.aura(run, run.view, VfxRecipe.energy(glow), 0.9, 0.3, 0.4)
 		run:at(0.3, function()
-			Kit.shell(run, 0.3, 0.7, glow, run.view.part.Position, function(u)
-				return run.view.part.Size.Y * (1.1 + 0.15 * u)
-			end, function(u)
-				return 0.7 + 0.3 * u
-			end)
 			FxKit.ring(run:ground(), glow, 5, 0.35)
 		end)
 		return true

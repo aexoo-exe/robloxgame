@@ -86,6 +86,9 @@ function def.event(run, event): boolean
 		steamBurst(floor + Vector3.new(0, 0.5, 0), 8, 1.2)
 		FxKit.mark(floor, Kit.DUST, STEAM, 2.2 * run:scale(), "crack", 0.9)
 		FxKit.ring(floor, STEAM, 6 * run:scale(), 0.35)
+		-- Weight to the blow: a raised shock ring and stone chips off the crack.
+		VfxRecipe.shock(floor, 1.8 * run:scale(), STEAM, 1)
+		VfxRecipe.debris(floor, if run.reduced then 2 else 4, 0.3 * run:scale(), nil, 1.8)
 		run:hitStop(view, 0.1)
 		run:shake(0.2)
 	end

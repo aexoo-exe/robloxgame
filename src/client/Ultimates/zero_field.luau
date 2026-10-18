@@ -128,11 +128,8 @@ function def.event(run, event): boolean
 		if view then
 			local d = event.duration or holdOf(run)
 			run:pose(floatTrack(d), view)
-			Kit.shell(run, 0, d, pink, view.part.Position, function()
-				return view.part.Size.Y * 1.1
-			end, function()
-				return 0.8
-			end)
+			-- Held weightless: a pink aura around it (no see-through shell).
+			VfxRecipe.aura(run, view, theme(run), 0.8, run:designTime(), d)
 		end
 		return false -- the stun halo still shows
 	elseif kind == "Damage" and event.stunEnd and event.target then
@@ -140,12 +137,16 @@ function def.event(run, event): boolean
 		if view then
 			-- The slam down as the hold ends.
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
-			-- Dust rolling out, a pink shockwave, a small core flash and sparks at the impact.
+			-- The punch of the landing: a pink shockwave (stronger), a bright pink glow sheet, a core
+			-- flash, sparks and stone chips thrown up, dust rolling out.
 			local t = theme(run)
 			VfxRecipe.dust(floor, 1.8, if run.reduced then 2 else 4)
-			VfxRecipe.shock(floor, 1.6, t.edge)
-			VfxRecipe.core(floor + Vector3.new(0, 0.5, 0), 1.2, 1, t.core)
-			VfxRecipe.sparks(floor + Vector3.new(0, 0.4, 0), 0.4, 12, t.spark)
+			VfxRecipe.shock(floor, 1.8, t.edge, 1.25)
+			VfxRecipe.core(floor + Vector3.new(0, 0.6, 0), 1.4, 1, t.core)
+			VfxRecipe.explosion(floor + Vector3.new(0, 0.8, 0), 1.2, t.blast, t.blastUsage)
+			VfxRecipe.sparks(floor + Vector3.new(0, 0.4, 0), 0.6, 20, t.spark)
+			VfxRecipe.debris(floor, if run.reduced then 1 else 3, 0.28, nil, 1.6)
+			VfxRecipe.light(run, floor + Vector3.new(0, 0.6, 0), 1.6, t.light, 0.8)
 			FxKit.ring(floor, pink, 4.5, 0.35)
 			run:hitStop(view, 0.08)
 		end

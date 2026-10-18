@@ -11,11 +11,16 @@
 -- quicker, tier 4-5 bigger, more layers, longer aftermath.
 -- Layers marked "extra" are skipped with ReducedEffects (run.reduced). Presentation only.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
+
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 
 local VfxRecipe = {}
 
+local UNIT_HEIGHT = RenderConfig.unitSize.Y
 local rgb = Color3.fromRGB
 local WHITE = Color3.new(1, 1, 1)
 local BLACK = Color3.new(0, 0, 0)
@@ -82,14 +87,16 @@ VfxRecipe.palettes = {
 	dustDark = colors({ { 0, rgb(180, 165, 140) }, { 0.5, rgb(130, 120, 108) }, { 1, rgb(92, 86, 80) } }),
 	-- spray and mist off water: white -> pale aqua
 	mist = colors({ { 0, rgb(245, 252, 255) }, { 0.5, rgb(200, 230, 240) }, { 1, rgb(160, 200, 215) } }),
-	flash = colors({ { 0, rgb(255, 255, 255) }, { 1, rgb(255, 225, 150) } }),
+	-- white for the first instant only, then warm (never a white ball)
+	flash = colors({ { 0, rgb(255, 255, 255) }, { 0.15, rgb(255, 215, 120) }, { 1, rgb(255, 150, 60) } }),
 }
 local P = VfxRecipe.palettes
 
 -- Tuned defaults (studs scale with the area radius `r` or the unit scale `s` where noted).
 VfxRecipe.DEFAULTS = {
-	-- the white-hot core at a burst: small and short
-	core = { size = { 0.8, 1.25 }, lifetime = { 0.08, 0.12 }, brightness = 2.5 }, -- x r
+	-- the white-hot core at a burst: small and short. Its size is x r, capped at `cap` unit heights
+	-- (x the tier's k), never more than `maxCap`: a big area's core must not hide the caster.
+	core = { size = { 0.8, 1.25 }, lifetime = { 0.06, 0.1 }, brightness = 1.6, cap = 1.2, maxCap = 2 },
 	-- the explosion sheet: grows to ~2 r, modest brightness so units read inside it
 	explosion = { size = { 1, 1.7, 2 }, lifetime = 0.55, brightness = 1.2, lightEmission = 0.6, side = 0.6 }, -- x r
 	-- the light flash: tight and quick
@@ -270,7 +277,7 @@ end
 function VfxRecipe.impact(color: Color3?): Theme
 	local tint = color or rgb(235, 225, 205)
 	return {
-		core = colors({ { 0, WHITE }, { 0.3, tint:Lerp(WHITE, 0.5) }, { 1, tint } }),
+		core = colors({ { 0, WHITE }, { 0.15, tint:Lerp(WHITE, 0.5) }, { 1, tint } }),
 		blast = P.dust,
 		blastBig = P.dustDark,
 		blastUsage = "smoke",
@@ -296,7 +303,7 @@ end
 function VfxRecipe.water(color: Color3, accent: Color3?): Theme
 	local pale = accent or color:Lerp(WHITE, 0.6)
 	return {
-		core = colors({ { 0, WHITE }, { 0.3, pale }, { 1, color } }),
+		core = colors({ { 0, WHITE }, { 0.15, pale }, { 1, color } }),
 		blast = P.mist,
 		blastBig = colors({ { 0, WHITE }, { 0.4, pale }, { 1, color } }),
 		blastUsage = "smoke",
@@ -363,16 +370,21 @@ function VfxRecipe.light(run, at: Vector3, radius: number, color: Color3, k: num
 	)
 end
 
--- The white-hot core: one short, small starburst frame.
+-- The white-hot core: one short, small starburst frame, white for an instant then the theme's
+-- color, never wider than DEFAULTS.core.cap unit heights (x `k`, at most maxCap).
 function VfxRecipe.core(at: Vector3, radius: number, k: number?, palette: ColorSequence?)
 	local config = D.core
 	local scale = k or 1
+	local cap = UNIT_HEIGHT * math.min(config.cap * scale, config.maxCap)
 	ImpactEffects.emit(at, {
 		usage = "critFlash",
 		count = 1,
 		color = palette or P.flash,
-		size = curve({ { 0, radius * config.size[1] * scale }, { 1, radius * config.size[2] * scale } }),
-		transparency = curve({ { 0, 0 }, { 0.5, 0.35 }, { 1, 1 } }),
+		size = curve({
+			{ 0, math.min(radius * config.size[1] * scale, cap * 0.75) },
+			{ 1, math.min(radius * config.size[2] * scale, cap) },
+		}),
+		transparency = curve({ { 0, 0.25 }, { 0.5, 0.55 }, { 1, 1 } }),
 		lifetime = config.lifetime,
 		lightEmission = 1,
 		brightness = config.brightness,
@@ -393,7 +405,7 @@ function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?,
 		size = curve({ { 0, scale * config.size[1] }, { 0.2, scale * config.size[2] }, { 1, scale * config.size[3] } }),
 		-- a glow sheet has no frames of its own: it thins out sooner
 		transparency = if glow
-			then curve({ { 0, 0.15 }, { 0.4, 0.35 }, { 1, 1 } })
+			then curve({ { 0, 0.3 }, { 0.4, 0.45 }, { 1, 1 } })
 			else curve({ { 0, 0.1 }, { 0.7, 0.2 }, { 1, 1 } }),
 		lifetime = { config.lifetime, config.lifetime },
 		lightEmission = light or (if usage == "glow" then 0.6 else config.lightEmission),
@@ -950,6 +962,76 @@ function VfxRecipe.hit(run, at: Vector3, size: number, theme: Theme?, direction:
 	VfxRecipe.explosion(at, radius * 0.8, t.blast, t.blastUsage, t.blastLight)
 	VfxRecipe.sparks(at, 0.6, 24, t.spark, direction)
 	VfxRecipe.light(run, at, radius, t.light, 0.7)
+end
+
+-- An aura around a body from design time `from` for `seconds`: glow motes rising around it, a soft
+-- rim glow (camera-facing, drawn behind the body) and a few sparks, in the theme's colors,
+-- `intensity` times (default 1). `body` is a unit view (the caster, a summon, a healed ally) or, for
+-- a body with no view (a spirit, a clone), a function returning its center and height now. Never a
+-- solid or see-through part: a spirit reads from the particles shaped around it. Rim glow and
+-- sparks are extra. Cost: particles only (no shapes).
+function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from: number?, seconds: number?)
+	local t = themeOf(theme)
+	local k = intensity or 1
+	local start = from or run:designTime()
+	local length = seconds or 1
+	local every = 0.15
+	local function where(): (Vector3?, number)
+		if type(body) == "function" then
+			return body()
+		end
+		local part = body and body.part
+		if not part or not part.Parent then
+			return nil, 0
+		end
+		return part.Position, part.Size.Y
+	end
+	for j = 0, math.max(1, math.floor(length / every)) - 1 do
+		run:at(start + j * every, function()
+			local center, height = where()
+			if not center then
+				return
+			end
+			local feet = center - Vector3.new(0, height / 2, 0)
+			local around = height * 0.22
+			for _ = 1, if run.reduced then 1 else 2 do
+				ImpactEffects.emit(within(feet, around) + Vector3.new(0, height * 0.15, 0), {
+					usage = "ember",
+					count = math.max(1, math.floor(3 * k)),
+					color = t.ember,
+					size = curve({ { 0, 0.22 * height * 0.3 }, { 0.6, 0.18 * height * 0.3 }, { 1, 0 } }),
+					transparency = curve({ { 0, 0.2 }, { 0.7, 0.35 }, { 1, 1 } }),
+					lifetime = { 0.55, 0.85 },
+					speed = { 2.5, 4.5 },
+					spread = 18,
+					direction = Vector3.yAxis,
+					drag = 1,
+					acceleration = Vector3.new(0, 2, 0),
+					lightEmission = 1,
+					brightness = 2,
+				})
+			end
+			if run.reduced then
+				return
+			end
+			if j % 2 == 0 then
+				ImpactEffects.emit(center, {
+					usage = "glow",
+					count = 1,
+					color = t.blast,
+					size = curve({ { 0, height * 0.95 * k }, { 1, height * 1.1 * k } }),
+					transparency = curve({ { 0, 1 }, { 0.3, 0.7 }, { 0.7, 0.75 }, { 1, 1 } }),
+					lifetime = { 0.34, 0.34 },
+					lightEmission = 1,
+					brightness = 1,
+					zOffset = -2, -- behind the body
+				})
+			end
+			if j % 3 == 0 then
+				VfxRecipe.sparks(center, 0.3 * k, 4, t.spark)
+			end
+		end)
+	end
 end
 
 export type TrailOptions = {

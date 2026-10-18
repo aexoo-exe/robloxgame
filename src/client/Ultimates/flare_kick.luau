@@ -21,9 +21,29 @@ def.pose = {
 	leftArmOut = { { -0.15, 0 }, { 0, 40 }, { 0.3, 30 }, { 0.55, 0 } },
 }
 
--- Near his kicking foot.
-local function foot(run): Vector3
-	return run:ground() + run:forward() * 0.6 + Vector3.new(0, 0.9, 0)
+-- A point `f` of the way down his kicking leg (0 the hip, 1 the foot), following the pose; near the
+-- foot for figures without legs.
+local function legPoint(run, f: number): Vector3
+	local figure = run.view.figure
+	local leg = figure.anchors.rightLeg
+	if leg and not figure.isModel then
+		return (leg * CFrame.new(0, -run.view.part.Size.Y * 0.45 * f, 0)).Position
+	end
+	return run:ground() + run:forward() * 0.6 + Vector3.new(0, 0.9 + 0.6 * (1 - f), 0)
+end
+
+-- The leg on fire now: flames at the shin and foot, a few embers off it.
+local function legFire(run, strong: boolean)
+	local s = run:scale()
+	VfxRecipe.flames(legPoint(run, 0.55), 1, 0.75 * s)
+	VfxRecipe.flames(legPoint(run, 0.95), if strong then 2 else 1, 0.95 * s)
+	VfxRecipe.embers(run, legPoint(run, 0.8), s, nil, 3)
+end
+
+-- The fire trail along the dash (or, with no real dash, along the kick to the target).
+local function fireTrail(run, to: Vector3)
+	VfxRecipe.trail(run, run:ground(), to, { steps = if run.reduced then 3 else 5, span = 0.12, size = 1.3 * run:scale() })
+	VfxRecipe.sparks(run:chest(), 0.5, 14, nil, run:forward())
 end
 
 def.beats = {
@@ -31,19 +51,23 @@ def.beats = {
 		at = -0.15,
 		run = function(run)
 			run:face(run:target())
-			for t = -0.14, 0, 0.05 do
+			-- The leg catches fire through the spin and stays lit through the kick.
+			for t = -0.14, 0.28, 0.04 do
 				run:at(t, function()
-					-- The leg catching fire: flames climbing it, a few embers.
-					local s = run:scale()
-					VfxRecipe.flames(foot(run), 2, 0.9 * s)
-					VfxRecipe.embers(run, foot(run), s, nil, 3)
+					legFire(run, t >= -0.02 and t <= 0.15)
 				end)
 			end
 		end,
 	},
 }
 
-function def.release(_run): boolean
+function def.release(run): boolean
+	if not run:find("Dash") then
+		local target = run:target()
+		if target then
+			fireTrail(run, target.part.Position - Vector3.new(0, target.part.Size.Y / 2, 0))
+		end
+	end
 	return true
 end
 
@@ -53,14 +77,17 @@ function def.event(run, event): boolean
 		local to = run.context.toWorld(event.column, event.row)
 		Kit.groove(run, 0, 0.45, run.style.primary, run:ground(), to, 0.4)
 		-- The trail of fire along the real dash: flames, streak sparks, scorch.
-		VfxRecipe.trail(run, run:ground(), to, { steps = 4, span = 0.12, size = 1.2 * run:scale() })
+		fireTrail(run, to)
 		return false
 	elseif kind == "Damage" and event.target and not event.dot then
 		local view = run.context.views[event.target]
 		if view then
-			-- The flame burst on the real hit, sparks flung along the kick.
+			-- The fire burst on the real hit (the recipe's fire burst: core, fireball, shock ring,
+			-- sparks, light, scorch), flames licking up the target, sparks flung along the kick.
 			local at = view.part.Position
-			VfxRecipe.hit(run, at, view.part.Size.Y, nil, run:forward())
+			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
+			VfxRecipe.burst(run, floor, 1.3 * run:scale())
+			VfxRecipe.sparks(at, 0.6, 18, nil, run:forward())
 			VfxRecipe.flames(at - Vector3.new(0, view.part.Size.Y * 0.4, 0), 3, 1.3 * run:scale())
 			run:hitStop(view, 0.06)
 			run:shake(0.1)

@@ -45,7 +45,8 @@ local function overHand(run): Vector3
 	return run:hand("right") + Vector3.new(0, 0.8, 0)
 end
 
--- A shadow clone at `side` (-1 left, 1 right): a see-through figure reaching toward his sphere.
+-- A shadow clone at `side` (-1 left, 1 right) reaching toward his sphere: a wind aura shaped where
+-- it stands (VfxRecipe.aura; no see-through parts).
 local function clone(run, side: number)
 	local h = run.view.part.Size.Y
 	local function base(): CFrame
@@ -54,26 +55,10 @@ local function clone(run, side: number)
 		local at = run:ground() + across * h * 0.55 - forward * 0.3 + Vector3.new(0, h * 0.5, 0)
 		return CFrame.lookAt(at, at + forward)
 	end
-	local color = run.style.primary
-	local function fade(u): number
-		return if u < 0.08 then 1 - u * 6 elseif u > 0.9 then 0.5 + (u - 0.9) * 5 else 0.5
-	end
-	Kit.block(run, -0.9, -0.1, color, function()
-		return base()
-	end, function()
-		return Vector3.new(h * 0.36, h * 0.6, h * 0.2)
-	end, fade, Enum.Material.Neon)
-	Kit.block(run, -0.9, -0.1, color:Lerp(WHITE, 0.3), function()
-		return base() * CFrame.new(0, h * 0.42, 0)
-	end, function()
-		return Vector3.one * h * 0.22
-	end, fade, Enum.Material.Neon)
-	-- Its inner arm, raised toward the sphere.
-	Kit.block(run, -0.9, -0.1, color, function()
-		return base() * CFrame.new(-side * h * 0.22, h * 0.32, -h * 0.05) * CFrame.Angles(0, 0, side * 0.6)
-	end, function()
-		return Vector3.new(h * 0.1, h * 0.4, h * 0.1)
-	end, fade, Enum.Material.Neon)
+	run.memo.wind = run.memo.wind or VfxRecipe.wind(run.style.primary, run.style.secondary)
+	VfxRecipe.aura(run, function()
+		return base().Position, h
+	end, run.memo.wind, 1, -0.85, 0.75)
 	for _, at in { -0.9, -0.12 } do
 		run:at(at, function()
 			-- The clones pop in (and out) in pale puffs of smoke.

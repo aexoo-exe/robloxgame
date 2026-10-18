@@ -153,6 +153,7 @@ type Stage = {
 	fieldPreview: Folder?, -- key 3's preview fight, while it is shown
 	fieldFocus: Vector3?, -- what its camera looks at
 	fieldOffset: Vector3?, -- from the real arena cells to its cells
+	previewSeconds: number?, -- how long its playback runs (stage seconds)
 	castPresses: number,
 }
 
@@ -765,7 +766,7 @@ end
 -- stats (the unit's mana bar shortened so it casts after one attack, then every few attacks; the
 -- dummies tough, harmless and standing still). Nothing it runs reaches the server or any real
 -- fight. Returns the result, the unit's index and its Cast events, or nil if it never casts.
-local function fieldFight(s: Stage): (any?, number?, { any })
+local function fieldFight(s: Stage): (any?, number?, { any }, { any })
 	local stats = table.clone(UnitConfig[s.unitType])
 	stats.maxMana = math.min(stats.maxMana or FIELD_MANA, FIELD_MANA)
 	stats.startingMana = stats.maxMana - 1
@@ -774,6 +775,16 @@ local function fieldFight(s: Stage): (any?, number?, { any })
 	dummy.attackDamage = 0
 	dummy.attacksPerSecond = 0.001
 	dummy.range = 12 -- every target in reach: dummies never walk
+	-- A form that comes when the unit's health drops (titanheart's titan): the dummies hit hard
+	-- enough that it happens within a second or two, so the preview shows the shift too.
+	for _, form in stats.forms or {} do
+		local trigger = form.trigger
+		if trigger and trigger.type == "HEALTH_BELOW" then
+			local needed = (stats.health or 1000) * (1 - (trigger.belowPercent or 50) / 100)
+			dummy.attacksPerSecond = 2
+			dummy.attackDamage = math.ceil(needed / (#FIELD_DUMMIES * 2) * s.starLevel)
+		end
+	end
 	local dummies = {}
 	for i, cell in FIELD_DUMMIES do
 		table.insert(dummies, { id = "dummy" .. i, unitType = FIELD_DUMMY, column = cell[1], row = cell[2] })
@@ -801,7 +812,7 @@ local function fieldFight(s: Stage): (any?, number?, { any })
 	})
 	if not ok then
 		warn("[DevLineup] the preview fight failed: " .. tostring(result))
-		return nil, nil, {}
+		return nil, nil, {}, {}
 	end
 	local actorIndex, sides = nil, {}
 	for _, unit in result.units do
@@ -811,18 +822,20 @@ local function fieldFight(s: Stage): (any?, number?, { any })
 		end
 	end
 	-- The dummies' own attacks and steps are left out of the playback.
-	local events, casts = {}, {}
+	local events, casts, shifts = {}, {}, {}
 	for _, event in result.events do
 		local dummyAct = sides[event.unit] == 2 and (event.kind == "Attack" or event.kind == "Move")
 		if not dummyAct then
 			table.insert(events, event)
 			if event.kind == "Cast" and event.unit == actorIndex then
 				table.insert(casts, event)
+			elseif event.kind == "Form" and event.unit == actorIndex then
+				table.insert(shifts, event)
 			end
 		end
 	end
 	result.events = events
-	return result, actorIndex, casts
+	return result, actorIndex, casts, shifts
 end
 
 -- Key 3: the unit's real ability, as a fight plays it, against several dummies on a small field so
@@ -830,7 +843,7 @@ end
 -- step up); the playback starts just before the cast's wind-up. Returns whether a cast plays.
 local function cast(s: Stage): boolean
 	endFieldPreview(s)
-	local result, _, casts = fieldFight(s)
+	local result, _, casts, shifts = fieldFight(s)
 	if not result or #casts == 0 then
 		print("[DevLineup] " .. s.unitType .. " did not cast in the preview fight")
 		return false
@@ -842,6 +855,13 @@ local function cast(s: Stage): boolean
 	local castAt = castEvent.tick / ticks
 	-- Only this cast and what follows it for a few seconds.
 	local endTick = castEvent.tick + math.floor(FIELD_AFTER * ticks)
+	local from = castAt - AbilityFx.windupLength(s.unitType) - 0.5
+	-- A health-triggered form change (fieldFight) on the first press: its shift is in the window too.
+	local shift = if s.castPresses == 1 then shifts[1] else nil
+	if shift then
+		from = math.min(from, shift.tick / ticks - 0.8)
+		endTick = math.max(endTick, shift.tick + math.floor(FIELD_AFTER * ticks))
+	end
 	local kept = {}
 	for _, event in result.events do
 		if event.tick <= endTick then
@@ -851,7 +871,7 @@ local function cast(s: Stage): boolean
 	result.events = kept
 	result.endTick = endTick
 	result.winner = nil
-	local from = castAt - AbilityFx.windupLength(s.unitType) - 0.5
+	s.previewSeconds = endTick / ticks - from
 
 	-- The field: the arena's ground (T: buildArena) under the arena cells, shifted by `offset`.
 	local fieldFolder = Instance.new("Folder")
@@ -1421,7 +1441,7 @@ local function startReel()
 		if not casted then
 			ReelCheck.noCast()
 		end
-		local length = if casted then AbilityFx.windupLength(s.unitType) + 0.5 + FIELD_AFTER else 0
+		local length = if casted then s.previewSeconds or FIELD_AFTER else 0
 		local played = hold(length / scale)
 		if played then
 			ReelCheck.playEnded()

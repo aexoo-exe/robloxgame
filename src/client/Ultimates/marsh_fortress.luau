@@ -72,6 +72,10 @@ function def.event(run, event): boolean
 		FxKit.ring(center, run.style.primary, radius * 2.4, 0.4)
 		VfxRecipe.burst(run, center, radius, { theme = water })
 		VfxRecipe.aftermath(run, center, radius, { theme = water })
+		-- The punch of the landing: a second, wider shock ring, a taller splash, mud clods thrown out.
+		VfxRecipe.shock(center, radius * 1.1, run.style.secondary, 1.3)
+		VfxRecipe.splash(center, radius * 1.3, water)
+		VfxRecipe.debris(center, if run.reduced then 2 else 4, 0.3 * run:scale(), MUD, radius)
 		VfxRecipe.smoke(
 			center,
 			radius * 0.8,
