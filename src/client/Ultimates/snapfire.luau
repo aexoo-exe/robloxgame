@@ -165,7 +165,9 @@ function def.event(run, event): boolean
 			VfxRecipe.kitFireBurst(center, radius * 2.2, 0.07 * blooms + 0.05)
 		end
 		local fire = VfxRecipe.themes.fire
-		VfxRecipe.shock(center, radius, fire.edge, 1)
+		-- The shock: a warm orange ring half the old size (the camera-facing particle shock, 2.4x
+		-- the area and starting near white, flashed as a big white bubble right before the fire).
+		VfxRecipe.meshRing(center, radius * 0.5, Color3.fromRGB(255, 130, 40), 0.35)
 		VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 1, nil, fire.spark)
 		VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, fire.light, 1)
 		-- The aftermath: ground flames, embers, the scorch, and the smoke-flipbook puffs half size,

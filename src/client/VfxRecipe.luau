@@ -1168,6 +1168,9 @@ export type KitEmit = {
 	zOffset: number?,
 	stretch: boolean?, -- turned along its velocity (a bolt along a path: give `direction`)
 	start: number?, -- starting transparency (default 0)
+	-- World-oriented, not camera-facing: the image lies flat in the plane whose normal is
+	-- `normal` (a swing plane), turned by `rotation` within it.
+	normal: Vector3?,
 }
 
 -- One batch 2 kit particle (or `count`) of `usage` at `at`: its flipbook plays over its life. Draws
@@ -1191,12 +1194,14 @@ function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
 		lifetime = { life, life },
 		speed = opts.speed,
 		spread = opts.spread,
-		direction = opts.direction,
+		-- A flat particle lies across its (tiny) velocity: aim it along the plane's normal.
+		direction = opts.normal or opts.direction,
 		rotation = opts.rotation or { 0, 0 },
 		lightEmission = opts.lightEmission or 0,
 		brightness = opts.brightness or 1,
 		zOffset = opts.zOffset,
 		stretch = opts.stretch,
+		flat = opts.normal ~= nil,
 	})
 end
 
@@ -1314,14 +1319,16 @@ end
 
 -- A brief anime speed-lines flash (fx_speed_lines) centered on `at`.
 function VfxRecipe.kitSpeedLines(at: Vector3, size: number, color: Color3?, life: number?)
+	-- Kept in its color and well see-through: a near-white, opaque one read as a cream sheet
+	-- whose square edges cut across the screen.
 	VfxRecipe.kit(at, "kitSpeedLines", {
 		size = size,
 		grow = 1.15,
-		color = tinted(color or WHITE, 0.5),
+		color = tinted(color or WHITE, 0.15),
 		lifetime = life or 0.18,
 		rotation = { 0, 360 },
-		lightEmission = 1,
-		start = 0.15,
+		lightEmission = 0.5,
+		start = 0.45,
 		zOffset = -1,
 	})
 end
@@ -1360,18 +1367,21 @@ function VfxRecipe.kitSteam(at: Vector3, size: number, count: number?, direction
 	})
 end
 
--- A swoosh ribbon (fx_swoosh_ribbon; fx_slash_crescent until it loads) at `at`, `size` studs,
--- turned `angle` degrees on screen, in `color`.
-function VfxRecipe.kitSwoosh(at: Vector3, size: number, color: Color3, angle: number?, life: number?)
+-- A swoosh ribbon (fx_swoosh_ribbon; fx_slash_crescent until it loads) at `at`, `size` studs, lying
+-- in the swing plane whose normal is `normal` (world-oriented, never camera-facing), turned `angle`
+-- degrees within it, in `color`. A low LightEmission and the color untouched by white, so the tint
+-- shows (a strong glow washed it out to cream). It swells a little and fades over `life` seconds.
+function VfxRecipe.kitSwoosh(at: Vector3, size: number, color: Color3, normal: Vector3, angle: number?, life: number?)
 	VfxRecipe.kit(at, "kitSwoosh", {
-		size = size,
-		grow = 1.15,
-		color = tinted(color, 0.25),
-		lifetime = life or 0.25,
-		rotation = { (angle or 0) - 8, (angle or 0) + 8 },
-		lightEmission = 1,
-		brightness = 2,
-		zOffset = 1,
+		size = size * 0.85,
+		grow = 1.18,
+		color = color,
+		lifetime = life or 0.3,
+		normal = if normal.Magnitude > 1e-3 then normal.Unit else Vector3.yAxis,
+		rotation = { (angle or 0) - 6, (angle or 0) + 6 },
+		lightEmission = 0.42,
+		brightness = 1.6,
+		start = 0.05,
 	})
 end
 

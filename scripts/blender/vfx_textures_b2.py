@@ -51,22 +51,32 @@ def swoosh_ribbon(X, Y, px):
     # A thick band toward the head (u ~ 0.7), needle tapered at both ends.
     half = 0.01 + 0.17 * np.sin(math.pi * uc ** 1.1) ** 1.1
     v = across / np.maximum(half, 1e-3)  # -1 trailing (inner) edge -> +1 leading (outer) edge
-    # The trailing edge is torn into petals: a scalloped inner boundary whose leaves come loose
-    # (separate shapes with gaps), more of them toward the tail.
-    leaf_u = uc * 34.0
-    scallop = np.abs((leaf_u % 1.0) - 0.5) * 2.0  # 0 at a leaf's middle, 1 between leaves
-    loose = vnoise(np.floor(leaf_u), np.zeros_like(uc) + 0.5, 211, 64)  # per leaf
-    inner_edge = -0.15 - 0.85 * (1.0 - scallop ** 1.5)  # leaves reach down to the inner edge
-    gap = (loose < 0.35 + 0.35 * (1.0 - uc)) & (v < -0.25)  # some leaves broke off: a gap
-    sd_band = np.maximum(np.abs(across) - half, (inner_edge - v) * half)
-    body = fill(sd_band, px) * inarc * np.where(gap, 0.0, 1.0)
+    # The trailing edge fades out smoothly (a soft gradient, no teeth); a gentle low-frequency
+    # wobble keeps the fade from looking ruled.
+    wobble = (fbm(uc * 5.0, np.zeros_like(uc) + 0.3, 211, period=8, octaves=2) - 0.5) * 0.25
+    fade = ss(-1.0 + wobble, -0.05 + wobble, v)
+    sd_band = np.abs(across) - half
+    body = fill(sd_band, px) * inarc * fade
+    # Four small petals breaking off the trailing edge at irregular places, each a leaf a little
+    # inside the band, turned and sized differently (not a pattern).
+    petals = np.zeros_like(X)
+    centre_y = -0.1
+    for pu, drift, size, turn in ((0.27, 0.05, 0.034, 0.5), (0.46, 0.09, 0.026, -0.4), (0.63, 0.06, 0.04, 0.9), (0.81, 0.11, 0.022, -0.2)):
+        ang = math.radians(-25) + math.radians(230) * pu
+        width_here = 0.01 + 0.17 * math.sin(math.pi * pu ** 1.1) ** 1.1
+        r = R - width_here - drift
+        cx, cy = math.cos(ang) * r, centre_y + math.sin(ang) * r
+        # A leaf: an ellipse along its own turned axis.
+        cs, sn = math.cos(ang + turn), math.sin(ang + turn)
+        lx, ly = (X - cx) * cs + (Y - cy) * sn, -(X - cx) * sn + (Y - cy) * cs
+        leaf = np.hypot(lx / (size * 1.8), ly / size) - 1.0
+        petals = np.maximum(petals, fill(leaf * size, px) * 0.85)
     # The hot white core along the leading edge.
     core = fill((np.abs(v - 0.55) - 0.32) * half, px) * inarc * ss(0.08, 0.3, uc) * (1.0 - ss(0.93, 1.0, uc))
     tail = 0.3 + 0.7 * ss(0.0, 0.5, uc)  # the tail fades out
-    d = np.abs(across) - half
-    halo = glow(d, 0.05, 0.35) * inarc * ss(0.05, 0.4, uc) * (1.0 - ss(0.9, 1.0, uc))
+    halo = glow(sd_band, 0.05, 0.35) * inarc * ss(0.05, 0.4, uc) * (1.0 - ss(0.9, 1.0, uc))
     c = 0.88 + 0.12 * core
-    a = np.clip(body * tail * (0.75 + 0.25 * ss(-0.4, 0.4, v)) + core, 0.0, 1.0)
+    a = np.clip(np.maximum(body * tail, petals) + core, 0.0, 1.0)
     return c, a + halo * (1.0 - a)
 
 

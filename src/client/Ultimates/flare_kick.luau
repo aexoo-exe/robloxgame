@@ -35,25 +35,33 @@ local function legPoint(run, f: number): Vector3
 	return run:ground() + run:forward() * 0.6 + Vector3.new(0, 0.9 + 0.6 * (1 - f), 0)
 end
 
--- Real flames on the leg: yellow -> orange -> red (no white wisps).
+-- Real flames on the leg: orange -> red -> deep red (no white or pale yellow wisps).
 local LEG_FIRE = VfxRecipe.colors({
-	{ 0, Color3.fromRGB(255, 220, 90) },
-	{ 0.3, Color3.fromRGB(255, 150, 40) },
-	{ 0.7, Color3.fromRGB(230, 60, 20) },
-	{ 1, Color3.fromRGB(120, 20, 10) },
+	{ 0, Color3.fromRGB(255, 165, 45) },
+	{ 0.35, Color3.fromRGB(255, 100, 25) },
+	{ 0.75, Color3.fromRGB(210, 40, 15) },
+	{ 1, Color3.fromRGB(110, 15, 8) },
 })
+-- The fire theme with the leg's flames (the trail along the ground too).
+local KICK_FIRE = table.clone(VfxRecipe.themes.fire)
+KICK_FIRE.flames = LEG_FIRE
 
--- The leg on fire now: big fire-flipbook flames at the foot climbing up to the knee (one emit of
--- two flames: one effect host, inside the tier's budget).
+-- The leg on fire now: tall fire-flipbook flames standing on the foot and reaching the knee (one
+-- emit of three flames: one effect host, inside the tier's budget).
 local function legFire(run, strong: boolean)
 	local s = run:scale()
-	local foot, knee = legPoint(run, 0.95), legPoint(run, 0.5)
-	VfxRecipe.flames(foot:Lerp(knee, 0.3), 2, (if strong then 1.8 else 1.5) * s, LEG_FIRE)
+	local foot, knee = legPoint(run, 0.95), legPoint(run, 0.45)
+	VfxRecipe.flames(foot:Lerp(knee, 0.45), 3, (if strong then 2.6 else 2.2) * s, LEG_FIRE)
 end
 
 -- The fire trail along the dash (or, with no real dash, along the kick to the target).
 local function fireTrail(run, to: Vector3)
-	VfxRecipe.trail(run, run:ground(), to, { steps = 3, span = 0.12, size = 1.4 * run:scale(), sparks = false })
+	VfxRecipe.trail(
+		run,
+		run:ground(),
+		to,
+		{ theme = KICK_FIRE, steps = 3, span = 0.12, size = 1.4 * run:scale(), sparks = false }
+	)
 	VfxRecipe.sparks(run:chest(), 0.5, 14, nil, run:forward())
 end
 
@@ -62,9 +70,9 @@ def.beats = {
 		at = -0.15,
 		run = function(run)
 			run:face(run:target())
-			-- The leg catches fire through the spin and stays lit through the kick (5 bursts of
-			-- flames, each living ~0.6 s, so the leg burns throughout), a few embers off it.
-			for t = -0.14, 0.27, 0.1 do
+			-- The leg catches fire through the spin and stays lit through the kick (7 bursts of
+			-- flames, each living ~0.6 s, so the leg burns without gaps), a few embers off it.
+			for t = -0.14, 0.31, 0.07 do
 				run:at(t, function()
 					legFire(run, t >= -0.05 and t <= 0.15)
 				end)
@@ -102,11 +110,14 @@ function def.event(run, event): boolean
 			local at = view.part.Position
 			local floor = at - Vector3.new(0, view.part.Size.Y / 2, 0)
 			local s = run:scale()
-			-- (No light here: the PointLight read as a pinkish glow blob on the floor.)
-			VfxRecipe.kitSwoosh(at, view.part.Size.Y * 1.8, Color3.fromRGB(255, 95, 40), 30, 0.25)
+			-- (No light here: the PointLight read as a pinkish glow blob on the floor.) The swoosh
+			-- lies in the kick's swing plane (forward and up: its normal is his side), 1.2x the
+			-- target's height, orange-red. No flames at the hit: the leg fire is enough (budget).
+			local forward = run:forward()
+			local sideways = Vector3.new(-forward.Z, 0, forward.X)
+			VfxRecipe.kitSwoosh(at, view.part.Size.Y * 1.2, Color3.fromRGB(255, 90, 25), sideways, 30, 0.28)
 			VfxRecipe.kitFireBurst(floor, view.part.Size.Y * 1.4 * s)
-			VfxRecipe.sparks(at, 0.6, 18, nil, run:forward())
-			VfxRecipe.flames(at - Vector3.new(0, view.part.Size.Y * 0.4, 0), 2, 1.4 * s, LEG_FIRE)
+			VfxRecipe.sparks(at, 0.6, 18, nil, forward)
 			VfxRecipe.embers(run, at, s, nil, 10)
 			run:hitStop(view, 0.06)
 			run:shake(0.1)

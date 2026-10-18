@@ -11,8 +11,8 @@
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local rgb = Color3.fromRGB
--- The spiral's three turns, hottest first.
-local SPIRAL = { rgb(255, 225, 90), rgb(255, 140, 40), rgb(200, 35, 30) }
+-- The spiral's three turns, hottest first: saturated, so the tint shows (not cream).
+local SPIRAL = { rgb(255, 210, 60), rgb(255, 120, 20), rgb(200, 30, 20) }
 
 local def = {}
 
@@ -48,13 +48,16 @@ function def.event(run, event): boolean
 		local height = run.view.part.Size.Y
 		local body = run:chest()
 		local ground = run:ground()
-		-- The hero: a fire spiral of three big swooshes turning around him (yellow -> orange ->
-		-- crimson, each bigger and a beat later), each trailing two fire-flipbook flames on its
-		-- turn around him.
+		-- The hero: a fire spiral of three swooshes turning around him (yellow -> orange -> crimson,
+		-- each a little bigger and a beat later, at most 1.4x his height), each lying in its own
+		-- tilted swing plane turned 120 degrees on from the last (world-oriented, never facing the
+		-- camera), trailing two fire-flipbook flames on its turn around him.
 		for i, color in SPIRAL do
 			local turn = math.rad(120 * (i - 1))
+			local plane = (CFrame.Angles(0, turn, 0) * CFrame.Angles(math.rad(28), 0, 0)).UpVector
 			run:at(run:designTime() + 0.05 * (i - 1), function()
-				VfxRecipe.kitSwoosh(body, height * (1.9 + 0.45 * i) * s, color, -40 + 120 * (i - 1), 0.3)
+				local lift = Vector3.new(0, height * (0.05 * i - 0.1), 0) -- rising: a spiral, not a stack
+				VfxRecipe.kitSwoosh(body + lift, height * (0.95 + 0.15 * i) * s, color, plane, 120 * (i - 1), 0.32)
 				local reach = height * (0.55 + 0.15 * i) * s
 				for k = 0, if run.reduced then 0 else 1 do
 					local angle = turn + math.rad(50 * k)

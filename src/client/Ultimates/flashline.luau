@@ -55,10 +55,10 @@ function def.event(run, event): boolean
 	if kind == "Dash" then
 		local from = run:chest()
 		local to = run.context.toWorld(event.column, event.row) + Vector3.new(0, run.view.part.Size.Y * 0.6, 0)
-		-- The dash: a speed-lines flash where he leaves, big bright gold bolts along the whole path and
-		-- a thin gold streak (a bar at chest height, never flat on the floor).
-		VfxRecipe.kitSpeedLines(from, run.view.part.Size.Y * 2.2, GOLD, 0.15)
-		VfxRecipe.kitBolts(from, to, GOLD, if run.reduced then 3 else 5, 0.32, 1.6)
+		-- The dash: gold lightning bolts along the whole path and a thin gold streak (a bar at chest
+		-- height, never flat on the floor). No speed-lines flash: at the close camera its square
+		-- sprite (~10 studs, cream) swept the screen as a white straight-edged wedge.
+		VfxRecipe.kitBolts(from, to, GOLD, if run.reduced then 3 else 5, 0.32, 1.2)
 		FxKit.beam(from, to, GOLD, 0.08, 0.2, "straight")
 		run:sound("whoosh", 2)
 		return true -- the bolts replace the afterimages: no visible run
