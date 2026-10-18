@@ -518,6 +518,12 @@ local function lockCamera()
 	end)
 end
 
+-- The match camera's framing (no shake or cues), freshly fitted. DevLineup's arena camera.
+function Arena.boardCamera(): CFrame
+	fitCamera()
+	return cameraCFrame
+end
+
 -- Gives the camera back to the default scripts, following the player's avatar.
 local function releaseCamera()
 	RunService:UnbindFromRenderStep("ArenaCamera")

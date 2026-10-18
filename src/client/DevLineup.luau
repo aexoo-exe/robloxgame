@@ -26,10 +26,17 @@
 --            form's tint), with the form's size; cycles back to the first form
 --   X        next star level (effects grow with it)
 --   Q        next effects quality (low, medium, high)
+--   T        key 3's test arena: off (the field above the lineup), gray (a neutral matte stage,
+--            neutral lighting, plain backdrop) or bright (the real arena board in the hub's look);
+--            replays the shown cast there
+--   C        the arena's fixed camera: gameplay (the match camera), close (3/4 on the caster and
+--            its target) or wide (the whole field). In an arena the camera never shakes or drifts,
+--            so every recording of a cast is framed the same.
 -- Chat commands: /lineup (open or close), /look <unit_id> (close-up of that unit).
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
 
+local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -87,6 +94,31 @@ local FIELD_MANA = 12 -- the unit's mana bar in the preview fight (one attack fi
 local FIELD_SECONDS = 25 -- how long the preview fight runs
 local FIELD_AFTER = 3.5 -- seconds of the fight shown after the cast
 
+-- Key 3's test arena (T) and its fixed cameras (C; arenaFraming).
+local ARENA_MODES = { "off", "gray", "bright" }
+local ARENA_CAMERAS = { "gameplay", "close", "wide" }
+local GRAY_CENTER = HubConfig.center + Vector3.new(0, 700, 0) -- the board center in the gray arena
+local GRAY_SIZE = 400 -- the gray arena's floor, and the box of walls around it
+local GRAY_HEIGHT = 200
+local GRAY_FLOOR = Color3.fromRGB(128, 128, 128)
+local GRAY_BACKDROP = Color3.fromRGB(176, 179, 184)
+local GRAY_LIGHTING: { [string]: any } = {
+	Ambient = Color3.fromRGB(110, 110, 110),
+	OutdoorAmbient = Color3.fromRGB(128, 128, 128),
+	Brightness = 2,
+	ClockTime = 13,
+	GeographicLatitude = 0,
+	ColorShift_Top = Color3.new(0, 0, 0),
+	ColorShift_Bottom = Color3.new(0, 0, 0),
+	EnvironmentDiffuseScale = 0,
+	EnvironmentSpecularScale = 0,
+	ExposureCompensation = 0,
+	ShadowSoftness = 0.6,
+	GlobalShadows = true,
+	FogStart = 0,
+	FogEnd = 100000,
+}
+
 type Entry = {
 	unitType: string,
 	figure: Figure.Figure,
@@ -112,6 +144,7 @@ type Stage = {
 	stageCamera: CFrame, -- the stage's own framing (the camera returns to it after a field preview)
 	fieldPreview: Folder?, -- key 3's preview fight, while it is shown
 	fieldFocus: Vector3?, -- what its camera looks at
+	fieldOffset: Vector3?, -- from the real arena cells to its cells
 	castPresses: number,
 }
 
@@ -128,6 +161,10 @@ local function stageClock(): number
 	return stageTime
 end
 local cameraMode = "front" -- stage camera framing (stageFraming)
+local arenaMode = "off" -- ARENA_MODES
+local arenaCamera = "gameplay" -- ARENA_CAMERAS
+local arenaRestore: (() -> ())? = nil -- undoes what the shown arena changed outside the stage
+local titleText = "" -- the HUD title before the arena / camera suffix
 local heartbeat: RBXScriptConnection? = nil
 local savedCamera: { cameraType: Enum.CameraType, cframe: CFrame }? = nil
 local hud: ScreenGui? = nil
@@ -145,14 +182,24 @@ local CLOSE_UP_HELP = table.concat({
 	"L close   M lineup   . ] Right: next   , [ Left: previous",
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
 	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate   O freeze + dump",
+	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)",
 }, "\n")
+
+-- The HUD title, with the arena and its camera in a close-up ("gray / close").
+local function refreshTitle()
+	if hudTitle then
+		local arena = if arenaMode == "off" then "arena off" else arenaMode .. " / " .. arenaCamera
+		hudTitle.Text = if stage then titleText .. "   " .. arena else titleText
+	end
+end
 
 -- Shows the key help and the title (the unit in a close-up) on the lineup's on-screen panel.
 local function setHud(title: string, help: string)
-	if hudTitle and hudHelp then
-		hudTitle.Text = title
+	titleText = title
+	if hudHelp then
 		hudHelp.Text = help
 	end
+	refreshTitle()
 end
 
 -- Freezes every live effect (time 0, particles too) and prints each instance (VfxDebug.dumpLive);
@@ -215,19 +262,19 @@ local function openHud()
 	freezeButton = hudButton(gui, "Dump FX", 220, toggleFreeze)
 	local title = Instance.new("TextLabel")
 	title.AnchorPoint = Vector2.new(0.5, 1)
-	title.Position = UDim2.new(0.5, 0, 1, -22)
-	title.Size = UDim2.fromOffset(120, 28)
+	-- Above the buttons, wide enough for the arena / camera suffix.
+	title.Position = UDim2.new(0.5, 0, 1, -62)
+	title.Size = UDim2.fromOffset(460, 24)
 	title.BackgroundTransparency = 1
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.TextStrokeTransparency = 0.3
 	title.Font = Enum.Font.GothamBold
-	title.TextSize = 14
-	title.TextScaled = true
+	title.TextSize = 18
 	title.Parent = gui
 	local help = Instance.new("TextLabel")
 	help.AnchorPoint = Vector2.new(0, 1)
 	help.Position = UDim2.new(0, 12, 1, -66)
-	help.Size = UDim2.fromOffset(560, 60)
+	help.Size = UDim2.fromOffset(560, 80)
 	help.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
 	help.BackgroundTransparency = 0.35
 	help.TextColor3 = Color3.fromRGB(230, 232, 240)
@@ -405,6 +452,127 @@ local function spawnActors(s: Stage)
 	)
 end
 
+-- Test arena (T, C) ---------------------------------------------------------------------------------
+
+-- Undoes what the shown arena changed outside the stage (lighting, the real board's parent).
+local function leaveArena()
+	local restore = arenaRestore
+	arenaRestore = nil
+	if restore then
+		restore()
+	end
+end
+
+local function slab(parent: Instance, size: Vector3, at: Vector3, color: Color3)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false -- the backdrop never shades the stage
+	part.Size = size
+	part.CFrame = CFrame.new(at)
+	part.Color = color
+	part.Material = Enum.Material.SmoothPlastic
+	part.Reflectance = 0
+	part.Parent = parent
+end
+
+-- Neutral lighting for the gray arena: GRAY_LIGHTING, without atmosphere or color grading (bloom
+-- stays, as effects are drawn for it). Returns what puts the hub's lighting back.
+local function neutralLighting(): () -> ()
+	local saved: { [string]: any } = {}
+	for name, value in GRAY_LIGHTING do
+		saved[name] = (Lighting :: any)[name]
+		;(Lighting :: any)[name] = value
+	end
+	local removed, disabled = {}, {}
+	for _, child in Lighting:GetChildren() do
+		if child:IsA("Atmosphere") then
+			table.insert(removed, child)
+			child.Parent = nil
+		elseif child:IsA("PostEffect") and not child:IsA("BloomEffect") and child.Enabled then
+			table.insert(disabled, child)
+			child.Enabled = false
+		end
+	end
+	return function()
+		for name, value in saved do
+			(Lighting :: any)[name] = value
+		end
+		for _, child in removed do
+			child.Parent = Lighting
+		end
+		for _, effect in disabled do
+			effect.Enabled = true
+		end
+	end
+end
+
+-- Builds the field preview's ground for `arenaMode` in `parent` and returns the offset from the real
+-- arena cells to the field's (CombatPlayback.preview).
+--   off     a small floor above the lineup (FIELD_ORIGIN)
+--   gray    a mid-gray matte floor in a closed box of plain backdrop, far above the hub, in
+--           neutral lighting (no hub props in sight)
+--   bright  the real arena board, in place, in the hub's own lighting
+local function buildArena(parent: Instance): Vector3
+	if arenaMode == "bright" then
+		local board = Arena.folder
+		if board and board.Parent == nil then -- hidden outside a match
+			board.Parent = workspace
+			arenaRestore = function()
+				board.Parent = nil
+			end
+		end
+		return Vector3.zero
+	elseif arenaMode == "gray" then
+		local offset = GRAY_CENTER - RenderConfig.arenaCenter
+		local floorTop = Arena.cellPosition(1, 1).Y + offset.Y
+		local x, z, half = GRAY_CENTER.X, GRAY_CENTER.Z, GRAY_SIZE / 2
+		slab(parent, Vector3.new(GRAY_SIZE, 1, GRAY_SIZE), Vector3.new(x, floorTop - 0.5, z), GRAY_FLOOR)
+		local wallY = floorTop + GRAY_HEIGHT / 2
+		slab(parent, Vector3.new(GRAY_SIZE, GRAY_HEIGHT, 1), Vector3.new(x, wallY, z - half), GRAY_BACKDROP)
+		slab(parent, Vector3.new(GRAY_SIZE, GRAY_HEIGHT, 1), Vector3.new(x, wallY, z + half), GRAY_BACKDROP)
+		slab(parent, Vector3.new(1, GRAY_HEIGHT, GRAY_SIZE), Vector3.new(x - half, wallY, z), GRAY_BACKDROP)
+		slab(parent, Vector3.new(1, GRAY_HEIGHT, GRAY_SIZE), Vector3.new(x + half, wallY, z), GRAY_BACKDROP)
+		slab(parent, Vector3.new(GRAY_SIZE, 1, GRAY_SIZE), Vector3.new(x, floorTop + GRAY_HEIGHT, z), GRAY_BACKDROP)
+		arenaRestore = neutralLighting()
+		return offset
+	end
+	local offset = FIELD_ORIGIN - Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2])
+	local floor = Instance.new("Part")
+	floor.Anchored = true
+	floor.CanCollide = false
+	floor.CanQuery = false
+	floor.Size = Vector3.new(44, 1, 44)
+	floor.CFrame = CFrame.new(Arena.cellPosition(4, BoardConfig.rows + 1) + offset - Vector3.new(0, 0.5, 0))
+	floor.Color = Color3.fromRGB(64, 68, 76)
+	floor.Material = Enum.Material.SmoothPlastic
+	floor.Parent = parent
+	return offset
+end
+
+-- The arena's fixed cameras (arenaCamera), from the field's cells only, so every cast of every unit
+-- is framed the same:
+--   gameplay  the match camera's angle and distance (Arena.boardCamera)
+--   close     a 3/4 view from behind the caster's side, the caster and the dummy in front of it
+--             together, with room around them for their effects
+--   wide      high and to the side over the whole field: the full area of an ultimate
+local function arenaFraming(offset: Vector3): CFrame
+	if arenaCamera == "gameplay" then
+		return Arena.boardCamera() + offset
+	end
+	local caster = Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2]) + offset
+	if arenaCamera == "close" then
+		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
+		local between = caster:Lerp(target, 0.5) + Vector3.new(0, HEIGHT * 0.5, 0)
+		return CFrame.lookAt(between + Vector3.new(-13, 10, 17), between)
+	end
+	local center = RenderConfig.arenaCenter + offset
+	center = Vector3.new(center.X, caster.Y, center.Z)
+	return CFrame.lookAt(center + Vector3.new(-30, 44, 46), center)
+end
+
 local function closeStage()
 	local s = stage
 	if not s then
@@ -414,6 +582,7 @@ local function closeStage()
 	if s.fieldPreview then
 		CombatPlayback.stop()
 	end
+	leaveArena()
 	CombatEffects.clear()
 	ImpactEffects.clear()
 	CombatEffects.setClock(nil)
@@ -530,6 +699,8 @@ local function endFieldPreview(s: Stage)
 	CameraCues.setClock(stageClock)
 	s.fieldPreview:Destroy()
 	s.fieldPreview = nil
+	s.fieldOffset = nil
+	leaveArena()
 	s.actor.part.Parent = s.folder
 	s.dummy.part.Parent = s.folder
 	s.camera = s.stageCamera
@@ -640,27 +811,20 @@ local function cast(s: Stage)
 	result.winner = nil
 	local from = castAt - AbilityFx.windupLength(s.unitType) - 0.5
 
-	-- The small field: a floor under the arena cells, shifted so the unit's cell is FIELD_ORIGIN.
+	-- The field: the arena's ground (T: buildArena) under the arena cells, shifted by `offset`.
 	local fieldFolder = Instance.new("Folder")
 	fieldFolder.Name = "FieldPreview"
-	local offset = FIELD_ORIGIN - Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2])
-	local floor = Instance.new("Part")
-	floor.Anchored = true
-	floor.CanCollide = false
-	floor.CanQuery = false
-	floor.Size = Vector3.new(44, 1, 44)
+	local offset = buildArena(fieldFolder)
 	local middle = Arena.cellPosition(4, BoardConfig.rows + 1) + offset
-	floor.CFrame = CFrame.new(middle - Vector3.new(0, 0.5, 0))
-	floor.Color = Color3.fromRGB(64, 68, 76)
-	floor.Material = Enum.Material.SmoothPlastic
-	floor.Parent = fieldFolder
 	fieldFolder.Parent = s.folder
 	s.fieldPreview = fieldFolder
+	s.fieldOffset = offset
 	s.actor.part.Parent = nil
 	s.dummy.part.Parent = nil
-	-- Frame the unit and the dummies from behind the unit's side, as the board camera does.
+	-- Frame the unit and the dummies from behind the unit's side, as the board camera does (in an
+	-- arena: its fixed camera).
 	s.fieldFocus = FIELD_ORIGIN:Lerp(middle, 0.6)
-	s.camera = fieldFraming(s.fieldFocus)
+	s.camera = if arenaMode == "off" then fieldFraming(s.fieldFocus) else arenaFraming(offset)
 	local startedAt = stageClock()
 	CombatPlayback.preview(result, fieldFolder, offset, from, function()
 		return from + (stageClock() - startedAt)
@@ -796,6 +960,32 @@ local function nextQuality()
 	print("[DevLineup] effects quality: " .. name .. " (charge sparkles apply to units built after this)")
 end
 
+local function cycle(list: { string }, current: string): string
+	local index = table.find(list, current) or 0
+	return list[index % #list + 1]
+end
+
+-- T: the next test arena; a shown cast plays again in it.
+local function nextArena(s: Stage)
+	arenaMode = cycle(ARENA_MODES, arenaMode)
+	print("[DevLineup] arena: " .. arenaMode)
+	if s.fieldPreview then
+		s.castPresses -= 1 -- the same cast again
+		cast(s)
+	end
+	refreshTitle()
+end
+
+-- C: the arena's next fixed camera, applied to a shown cast at once.
+local function nextArenaCamera(s: Stage)
+	arenaCamera = cycle(ARENA_CAMERAS, arenaCamera)
+	print("[DevLineup] arena camera: " .. arenaCamera .. (if arenaMode == "off" then " (T: an arena to use it)" else ""))
+	if s.fieldPreview and s.fieldOffset and arenaMode ~= "off" then
+		s.camera = arenaFraming(s.fieldOffset)
+	end
+	refreshTitle()
+end
+
 local function updateStage(s: Stage, now: number, dt: number)
 	for i = #s.pending, 1, -1 do
 		local job = s.pending[i]
@@ -829,7 +1019,11 @@ local function updateStage(s: Stage, now: number, dt: number)
 	if not s.fieldPreview then
 		CombatEffects.update(now) -- a field preview's playback updates its own effects
 	end
-	setCamera(s.camera * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera))
+	if s.fieldPreview and arenaMode ~= "off" then
+		setCamera(s.camera) -- an arena's fixed camera: no shake, no cues, no drift
+	else
+		setCamera(s.camera * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera))
+	end
 end
 
 -- Lineup -------------------------------------------------------------------------------------------
@@ -1171,6 +1365,8 @@ local function qaHandle()
 				time = stageTime,
 				scale = timeScale,
 				preview = s ~= nil and s.fieldPreview ~= nil,
+				arena = arenaMode,
+				arenaCamera = arenaCamera,
 			}
 		end,
 		-- Effect texture checks (VfxDebug): the report, and every image shown in front of the camera.
@@ -1236,6 +1432,10 @@ function DevLineup.start()
 			step(-1)
 		elseif key == Enum.KeyCode.M and folder then
 			overview()
+		elseif key == Enum.KeyCode.T and stage then
+			nextArena(stage)
+		elseif key == Enum.KeyCode.C and stage then
+			nextArenaCamera(stage)
 		elseif stage and PREVIEW_KEYS[key] then
 			if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
 				endFieldPreview(stage)
