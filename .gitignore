@@ -21,3 +21,7 @@ desktop.ini
 
 sim-latest.txt
 docs/references/
+
+# Portable tools downloaded locally (Blender for scripts/blender).
+tools/
+__pycache__/

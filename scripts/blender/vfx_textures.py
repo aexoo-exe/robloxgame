@@ -665,4 +665,6 @@ def main():
     print(f"[vfx] done: {len(made)} textures + contact_sheet.png in {out}")
 
 
-main()
+# Run Script and `blender -b -P` both run it as __main__; batch 2 imports the helpers only.
+if __name__ == "__main__":
+    main()
