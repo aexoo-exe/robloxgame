@@ -1221,7 +1221,9 @@ function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, 
 	end
 	-- Camera-facing, a ring as wide as a big area would cover the whole close-up: capped.
 	diameter = math.min(diameter, RING_MAX)
-	ImpactEffects.emit(position + Vector3.new(0, 0.4 + diameter * 0.15, 0), {
+	-- Raised so its lower edge stays above the floor (cut by the floor it read as a faint partial
+	-- arc); a wide ring rises at most ~3 studs.
+	ImpactEffects.emit(position + Vector3.new(0, 0.3 + math.min(diameter * 0.45, 2.8), 0), {
 		usage = "shock",
 		fallback = KINDS.bubble.texture,
 		count = 1,

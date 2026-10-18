@@ -21,6 +21,7 @@ local ImpactEffects = require(script.Parent.ImpactEffects)
 local VfxRecipe = {}
 
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
+local UNIT_WIDTH = RenderConfig.unitSize.X
 local rgb = Color3.fromRGB
 local WHITE = Color3.new(1, 1, 1)
 local BLACK = Color3.new(0, 0, 0)
@@ -144,9 +145,14 @@ VfxRecipe.LIGHTNING = LIGHTNING
 -- Per tier (UltimateConfig tier 1-5): `k` scales sizes and counts, `sides` side blasts, `after`
 -- multiplies the aftermath's length and smoke, `light` the light flash, `arcs` the lightning arcs
 -- a crackling (lightning) burst throws.
+-- The readability floor (tier 1-2: short, fewer layers, but every layer must read at the close
+-- camera): `minSize` the smallest a burst's main layers (core, blast sheet, shock ring) start, in
+-- unit widths; `glow` adds a colored glow sheet to bursts whose blast is not one already (dust,
+-- mist, steam), so every cast has one clear colored glow. Main layers never start more than ~0.3
+-- transparent (DEFAULTS and VfxRecipe.explosion).
 VfxRecipe.TIERS = {
-	{ k = 0.75, sides = 0, after = 0.5, light = 0.7, arcs = 1 },
-	{ k = 0.85, sides = 1, after = 0.7, light = 0.85, arcs = 2 },
+	{ k = 0.75, sides = 0, after = 0.5, light = 0.7, arcs = 1, minSize = 0.6, glow = true },
+	{ k = 0.85, sides = 1, after = 0.7, light = 0.85, arcs = 2, minSize = 0.6, glow = true },
 	{ k = 1, sides = 3, after = 1, light = 1, arcs = 3 },
 	{ k = 1.15, sides = 4, after = 1.3, light = 1.1, arcs = 4 },
 	{ k = 1.3, sides = 5, after = 1.6, light = 1.2, arcs = 5 },
@@ -372,17 +378,18 @@ end
 
 -- The white-hot core: one short, small starburst frame, white for an instant then the theme's
 -- color, never wider than DEFAULTS.core.cap unit heights (x `k`, at most maxCap).
-function VfxRecipe.core(at: Vector3, radius: number, k: number?, palette: ColorSequence?)
+function VfxRecipe.core(at: Vector3, radius: number, k: number?, palette: ColorSequence?, minSize: number?)
 	local config = D.core
 	local scale = k or 1
 	local cap = UNIT_HEIGHT * math.min(config.cap * scale, config.maxCap)
+	local least = math.min(minSize or 0, cap)
 	ImpactEffects.emit(at, {
 		usage = "critFlash",
 		count = 1,
 		color = palette or P.flash,
 		size = curve({
-			{ 0, math.min(radius * config.size[1] * scale, cap * 0.75) },
-			{ 1, math.min(radius * config.size[2] * scale, cap) },
+			{ 0, math.max(math.min(radius * config.size[1] * scale, cap * 0.75), least) },
+			{ 1, math.max(math.min(radius * config.size[2] * scale, cap), least * 1.3) },
 		}),
 		transparency = curve({ { 0, 0.25 }, { 0.5, 0.55 }, { 1, 1 } }),
 		lifetime = config.lifetime,
@@ -393,16 +400,28 @@ end
 
 -- One explosion sheet at `at`, `size` times DEFAULTS.explosion.size studs: the one-shot explosion
 -- flipbook, or (`usage` "glow") a soft energy sheet.
-function VfxRecipe.explosion(at: Vector3, size: number, palette: ColorSequence?, usage: string?, light: number?)
+function VfxRecipe.explosion(
+	at: Vector3,
+	size: number,
+	palette: ColorSequence?,
+	usage: string?,
+	light: number?,
+	minSize: number?
+)
 	local config = D.explosion
 	local glow = usage == "glow" or usage == "smoke"
 	-- A glow sheet adds light everywhere it covers: smaller than a fireball so units stay readable.
 	local scale = if usage == "glow" then size * 0.6 else size
+	local least = minSize or 0
 	ImpactEffects.emit(at, {
 		usage = usage or "explosion",
 		count = 1,
 		color = palette or P.explosion,
-		size = curve({ { 0, scale * config.size[1] }, { 0.2, scale * config.size[2] }, { 1, scale * config.size[3] } }),
+		size = curve({
+			{ 0, math.max(scale * config.size[1], least) },
+			{ 0.2, math.max(scale * config.size[2], least * 1.4) },
+			{ 1, math.max(scale * config.size[3], least * 1.6) },
+		}),
 		-- a glow sheet has no frames of its own: it thins out sooner
 		transparency = if glow
 			then curve({ { 0, 0.3 }, { 0.4, 0.45 }, { 1, 1 } })
@@ -416,17 +435,21 @@ end
 
 -- The thick shock ring racing out then fading: camera-facing, raised off the ground (a ring lying on
 -- the floor reads as a sticker).
-function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?)
+function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?, minSize: number?)
 	local config = D.shock
 	local scale = k or 1
-	ImpactEffects.emit(at + Vector3.new(0, 1 + radius * 0.3, 0), {
+	local least = minSize or 0
+	local widest = math.max(radius * config.size[3] * scale, least * 1.6)
+	-- Its middle high enough that a small ring's lower edge stays above the floor (a ring cut by the
+	-- floor reads as a faint partial arc); a wide area's ring rises at most to a unit's chest.
+	ImpactEffects.emit(at + Vector3.new(0, 0.3 + math.min(widest * 0.45, UNIT_HEIGHT * 0.6), 0), {
 		usage = "shock",
 		count = 1,
 		color = colors({ { 0, edge:Lerp(WHITE, 0.6) }, { 1, edge } }),
 		size = curve({
-			{ 0, radius * config.size[1] },
-			{ 0.35, radius * config.size[2] * scale },
-			{ 1, radius * config.size[3] * scale },
+			{ 0, math.max(radius * config.size[1], least) },
+			{ 0.35, math.max(radius * config.size[2] * scale, least * 1.3) },
+			{ 1, widest },
 		}),
 		transparency = curve({ { 0, 0 }, { 0.4, 0.35 }, { 1, 1 } }),
 		lifetime = { config.lifetime, config.lifetime },
@@ -637,9 +660,23 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 	local tier = tierOf(run, o.tier)
 	local k = (if o.big then 1.35 else 1) * tier.k
 	local blast = if o.big then theme.blastBig else theme.blast
-	local air = center + Vector3.new(0, 1.2, 0)
-	VfxRecipe.core(air, radius, k, theme.core)
-	VfxRecipe.explosion(air, radius * k, blast, theme.blastUsage, theme.blastLight)
+	-- The readability floor (TIERS minSize, glow): small tiers' main layers stay big enough to read.
+	local least = UNIT_WIDTH * (tier.minSize or 0)
+	local air = center + Vector3.new(0, math.max(1.2, least * 0.6), 0)
+	VfxRecipe.core(air, radius, k, theme.core, least)
+	VfxRecipe.explosion(air, radius * k, blast, theme.blastUsage, theme.blastLight, least)
+	if tier.glow and theme.blastUsage ~= "glow" then
+		-- One clear colored glow per burst (a dust, mist or steam blast has none of its own).
+		local tint = if o.big then theme.edgeBig else theme.edge
+		VfxRecipe.explosion(
+			air,
+			radius * k,
+			colors({ { 0, tint:Lerp(WHITE, 0.35) }, { 0.35, tint }, { 1, tint:Lerp(BLACK, 0.45) } }),
+			"glow",
+			0.8,
+			least
+		)
+	end
 	if not run.reduced then
 		for i = 1, tier.sides do
 			run:at(run:designTime() + 0.03 * i, function()
@@ -653,7 +690,7 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 			end)
 		end
 	end
-	VfxRecipe.shock(center, radius, if o.big then theme.edgeBig else theme.edge, k)
+	VfxRecipe.shock(center, radius, if o.big then theme.edgeBig else theme.edge, k, least)
 	if theme.crackle then
 		-- Arcs snapping from the blast down to the edge of the area.
 		local arcs = if run.reduced then math.ceil(tier.arcs / 2) else tier.arcs
@@ -958,8 +995,9 @@ end
 function VfxRecipe.hit(run, at: Vector3, size: number, theme: Theme?, direction: Vector3?)
 	local t = themeOf(theme)
 	local radius = size * 0.6
-	VfxRecipe.core(at, radius, 1, t.core)
-	VfxRecipe.explosion(at, radius * 0.8, t.blast, t.blastUsage, t.blastLight)
+	local least = UNIT_WIDTH * (tierOf(run).minSize or 0) -- the readability floor (TIERS)
+	VfxRecipe.core(at, radius, 1, t.core, least)
+	VfxRecipe.explosion(at, radius * 0.8, t.blast, t.blastUsage, t.blastLight, least)
 	VfxRecipe.sparks(at, 0.6, 24, t.spark, direction)
 	VfxRecipe.light(run, at, radius, t.light, 0.7)
 end
@@ -999,7 +1037,8 @@ function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from:
 					usage = "ember",
 					count = math.max(1, math.floor(3 * k)),
 					color = t.ember,
-					size = curve({ { 0, 0.22 * height * 0.3 }, { 0.6, 0.18 * height * 0.3 }, { 1, 0 } }),
+					-- ~0.45 studs at a unit's height: readable at the close camera
+				size = curve({ { 0, 0.1 * height }, { 0.6, 0.08 * height }, { 1, 0 } }),
 					transparency = curve({ { 0, 0.2 }, { 0.7, 0.35 }, { 1, 1 } }),
 					lifetime = { 0.55, 0.85 },
 					speed = { 2.5, 4.5 },
@@ -1020,7 +1059,7 @@ function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from:
 					count = 1,
 					color = t.blast,
 					size = curve({ { 0, height * 0.95 * k }, { 1, height * 1.1 * k } }),
-					transparency = curve({ { 0, 1 }, { 0.3, 0.7 }, { 0.7, 0.75 }, { 1, 1 } }),
+					transparency = curve({ { 0, 1 }, { 0.3, 0.55 }, { 0.7, 0.65 }, { 1, 1 } }),
 					lifetime = { 0.34, 0.34 },
 					lightEmission = 1,
 					brightness = 1,

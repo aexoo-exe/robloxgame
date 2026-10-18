@@ -146,20 +146,17 @@ function UltimateKit.groove(run: any, from: number, to: number, color: Color3, a
 		return
 	end
 	local frame = CFrame.lookAt((flatA + flatB) / 2, flatB)
-	-- A soft glow streak along it when picked (VfxConfig.uses `streak`), over a thinner neon core.
+	-- A soft glow streak along it (VfxConfig.uses `streak`, a camera-facing beam) raised a little off
+	-- the ground. No flat neon core under it any more: a neon slab lying on the floor read as a
+	-- sticker (the reel check's "flat part at floor"). Without the streak texture (or with
+	-- ReducedEffects) nothing is drawn.
 	local glow = if run.reduced then nil else textured("streak", color, "beam")
-	UltimateKit.live(run, from, to, "Block", color, function(part, u)
-		local drawn = math.min(1, u * 8)
-		part.Size = Vector3.new(width * (1 - 0.5 * u) * (if glow then 0.45 else 1), 0.05, length * drawn)
-		part.CFrame = frame * CFrame.new(0, 0, length * (1 - drawn) / 2)
-		part.Transparency = 0.15 + 0.85 * UltimateKit.easeIn(u)
-	end)
 	if glow then
 		UltimateKit.live(run, from, to, "Block", color, function(part, u)
 			local drawn = math.min(1, u * 8)
 			-- The beam is as wide as the mean of X and Y, times `streak`'s width (3): ~1.2x the groove.
 			part.Size = Vector3.new(width * 0.6 * (1 - 0.4 * u), width * 0.2, length * drawn)
-			part.CFrame = frame * CFrame.new(0, 0.1, length * (1 - drawn) / 2)
+			part.CFrame = frame * CFrame.new(0, 0.2, length * (1 - drawn) / 2)
 			part.Transparency = 0.1 + 0.9 * UltimateKit.easeIn(u)
 		end, nil, glow, true)
 	end

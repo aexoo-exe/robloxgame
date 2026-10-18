@@ -97,6 +97,10 @@ local FIELD_ORIGIN = STAGE + Vector3.new(0, 0, -60)
 local FIELD_UNIT = { 4, 4 }
 local FIELD_DUMMY = "placeholder_creep" -- a PvE creep's look; its stats are replaced
 local FIELD_DUMMIES = { { 4, 4 }, { 5, 4 }, { 3, 4 }, { 4, 3 }, { 5, 3 }, { 3, 3 }, { 4, 2 } }
+-- For a unit whose cast heals a wounded ally: an ally beside it, worn down by the dummy across.
+local FIELD_ALLY = "placeholder_creep_big"
+local FIELD_ALLY_CELL = { 3, 4 }
+local FIELD_ALLY_HEALTH = 1000
 local FIELD_MANA = 12 -- the unit's mana bar in the preview fight (one attack fills most of it)
 local FIELD_SECONDS = 25 -- how long the preview fight runs
 local FIELD_AFTER = 3.5 -- seconds of the fight shown after the cast
@@ -785,26 +789,41 @@ local function fieldFight(s: Stage): (any?, number?, { any }, { any })
 			dummy.attackDamage = math.ceil(needed / (#FIELD_DUMMIES * 2) * s.starLevel)
 		end
 	end
+	-- A heal that waits for a wounded ally (blooming_aid's ALLY_BELOW): an ally beside the unit
+	-- (FIELD_ALLY) that the dummy across from it wears below the threshold, so a cast heals it. The
+	-- unit's own health is raised so the dummies never kill it first.
+	local allyBelow: number? = nil
+	for _, effect in (stats.ability and stats.ability.effects) or {} do
+		local condition = effect.condition
+		if condition and condition.type == "ALLY_BELOW" and not condition.negate then
+			allyBelow = condition.healthPercent
+		end
+	end
+	local own = {
+		{ id = "unit", unitType = s.unitType, starLevel = s.starLevel, column = FIELD_UNIT[1], row = FIELD_UNIT[2] },
+	}
+	local unitTypes = { [s.unitType] = stats, [FIELD_DUMMY] = dummy }
+	if allyBelow then
+		local ally = table.clone(Pve.pveUnitType(FIELD_ALLY))
+		ally.health = FIELD_ALLY_HEALTH
+		ally.attackDamage = 0
+		ally.attacksPerSecond = 0.001
+		ally.range = 12 -- never walks
+		unitTypes[FIELD_ALLY] = ally
+		table.insert(own, { id = "ally", unitType = FIELD_ALLY, column = FIELD_ALLY_CELL[1], row = FIELD_ALLY_CELL[2] })
+		stats.health = (stats.health or 600) * 4
+		dummy.attacksPerSecond = 2
+		dummy.attackDamage = math.ceil(FIELD_ALLY_HEALTH * (1 - allyBelow / 100) * 1.5 / 3)
+	end
 	local dummies = {}
 	for i, cell in FIELD_DUMMIES do
 		table.insert(dummies, { id = "dummy" .. i, unitType = FIELD_DUMMY, column = cell[1], row = cell[2] })
 	end
 	local ok, result = pcall(CombatSim.run, {
-		boards = {
-			{
-				{
-					id = "unit",
-					unitType = s.unitType,
-					starLevel = s.starLevel,
-					column = FIELD_UNIT[1],
-					row = FIELD_UNIT[2],
-				},
-			},
-			dummies,
-		},
+		boards = { own, dummies },
 		columns = BoardConfig.columns,
 		rows = BoardConfig.rows,
-		unitTypes = { [s.unitType] = stats, [FIELD_DUMMY] = dummy },
+		unitTypes = unitTypes,
 		ticksPerSecond = CombatConfig.ticksPerSecond,
 		maxTicks = CombatConfig.ticksPerSecond * FIELD_SECONDS,
 		critChance = 0,
@@ -817,7 +836,7 @@ local function fieldFight(s: Stage): (any?, number?, { any }, { any })
 	local actorIndex, sides = nil, {}
 	for _, unit in result.units do
 		sides[unit.index] = unit.side
-		if unit.side == 1 then
+		if unit.side == 1 and unit.id == "unit" then
 			actorIndex = unit.index
 		end
 	end
@@ -831,6 +850,12 @@ local function fieldFight(s: Stage): (any?, number?, { any }, { any })
 				table.insert(casts, event)
 			elseif event.kind == "Form" and event.unit == actorIndex then
 				table.insert(shifts, event)
+			elseif event.kind == "Heal" and event.unit == actorIndex and event.target ~= actorIndex then
+				-- A cast that heals the wounded ally: the first press shows it (cast, below).
+				local last = casts[#casts]
+				if last and not last.heals then
+					last.heals = true
+				end
 			end
 		end
 	end
@@ -850,6 +875,15 @@ local function cast(s: Stage): boolean
 	end
 	s.castPresses += 1
 	local index = (s.castPresses - 1) % #casts + 1
+	if s.castPresses == 1 then
+		-- A healer's first press shows the cast that heals the wounded ally (fieldFight), if any.
+		for i, event in casts do
+			if event.heals then
+				index = i
+				break
+			end
+		end
+	end
 	local castEvent = casts[index]
 	local ticks = result.ticksPerSecond
 	local castAt = castEvent.tick / ticks
