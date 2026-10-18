@@ -71,6 +71,7 @@ local CombatPlayback = require(script.Parent.CombatPlayback)
 local CombatFx = require(script.Parent.CombatFx)
 local Figure = require(script.Parent.Figure)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local ReelCheck = require(script.Parent.ReelCheck)
 local ReelConfig = require(script.Parent.ReelConfig)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
@@ -1250,6 +1251,11 @@ local function finishReel()
 	end
 	reelRunning = false
 	reelToken += 1
+	-- Stopped partway: the units finished so far are still reported.
+	ReelCheck.abort()
+	if ReelCheck.hasResults() then
+		ReelCheck.report("stopped early")
+	end
 	showCard(nil)
 	if hud then
 		hud.Enabled = true
@@ -1410,8 +1416,22 @@ local function startReel()
 		timeScale = scale
 		ImpactEffects.setTimeScale(scale)
 		s.castPresses = 0
-		local length = if cast(s) then AbilityFx.windupLength(s.unitType) + 0.5 + FIELD_AFTER else 0
-		return hold(length / scale)
+		ReelCheck.playStarted()
+		local casted = cast(s)
+		if not casted then
+			ReelCheck.noCast()
+		end
+		local length = if casted then AbilityFx.windupLength(s.unitType) + 0.5 + FIELD_AFTER else 0
+		local played = hold(length / scale)
+		if played then
+			ReelCheck.playEnded()
+		end
+		return played
+	end
+	-- The field floor's height while a field preview shows (ReelCheck).
+	local function fieldFloor(): number?
+		local s = stage
+		return if s and s.fieldOffset then Arena.cellPosition(1, 1).Y + s.fieldOffset.Y else nil
 	end
 
 	task.spawn(function()
@@ -1430,6 +1450,7 @@ local function startReel()
 				end
 				showCard(nil)
 				print(string.format("[Reel] %s start at %.3f", unitType, os.clock()))
+				ReelCheck.begin(unitType, tier, fieldFloor)
 				if
 					not play(s, 1)
 					or not hold(ReelConfig.pauseSeconds)
@@ -1439,12 +1460,18 @@ local function startReel()
 				end
 				timeScale = 1
 				ImpactEffects.setTimeScale(1)
+				-- The leak check, on the field as the last play left it.
+				if not hold(ReelConfig.leakSeconds) then
+					return
+				end
+				ReelCheck.finish()
 				if not hold(ReelConfig.gapSeconds) then
 					return
 				end
 			end
 		end
 		showCard("REEL END")
+		ReelCheck.report()
 		if hold(ReelConfig.endSeconds) then
 			finishReel()
 		end
