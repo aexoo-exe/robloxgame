@@ -82,6 +82,7 @@ local HitFeel = require(script.Parent.HitFeel)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local ReelCheck = require(script.Parent.ReelCheck)
 local ReelConfig = require(script.Parent.ReelConfig)
+local UltimateMoment = require(script.Parent.UltimateMoment)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
 local Vfx = require(script.Parent.Vfx)
@@ -1170,9 +1171,12 @@ local function updateStage(s: Stage, now: number, dt: number)
 		-- An arena's fixed camera: no cues, no drift. The slice's unit keeps its camera shake (its hit
 		-- feel is what is being judged); every other unit's recording stays still.
 		local shake = if s.unitType == SLICE_UNIT then ImpactEffects.shakeOffset() else CFrame.identity
-		setCamera(s.camera * shake)
+		-- An ultimate moment's lean (only when previews may have moments: UltimateMoment.inPreview).
+		setCamera(s.camera * UltimateMoment.cameraOffset(s.camera) * shake)
 	else
-		setCamera(s.camera * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera))
+		setCamera(
+			s.camera * UltimateMoment.cameraOffset(s.camera) * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera)
+		)
 	end
 end
 

@@ -21,6 +21,7 @@ local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 
 local CameraCues = require(script.Parent.CameraCues)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local UltimateMoment = require(script.Parent.UltimateMoment)
 
 local Arena = {}
 
@@ -512,9 +513,13 @@ local function lockCamera()
 		if current.CameraType ~= Enum.CameraType.Scriptable then
 			current.CameraType = Enum.CameraType.Scriptable
 		end
-		-- Combat camera shake (ImpactEffects; identity when still or turned off) and ultimates'
-		-- camera cues (CameraCues; identity when none).
-		current.CFrame = cameraCFrame * ImpactEffects.shakeOffset() * CameraCues.offset(cameraCFrame)
+		-- Combat camera shake (ImpactEffects; identity when still or turned off), ultimates' camera
+		-- cues (CameraCues; identity when none) and an ultimate moment's lean toward the caster
+		-- (UltimateMoment; identity outside one).
+		current.CFrame = cameraCFrame
+			* UltimateMoment.cameraOffset(cameraCFrame)
+			* ImpactEffects.shakeOffset()
+			* CameraCues.offset(cameraCFrame)
 	end)
 end
 
