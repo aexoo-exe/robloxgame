@@ -111,6 +111,9 @@ local WINDUP_FLAMES = { -1.05, -1.0, -0.96 }
 -- The finisher's light: a short, tight warm flash at the target's chest (the recipe's light, range
 -- 1.5x the area and brightness 3.6, washed the floor orange across the frame).
 local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
+-- The contact flames of strikes 1-2: emitted at the blade tip at these design seconds after the
+-- contact (each at the tip's place then), living 0.1-0.14 s, about half the old size.
+local CONTACT_FLAMES = { at = { 0, 0.04 }, lifetime = { 0.1, 0.14 } }
 local DASH_DUST = 0.4 -- seconds the dash's dust burst lives (its flipbook's own 0.8 s lingered)
 local SAMPLE = 0.035 -- design seconds before a contact the blade is sampled (its arc's direction)
 local BLADE = 0.55 -- the sword's reach past the hand, in unit heights
@@ -411,8 +414,16 @@ local function strike(run, index: number)
 			0.08
 		)
 	end
-	-- Flames off the blade tip (one emit of two), embers flung off it.
-	VfxRecipe.flames(tip(run), 2, (1.1 + 0.15 * index) * s)
+	-- Strikes 1-2: small, short flames off the blade tip at contact and again a moment later at the
+	-- tip's new place, so they ride along the cut (one big long flame hung in the air beside him).
+	-- None on the finisher: its bloom is the fire. Embers flung off the tip.
+	if index < #STRIKES then
+		for _, after in CONTACT_FLAMES.at do
+			run:at(spec.at + after, function()
+				VfxRecipe.flames(tip(run), 1, (0.55 + 0.075 * index) * s, nil, CONTACT_FLAMES.lifetime)
+			end)
+		end
+	end
 	VfxRecipe.embers(run, tip(run), s, nil, 6)
 	Sfx.play("whoosh", { pitch = 1 + 0.06 * (index - 1) })
 	if index >= #STRIKES then
