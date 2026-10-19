@@ -27,6 +27,9 @@ local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 local Kit = UltimateKit
 local WHITE = Kit.WHITE
 local STONE = Color3.fromRGB(150, 140, 128)
+-- The aura spikes: gold fading to deep orange.
+local AURA_GOLD = Color3.fromRGB(255, 200, 40)
+local AURA_DEEP = Color3.fromRGB(255, 140, 0)
 local HEX = math.sqrt(3) * RenderConfig.hexRadius -- between neighboring cell centers
 
 local def = {}
@@ -100,22 +103,13 @@ local function powerUp(run)
 		end
 	end
 	run.memo.toCoreThree = toCoreThree
-	-- The gold flame aura (fx_aura_spike): three overlapping sheets rising off him, turned a little
-	-- and flickering, through the power-up; gold motes and a soft glow under it (particles; the
-	-- form looks have no glow shell).
-	VfxRecipe.kitAuraSpike(run, run.view, gold, -0.55, 0.85, 3)
+	-- The gold flame aura (fx_aura_spike): three overlapping sheets on his torso rising off him,
+	-- 1-1.3x his height, turned a little and flickering, gold to deep orange, through the power-up;
+	-- gold motes under it (particles: no glow sheet or shell; the form looks have none either).
+	VfxRecipe.kitAuraSpike(run, run.view, AURA_GOLD, -0.55, 0.85, 3, AURA_DEEP)
 	VfxRecipe.aura(run, run.view, VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4)), 0.8, -0.55, 0.85)
 	-- Small blue crackle over him (more on the way to Core III).
 	VfxRecipe.kitCrackleAura(run, run.view, run.style.primary, -0.5, 0.5, if toCoreThree then 2 else 1)
-	ImpactEffects.burst("glow", run:ground() + Vector3.new(0, 0.5, 0), Vector3.yAxis, {
-		color = gold,
-		count = 8,
-		size = 1.2,
-		speed = { 1, 3 },
-		lifetime = { 0.4, 0.7 },
-		spread = 40,
-		transparency = 0.4,
-	})
 	run:sound("charge", if toCoreThree then 1.1 else 0.85)
 	run:at(-0.08, function()
 		local target = run:target()
@@ -249,14 +243,19 @@ function def.event(run, event): boolean
 	elseif kind == "Area" then
 		-- The blast at the target: a gold-white burst.
 		local center, radius = run:area()
-		-- The gold-white burst: the shared recipe in his gold (core, glow sheet and side sheets,
-		-- shockwave, sparks, light), then gold embers and a little dark smoke.
+		-- The gold burst: the shared recipe in his gold (core, glow sheet and side sheets, all capped
+		-- at 1.5 unit heights; the flat shock ring, sparks, light), then gold embers and a little
+		-- dark smoke.
 		local burst = VfxRecipe.energy(gold, WHITE:Lerp(gold, 0.4))
 		VfxRecipe.burst(run, center, radius, { theme = burst })
 		VfxRecipe.aftermath(run, center, radius, { theme = burst })
-		-- Its impact: a gold-white hit star (fx_impact_star) and a shock ring (mesh_shock_ring).
-		VfxRecipe.kitHitStar(center + Vector3.new(0, 1.4, 0), radius * 1.2, WHITE:Lerp(gold, 0.5))
-		VfxRecipe.meshRing(center, radius * 1.1, gold, 0.4)
+		-- Its impact: a gold hit star (fx_impact_star) about a unit's size (the burst has the ring).
+		local height = run.view.part.Size.Y
+		VfxRecipe.kitHitStar(
+			center + Vector3.new(0, 1.4, 0),
+			math.min(radius * 1.2, height * 1.3),
+			gold:Lerp(WHITE, 0.15)
+		)
 		return true
 	elseif kind == "Form" then
 		-- The step up: an eruption of gold around him.

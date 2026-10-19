@@ -40,7 +40,7 @@ def.beats = {
 		at = -1.05,
 		run = function(run)
 			run:camera(-1.05, 0.5, { key = "dim", dim = 0.25, rise = 0.4, fall = 0.4 })
-			-- His steam thickens and heats from white to orange.
+			-- His steam thickens and heats from white to orange (a puff every 0.15 s: budget).
 			local t = -1.0
 			while t < -0.15 do
 				local heat = (t + 1.0) / 0.85
@@ -60,7 +60,7 @@ def.beats = {
 						}
 					)
 				end)
-				t += 0.1
+				t += 0.15
 			end
 			run:sound("charge", 0.4)
 		end,
@@ -94,15 +94,16 @@ function def.event(run, event): boolean
 		local center, radius = run:area()
 		local height = run.view.part.Size.Y * 2.6
 		local theme = VfxRecipe.themes.steam
-		-- The column of superheated steam, the eruption over the real area (core, fire blast and side
-		-- blasts, shockwave, sparks, light, scorch), a second white shock ring, then flames, pale steam
-		-- rolling out and embers for the longest (tier 5) aftermath.
+		-- The eruption over the real area (core, steam cloud and side clouds, all capped at 1.5 unit
+		-- heights: an area-wide cloud centered on him read as a see-through dome; the flat shock
+		-- ring, sparks, light), then pale steam rolling out for the longest (tier 5) aftermath.
 		VfxRecipe.burst(run, center, radius, { theme = theme })
 		VfxRecipe.aftermath(run, center, radius, { theme = theme })
 		-- The eruption: large steam billows thrown out in a ring from his body, a column of them
-		-- rising, orange embers, the speed-lines flash at the peak, a shock ring running out.
+		-- rising, orange embers, a brief speed-lines flash at the peak (about his size, not the
+		-- screen). The burst's ring is the only ring (budget).
 		local body = run.view.part.Position
-		local billows = if run.reduced then 8 else 12
+		local billows = if run.reduced then 6 else 9
 		for i = 1, billows do
 			local angle = (i / billows) * math.pi * 2 + math.random() * 0.3
 			local out = Vector3.new(math.cos(angle), 0.25, math.sin(angle)).Unit
@@ -110,8 +111,7 @@ function def.event(run, event): boolean
 		end
 		VfxRecipe.kitSteam(body + Vector3.new(0, height * 0.3, 0), height * 0.6, 2, Vector3.yAxis, height * 1.2, 15)
 		VfxRecipe.embers(run, center + Vector3.new(0, 1, 0), run:scale() * 1.4, VfxRecipe.energy(EMBER, HOT).ember, 22)
-		VfxRecipe.kitSpeedLines(run:chest(), height * 1.6, HOT, 0.2)
-		VfxRecipe.meshRing(center, radius * 1.1, WHITE:Lerp(HOT, 0.3), 0.45)
+		VfxRecipe.kitSpeedLines(run:chest(), run.view.part.Size.Y * 1.5, HOT, 0.2)
 		if not run.reduced then
 			-- A second wave of steam further out, rolling across the area.
 			run:at(0.4, function()

@@ -5,14 +5,15 @@
 --   -0.40  he plants and draws back, steam venting from him
 --    0     the real hit: a heavy blow, a burst of steam and a crack
 -- Shift into the titan (the real form change):
---    0     his hand to his mouth (no blood); a bolt of yellow lightning strikes down on him, a huge
---          flash; a massive steam explosion the titan emerges from; a roar, steam venting, a shake
+--    0     his hand to his mouth (no blood); 2-3 big yellow lightning bolts strike down on him, a
+--          brief flash where they land; a steam explosion the titan emerges from; a roar, steam
+--          venting, a shake
 -- Shift back to human:
 --    0     a steam burst; the giant collapses into steam and he stumbles out
 -- Layers: the shared recipe (VfxRecipe: the steam theme, and a lightning theme in yellow for the
--- bolt; tier 3) and the batch 2 kit: the transform's strike is yellow lightning bolts from above
--- (fx_lightning) with steam billows (fx_steam_billow) bursting out at his feet; the blow throws a
--- dust burst (fx_dust_burst) and a shock ring (mesh_shock_ring).
+-- bolt; tier 3) and the batch 2 kit: the transform's strike is big yellow lightning bolts from
+-- above (fx_lightning) with steam billows (fx_steam_billow) bursting out at his feet; the blow throws
+-- a dust burst (fx_dust_burst) and a shock ring (mesh_shock_ring).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local FxKit = require(script.Parent.Parent.FxKit)
@@ -87,8 +88,7 @@ function def.event(run, event): boolean
 		VfxRecipe.steamColumn(floor, 1 * run:scale())
 		steamBurst(floor + Vector3.new(0, 0.5, 0), 8, 1.2)
 		FxKit.mark(floor, Kit.DUST, STEAM, 2.2 * run:scale(), "crack", 0.9)
-		FxKit.ring(floor, STEAM, 6 * run:scale(), 0.35)
-		-- Weight to the blow: dust bursting up, a shock ring, stone chips off the crack.
+		-- Weight to the blow: dust bursting up, one flat shock ring, stone chips off the crack.
 		VfxRecipe.kitDust(floor, 3.4 * run:scale(), if run.reduced then 2 else 3)
 		VfxRecipe.meshRing(floor, 3.2 * run:scale(), STEAM, 0.4)
 		VfxRecipe.debris(floor, if run.reduced then 2 else 4, 0.3 * run:scale(), nil, 1.8)
@@ -103,35 +103,46 @@ function def.shift(run, event): boolean
 	local ground = run:ground()
 	if (event.formIndex or 1) >= 2 then
 		run:pose(ROAR)
-		local sky = ground + Vector3.new(0.6, 26, 0.4)
-		-- The bolt: yellow lightning striking down from above, a flash and light.
-		VfxRecipe.kitBolts(sky, ground + Vector3.new(0, 1, 0), BOLT, if run.reduced then 2 else 3, 0.35, 1.3)
-		VfxRecipe.core(ground + Vector3.new(0, 3, 0), 6, 1, BOLT_THEME.core)
-		VfxRecipe.light(run, ground + Vector3.new(0, 3, 0), 6, BOLT, 1.3)
-		-- Steam billows bursting out at his feet as the titan emerges.
 		local height = run.view.part.Size.Y
-		for i = 1, if run.reduced then 4 else 7 do
-			local angle = (i / 7) * math.pi * 2 + math.random() * 0.4
+		local now = run:designTime()
+		-- The strike: 2-3 large, bright yellow bolts from high above onto him, a beat apart, each from
+		-- a slightly different point in the sky; a brief yellow flash where they land (the core, at
+		-- most 1.5 unit heights) and a light.
+		local strikes = if run.reduced then 2 else 3
+		local land = ground + Vector3.new(0, height * 0.5, 0)
+		for i = 1, strikes do
+			run:at(now + 0.06 * (i - 1), function()
+				local angle = (i / strikes) * math.pi * 2 + math.random() * 0.6
+				local sky = ground + Vector3.new(math.cos(angle) * 2.5, 28, math.sin(angle) * 2.5)
+				-- Width 1: the bolt runs the whole 28-stud fall (wider would overshoot it).
+				VfxRecipe.kitBolts(sky, land, BOLT, 1, 0.42, 1, 2.8)
+			end)
+		end
+		VfxRecipe.core(land, height, 1, BOLT_THEME.core)
+		VfxRecipe.light(run, land, 6, BOLT, 1.3)
+		-- Steam billows bursting out at his feet as the titan emerges.
+		local billows = if run.reduced then 4 else 6
+		for i = 1, billows do
+			local angle = (i / billows) * math.pi * 2 + math.random() * 0.4
 			local out = Vector3.new(math.cos(angle), 0.35, math.sin(angle)).Unit
 			VfxRecipe.kitSteam(ground + Vector3.new(0, height * 0.3, 0), height * 0.7, 1, out, 7, 10)
 		end
-		-- The massive steam explosion the titan emerges from, then rolling, rising steam.
+		-- The steam explosion the titan emerges from (its sheets capped at 1.5 unit heights, its flat
+		-- shock ring) and two rounds of rising steam; one flat yellow ring for the strike. No second
+		-- steam ring, no aftermath (budget: the billows are the rolling steam).
 		VfxRecipe.burst(run, ground, 4.5 * run:scale(), { theme = STEAM_THEME, big = true })
-		VfxRecipe.aftermath(run, ground, 4.5 * run:scale(), { theme = STEAM_THEME })
-		for i = 0, (if run.reduced then 2 else 4) do
-			run:at(0.08 + i * 0.12, function()
-				steamBurst(ground + Vector3.new(0, 1 + i, 0), 10, 2.4)
+		for i = 0, 1 do
+			run:at(now + 0.1 + i * 0.2, function()
+				steamBurst(ground + Vector3.new(0, 1 + 1.5 * i, 0), 6, 2.4)
 			end)
 		end
-		FxKit.ring(ground, BOLT, 10, 0.4)
-		FxKit.ring(ground, STEAM, 14, 0.6, 0.15)
+		FxKit.ring(ground, BOLT, 8, 0.4)
 		run:sound("whoosh", 0.5)
 	else
 		run:pose(STUMBLE)
-		-- The giant collapses into steam.
+		-- The giant collapses into steam (the burst's flat ring is the only ring).
 		VfxRecipe.burst(run, ground, 3.5 * run:scale(), { theme = STEAM_THEME })
 		steamBurst(run:chest(), 16, 2.2)
-		FxKit.ring(ground, STEAM, 10, 0.5)
 		run:sound("whoosh", 0.8)
 	end
 	return true

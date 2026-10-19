@@ -7,10 +7,15 @@
 -- retried and re-checked for the rest of the session, so a late load still shows.
 -- VfxConfig.loading.requireLoaded = true draws an image only once its label has loaded.
 -- Counts how many requests drew textured or fell back, for the debug report (VfxDebug).
+-- After the preload, every image is warmed up as a particle (warmUp): batch 2 kit layers draw an
+-- image only once it is warm (Vfx.particleReady).
 -- Presentation only.
 
+local ContentProvider = game:GetService("ContentProvider")
+local LogService = game:GetService("LogService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
@@ -170,11 +175,177 @@ local function summarize(when: string)
 	)
 end
 
+-- Particle warm-up ----------------------------------------------------------------------------------
+-- A texture's first use as a particle in a session can fail ("ContentId ... failed due to: Asset
+-- content representation is being generated") even after its ImageLabel has loaded: the label does
+-- not make Roblox prepare the particle form. So, after the preload, one hidden ParticleEmitter per
+-- image emits one particle (0.01 studs, nearly transparent, inside the camera's near clip: never seen)
+-- and the emitter is preloaded too. An image is warm when that reports no failure and no content
+-- failure for it is logged within WARM_SETTLE seconds. One that failed is tried again WARM_RETRIES
+-- seconds after the warm-up began; the emitters go after WARM_KEEP seconds and one summary line is
+-- printed. Past that, an image still not warm is tried again (one emitter, briefly) when an effect
+-- asks for it, at most every WARM_LATE seconds.
+local WARM_RETRIES = { 2, 5, 10 }
+local WARM_KEEP = 15
+local WARM_SETTLE = 1
+local WARM_LATE = 10
+-- Per image id: "pending" (warming), "ready" or "failed"; nil before the warm-up reaches it.
+local warmState: { [number]: string } = {}
+local warmFailedAt: { [number]: number } = {} -- os.clock() of the last content failure logged
+local warmTriedAt: { [number]: number } = {}
+local warmHolder: BasePart? = nil
+local warmEnded = false -- WARM_KEEP has passed: the summary is out, the emitters are gone
+
+-- The hidden part the warm-up emitters sit on, placed just in front of the camera (inside its near
+-- clip). Under the camera, not the effect folders: ReelCheck never counts it.
+local function warmPart(): BasePart
+	if warmHolder and warmHolder.Parent then
+		return warmHolder
+	end
+	local part = Instance.new("Part")
+	part.Name = "VfxWarmUp"
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Transparency = 1
+	part.Size = Vector3.one * 0.05
+	part.Parent = workspace.CurrentCamera or workspace
+	warmHolder = part
+	return part
+end
+
+local function placeWarmPart()
+	local camera = workspace.CurrentCamera
+	if camera and warmHolder then
+		warmHolder.CFrame = camera.CFrame * CFrame.new(0, 0, -0.02)
+	end
+end
+
+-- One warm-up attempt for image `id` on `emitter` (made when nil); sets warmState[id]. Yields.
+local function warmAttempt(id: number, emitter: ParticleEmitter?): ParticleEmitter
+	local host = warmPart()
+	local made = emitter
+	if not made then
+		local created = Instance.new("ParticleEmitter")
+		created.Rate = 0
+		created.Enabled = false
+		created.LockedToPart = true
+		created.Size = NumberSequence.new(0.01)
+		-- Nearly, not fully, transparent: a fully transparent particle may never be drawn at all.
+		created.Transparency = NumberSequence.new(0.98)
+		created.Lifetime = NumberRange.new(0.5)
+		created.Speed = NumberRange.new(0)
+		created.LightEmission = 0
+		created.LightInfluence = 0
+		created.Parent = host
+		made = created
+	end
+	local particle = made :: ParticleEmitter
+	warmState[id] = "pending"
+	warmTriedAt[id] = os.clock()
+	local began = os.clock()
+	particle.Texture = ""
+	particle.Texture = contentOf(id)
+	placeWarmPart()
+	particle:Emit(1)
+	local status = "unreported"
+	local ok = pcall(function()
+		ContentProvider:PreloadAsync({ particle }, function(_, fetch: Enum.AssetFetchStatus)
+			status = fetch.Name
+		end)
+	end)
+	task.wait(WARM_SETTLE)
+	local logged = (warmFailedAt[id] or 0) >= began
+	local fetched = status == "Success" or status == "unreported" -- unreported: already cached
+	warmState[id] = if ok and fetched and not logged then "ready" else "failed"
+	return particle
+end
+
+-- Content failures logged for images being warmed (Roblox logs one once per asset per session).
+local function watchFailures(): RBXScriptConnection
+	return LogService.MessageOut:Connect(function(message)
+		if not string.find(message, "failed", 1, true) then
+			return
+		end
+		local id = tonumber(string.match(message, "rbxassetid://(%d+)"))
+		if id and warmState[id] then
+			warmFailedAt[id] = os.clock()
+		end
+	end)
+end
+
+local function warmUp(ids: { number })
+	local began = os.clock()
+	local log = watchFailures()
+	local follow = RunService.RenderStepped:Connect(placeWarmPart)
+	local emitters: { [number]: ParticleEmitter } = {}
+	local function attempt(id: number)
+		emitters[id] = warmAttempt(id, emitters[id])
+	end
+	for _, id in ids do
+		warmState[id] = "pending"
+		task.spawn(attempt, id)
+	end
+	for _, at in WARM_RETRIES do
+		task.wait(math.max(0, began + at - os.clock()))
+		for _, id in ids do
+			if warmState[id] == "failed" then
+				task.spawn(attempt, id)
+			end
+		end
+	end
+	task.wait(math.max(0, began + WARM_KEEP - os.clock()))
+	follow:Disconnect()
+	for _, emitter in emitters do
+		emitter:Destroy()
+	end
+	local ready, missing = 0, {}
+	for _, id in ids do
+		if warmState[id] == "ready" then
+			ready += 1
+		else
+			table.insert(missing, keysOf(id) .. " " .. string.format("%d", id))
+		end
+	end
+	warmEnded = true
+	print(
+		string.format("[Vfx] particle warm-up: %d/%d ready", ready, #ids)
+			.. (if #missing > 0 then " (not yet: " .. table.concat(missing, ", ") .. ")" else "")
+	)
+	if #missing == 0 then
+		log:Disconnect()
+	end
+end
+
+-- Whether image `id` may be drawn as a kit particle: its label has loaded and its particle warm-up
+-- succeeded. Before Vfx.start (no warm-up at all) the label alone decides. One that is still not warm
+-- after the warm-up is tried again in the background, at most every WARM_LATE seconds.
+function Vfx.particleReady(id: number): boolean
+	if not isLoaded(id) then
+		return false
+	end
+	local state = warmState[id]
+	if state == nil then
+		return not started
+	end
+	if state == "failed" and warmEnded and os.clock() - (warmTriedAt[id] or 0) >= WARM_LATE then
+		warmTriedAt[id] = os.clock()
+		task.spawn(function()
+			local emitter = warmAttempt(id, nil)
+			emitter:Destroy()
+		end)
+	end
+	return state == "ready"
+end
+
 -- Preloads every picked image: each gets a label in the hidden holder, and the labels are preloaded
 -- in one PreloadAsync call (its callback only noted for the report). Prints the summary when that
--- returns. At `failAfter` seconds an image whose label still has not loaded is drawn neon (one
--- warning) and, from then on, re-fetched every `retryEvery` seconds until it loads. A second summary
--- prints at `LATE_SUMMARY` seconds if anything had not loaded by then.
+-- returns, then warms every image up as a particle (warmUp). At `failAfter` seconds an image whose
+-- label still has not loaded is drawn neon (one warning) and, from then on, re-fetched every
+-- `retryEvery` seconds until it loads. A second summary prints at `LATE_SUMMARY` seconds if anything
+-- had not loaded by then.
 local LATE_SUMMARY = 60
 function Vfx.start()
 	if started then
@@ -202,6 +373,7 @@ function Vfx.start()
 		end
 		preloaded = true
 		summarize(string.format("preload finished in %.1f s", os.clock() - began))
+		task.spawn(warmUp, ids)
 
 		task.wait(math.max(0, LOADING.failAfter - (os.clock() - began)))
 		local missing = {}

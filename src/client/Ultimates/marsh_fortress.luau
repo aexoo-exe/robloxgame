@@ -2,18 +2,20 @@
 -- him and heals him for each enemy hit, at the Cast event.
 --   -0.40  he puffs up, rising on his legs; smoke from his pipe
 --   -0.28  a big hop
---    0     the landing on the real hit: a water-splash shockwave ring over 1 hex, mud and spray
+--    0     the landing on the real hit: a big water splash (the hero) and a shockwave ring over
+--          1 hex, a little dust and mud
 --   +0.10  blue-green heal motes drift into him
--- Layers at the landing: the shared recipe (VfxRecipe, a water theme in his colors, tier 2).
+-- Layers at the landing: the shared recipe (VfxRecipe, a water theme in his colors, tier 2) and the
+-- batch 2 kit's crown splash (fx_water_splash) and dust (fx_dust_burst).
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
-local FxKit = require(script.Parent.Parent.FxKit)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local SMOKE = Color3.fromRGB(225, 225, 225)
 local MUD = Color3.fromRGB(110, 86, 60)
+local SPLASH = Color3.fromRGB(220, 238, 255) -- white-blue (the splash texture bakes its own colors)
 
 local def = {}
 
@@ -66,31 +68,28 @@ function def.event(run, event): boolean
 	local kind = event.kind
 	if kind == "Area" then
 		local center, radius = run:area()
-		-- The water-splash landing: the recipe's water burst (core, mist, shock ring, droplet
-		-- fountain, light), a ring of water, mud thrown up, then bubbling and falling droplets.
+		-- The water-splash landing: the recipe's water burst (core, mist, the flat shock ring, droplet
+		-- fountain, light), then bubbling and falling droplets with a little mist (one small wave).
 		local water = VfxRecipe.water(run.style.primary, run.style.secondary)
-		FxKit.ring(center, run.style.primary, radius * 2.4, 0.4)
 		VfxRecipe.burst(run, center, radius, { theme = water })
-		VfxRecipe.aftermath(run, center, radius, { theme = water })
-		-- The punch of the landing: one big crown splash (fx_water_splash, rendered to fill its frame:
-		-- emitted large, raised to clear the floor), dust bursting at the area's edges
-		-- (fx_dust_burst), a second wider shock ring, mud clods thrown out.
-		local size = radius * 2.2
-		VfxRecipe.kit(center + Vector3.new(0, size * 0.42, 0), "kitSplash", { size = size, rotation = { -6, 6 } })
-		for i = 1, if run.reduced then 2 else 4 do
-			local angle = (i / 4) * math.pi * 2 + math.random() * 0.5
+		VfxRecipe.aftermath(run, center, radius, { theme = water, smokeScale = 0.6, smokeWaves = 1 })
+		-- The hero: one big white-blue crown splash (fx_water_splash, rendered to fill its frame:
+		-- emitted large, raised to clear the floor, drawn in front of the dust and mist). The dust is
+		-- secondary: two small bursts at the area's edges, half the old size, behind the splash; a
+		-- few mud clods thrown out. (No second ring and no mud cloud: they buried the splash.)
+		local size = radius * 2.8
+		VfxRecipe.kit(center + Vector3.new(0, size * 0.42, 0), "kitSplash", {
+			size = size,
+			color = SPLASH,
+			rotation = { -6, 6 },
+			zOffset = 2,
+		})
+		for i = 1, 2 do
+			local angle = (i / 2) * math.pi * 2 + math.random() * 0.5
 			local edge = center + Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius * 0.9
-			VfxRecipe.kitDust(edge, radius * 0.9, 1)
+			VfxRecipe.kitDust(edge, radius * 0.45, 1)
 		end
-		VfxRecipe.shock(center, radius * 1.1, run.style.secondary, 1.3)
-		VfxRecipe.debris(center, if run.reduced then 2 else 4, 0.3 * run:scale(), MUD, radius)
-		VfxRecipe.smoke(
-			center,
-			radius * 0.8,
-			if run.reduced then 1 else 3,
-			VfxRecipe.colors({ { 0, MUD }, { 1, MUD:Lerp(Color3.new(0, 0, 0), 0.3) } }),
-			0.35
-		)
+		VfxRecipe.debris(center, if run.reduced then 2 else 3, 0.3 * run:scale(), MUD, radius)
 		for _, target in run:targets() do
 			run:hitStop(target, 0.06)
 		end

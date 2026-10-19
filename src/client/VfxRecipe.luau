@@ -47,12 +47,13 @@ local colors, curve = VfxRecipe.colors, VfxRecipe.curve
 
 -- Palettes over a particle's life.
 VfxRecipe.palettes = {
-	-- ground flames: white-yellow core -> orange -> deep red
+	-- ground flames: saturated yellow-orange -> orange -> deep red (no white or cream: on the gray
+	-- floor a pale start read as washed-out cream flames)
 	fire = colors({
-		{ 0, rgb(255, 250, 225) },
-		{ 0.2, rgb(255, 205, 90) },
-		{ 0.55, rgb(255, 115, 30) },
-		{ 1, rgb(140, 25, 10) },
+		{ 0, rgb(255, 190, 50) },
+		{ 0.2, rgb(255, 145, 25) },
+		{ 0.55, rgb(240, 80, 15) },
+		{ 1, rgb(130, 20, 8) },
 	}),
 	-- the explosion sheet: yellow-orange -> orange -> red edges (no white: the core flash is the white)
 	explosion = colors({
@@ -89,16 +90,24 @@ VfxRecipe.palettes = {
 	dustDark = colors({ { 0, rgb(180, 165, 140) }, { 0.5, rgb(130, 120, 108) }, { 1, rgb(92, 86, 80) } }),
 	-- spray and mist off water: white -> pale aqua
 	mist = colors({ { 0, rgb(245, 252, 255) }, { 0.5, rgb(200, 230, 240) }, { 1, rgb(160, 200, 215) } }),
-	-- white for the first instant only, then warm (never a white ball)
-	flash = colors({ { 0, rgb(255, 255, 255) }, { 0.15, rgb(255, 215, 120) }, { 1, rgb(255, 150, 60) } }),
+	-- warm from the start (a white start at full light read as a cream ball), then orange
+	flash = colors({ { 0, rgb(255, 210, 110) }, { 0.15, rgb(255, 185, 80) }, { 1, rgb(255, 140, 50) } }),
 }
 local P = VfxRecipe.palettes
 
+-- Glows around a body or a burst (the core flash, glow and cloud sheets, camera-facing rings): never
+-- wider than this many unit heights. Wider, they read as a giant cream sphere or a see-through bubble
+-- filling the close camera.
+local GLOW_CAP = 1.5
+VfxRecipe.GLOW_CAP = GLOW_CAP
+local GLOW_SECONDS = 0.2 -- a glow sheet's life (the core flash is shorter)
+local CORE_LIGHT = 0.6 -- the core flash's LightEmission: tinted, never cream-white at full light
+
 -- Tuned defaults (studs scale with the area radius `r` or the unit scale `s` where noted).
 VfxRecipe.DEFAULTS = {
-	-- the white-hot core at a burst: small and short. Its size is x r, capped at `cap` unit heights
-	-- (x the tier's k), never more than `maxCap`: a big area's core must not hide the caster.
-	core = { size = { 0.8, 1.25 }, lifetime = { 0.06, 0.1 }, brightness = 1.6, cap = 1.2, maxCap = 2 },
+	-- the hot core at a burst: small and short. Its size is x r, capped at `cap` unit heights (x the
+	-- tier's k), never more than `maxCap` (GLOW_CAP): a big area's core must not hide the caster.
+	core = { size = { 0.8, 1.25 }, lifetime = { 0.06, 0.1 }, brightness = 1.6, cap = 1.2, maxCap = GLOW_CAP },
 	-- the explosion sheet: grows to ~2 r, modest brightness so units read inside it
 	explosion = { size = { 1, 1.7, 2 }, lifetime = 0.55, brightness = 1.2, lightEmission = 0.6, side = 0.6 }, -- x r
 	-- the light flash: tight and quick
@@ -231,12 +240,14 @@ VfxRecipe.themes = {
 function VfxRecipe.energy(color: Color3, accent: Color3?): Theme
 	local hot = accent or color:Lerp(WHITE, 0.5)
 	local deep = color:Lerp(BLACK, 0.55)
+	-- The core and the glow sheet start only a little paler than `color` (a white or `hot` start at
+	-- full light read as a giant cream sphere around the caster).
+	local lit = color:Lerp(WHITE, 0.2)
 	return {
-		-- white only at the very start, then the theme's color
-		core = colors({ { 0, WHITE }, { 0.12, hot }, { 0.5, color }, { 1, color } }),
-		blast = colors({ { 0, hot }, { 0.25, color }, { 0.7, color:Lerp(BLACK, 0.25) }, { 1, deep } }),
+		core = colors({ { 0, lit }, { 0.5, color }, { 1, color } }),
+		blast = colors({ { 0, lit }, { 0.25, color }, { 0.7, color:Lerp(BLACK, 0.25) }, { 1, deep } }),
 		blastBig = colors({
-			{ 0, hot },
+			{ 0, lit },
 			{ 0.25, color },
 			{ 0.65, color:Lerp(BLACK, 0.3) },
 			{ 1, deep:Lerp(BLACK, 0.3) },
@@ -284,7 +295,7 @@ end
 function VfxRecipe.impact(color: Color3?): Theme
 	local tint = color or rgb(235, 225, 205)
 	return {
-		core = colors({ { 0, WHITE }, { 0.15, tint:Lerp(WHITE, 0.5) }, { 1, tint } }),
+		core = colors({ { 0, tint:Lerp(WHITE, 0.3) }, { 1, tint } }),
 		blast = P.dust,
 		blastBig = P.dustDark,
 		blastUsage = "smoke",
@@ -310,7 +321,7 @@ end
 function VfxRecipe.water(color: Color3, accent: Color3?): Theme
 	local pale = accent or color:Lerp(WHITE, 0.6)
 	return {
-		core = colors({ { 0, WHITE }, { 0.15, pale }, { 1, color } }),
+		core = colors({ { 0, pale }, { 1, color } }),
 		blast = P.mist,
 		blastBig = colors({ { 0, WHITE }, { 0.4, pale }, { 1, color } }),
 		blastUsage = "smoke",
@@ -378,30 +389,32 @@ function VfxRecipe.light(run, at: Vector3, radius: number, color: Color3, k: num
 	)
 end
 
--- The white-hot core: one short, small starburst frame, white for an instant then the theme's
--- color, never wider than DEFAULTS.core.cap unit heights (x `k`, at most maxCap).
+-- The hot core: one short, small starburst frame in the theme's color (CORE_LIGHT, never cream-white
+-- at full light), never wider than DEFAULTS.core.cap unit heights (x `k`, at most maxCap: GLOW_CAP).
 function VfxRecipe.core(at: Vector3, radius: number, k: number?, palette: ColorSequence?, minSize: number?)
 	local config = D.core
 	local scale = k or 1
 	local cap = UNIT_HEIGHT * math.min(config.cap * scale, config.maxCap)
-	local least = math.min(minSize or 0, cap)
+	local least = math.min(minSize or 0, cap * 0.75)
 	ImpactEffects.emit(at, {
 		usage = "critFlash",
 		count = 1,
 		color = palette or P.flash,
 		size = curve({
 			{ 0, math.max(math.min(radius * config.size[1] * scale, cap * 0.75), least) },
-			{ 1, math.max(math.min(radius * config.size[2] * scale, cap), least * 1.3) },
+			{ 1, math.min(math.max(radius * config.size[2] * scale, least * 1.3), cap) },
 		}),
 		transparency = curve({ { 0, 0.25 }, { 0.5, 0.55 }, { 1, 1 } }),
 		lifetime = config.lifetime,
-		lightEmission = 1,
+		lightEmission = CORE_LIGHT,
 		brightness = config.brightness,
 	})
 end
 
 -- One explosion sheet at `at`, `size` times DEFAULTS.explosion.size studs: the one-shot explosion
--- flipbook, or (`usage` "glow") a soft energy sheet.
+-- flipbook, or (`usage` "glow") a soft energy sheet, or ("smoke") a cloud (steam, dust, mist).
+-- Glow and cloud sheets never grow past GLOW_CAP unit heights (a wider one, centered on the caster,
+-- read as a giant sphere or dome over him); a glow sheet lives GLOW_SECONDS, at most half light.
 function VfxRecipe.explosion(
 	at: Vector3,
 	size: number,
@@ -411,53 +424,57 @@ function VfxRecipe.explosion(
 	minSize: number?
 )
 	local config = D.explosion
-	local glow = usage == "glow" or usage == "smoke"
+	local isGlow = usage == "glow"
+	local sheet = isGlow or usage == "smoke"
 	-- A glow sheet adds light everywhere it covers: smaller than a fireball so units stay readable.
-	local scale = if usage == "glow" then size * 0.6 else size
-	local least = minSize or 0
+	local scale = if isGlow then size * 0.6 else size
+	local cap = if sheet then UNIT_HEIGHT * GLOW_CAP else math.huge
+	local least = math.min(minSize or 0, cap / 1.6)
+	local life = if isGlow then GLOW_SECONDS else config.lifetime
 	ImpactEffects.emit(at, {
 		usage = usage or "explosion",
 		count = 1,
 		color = palette or P.explosion,
 		size = curve({
-			{ 0, math.max(scale * config.size[1], least) },
-			{ 0.2, math.max(scale * config.size[2], least * 1.4) },
-			{ 1, math.max(scale * config.size[3], least * 1.6) },
+			{ 0, math.min(math.max(scale * config.size[1], least), cap * 0.5) },
+			{ 0.2, math.min(math.max(scale * config.size[2], least * 1.4), cap * 0.85) },
+			{ 1, math.min(math.max(scale * config.size[3], least * 1.6), cap) },
 		}),
 		-- a glow sheet has no frames of its own: it thins out sooner
-		transparency = if glow
+		transparency = if sheet
 			then curve({ { 0, 0.3 }, { 0.4, 0.45 }, { 1, 1 } })
 			else curve({ { 0, 0.1 }, { 0.7, 0.2 }, { 1, 1 } }),
-		lifetime = { config.lifetime, config.lifetime },
-		lightEmission = light or (if usage == "glow" then 0.6 else config.lightEmission),
+		lifetime = { life, life },
+		lightEmission = if isGlow then math.min(light or 0.5, 0.5) else (light or config.lightEmission),
 		brightness = config.brightness,
-		rotSpeed = if glow then { -40, 40 } else nil,
+		rotSpeed = if sheet then { -40, 40 } else nil,
 	})
 end
 
--- The thick shock ring racing out then fading: camera-facing, raised off the ground (a ring lying on
--- the floor reads as a sticker).
-function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?, minSize: number?)
+-- The camera-facing shock ring sprite: only the fallback while the ring mesh is not loaded, never
+-- wider than GLOW_CAP unit heights (wider, it read as a see-through bubble around the caster),
+-- raised so its lower edge stays above the floor.
+local function shockSprite(at: Vector3, widest: number, edge: Color3, seconds: number?)
 	local config = D.shock
-	local scale = k or 1
-	local least = minSize or 0
-	local widest = math.max(radius * config.size[3] * scale, least * 1.6)
-	-- Its middle high enough that a small ring's lower edge stays above the floor (a ring cut by the
-	-- floor reads as a faint partial arc); a wide area's ring rises at most to a unit's chest.
-	ImpactEffects.emit(at + Vector3.new(0, 0.3 + math.min(widest * 0.45, UNIT_HEIGHT * 0.6), 0), {
+	local diameter = math.min(widest, UNIT_HEIGHT * GLOW_CAP)
+	ImpactEffects.emit(at + Vector3.new(0, 0.3 + diameter * 0.5, 0), {
 		usage = "shock",
 		count = 1,
-		color = colors({ { 0, edge:Lerp(WHITE, 0.6) }, { 1, edge } }),
-		size = curve({
-			{ 0, math.max(radius * config.size[1], least) },
-			{ 0.35, math.max(radius * config.size[2] * scale, least * 1.3) },
-			{ 1, widest },
-		}),
-		transparency = curve({ { 0, 0 }, { 0.4, 0.35 }, { 1, 1 } }),
-		lifetime = { config.lifetime, config.lifetime },
-		lightEmission = 1,
+		color = colors({ { 0, edge:Lerp(WHITE, 0.25) }, { 1, edge } }),
+		size = curve({ { 0, diameter * 0.3 }, { 0.35, diameter * 0.75 }, { 1, diameter } }),
+		transparency = curve({ { 0, 0.15 }, { 0.4, 0.4 }, { 1, 1 } }),
+		lifetime = { seconds or config.lifetime, seconds or config.lifetime },
+		lightEmission = 0.6,
 		brightness = config.brightness,
 	})
+end
+
+-- The shock ring racing out then fading over an area of `radius`: the flat ring mesh just above the
+-- ground (VfxRecipe.meshRing), out to DEFAULTS.shock.size[3] x `radius` (x `k`).
+function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?, minSize: number?)
+	local config = D.shock
+	local widest = math.max(radius * config.size[3] * (k or 1), (minSize or 0) * 1.6)
+	VfxRecipe.meshRing(at, widest / 3, edge, config.lifetime)
 end
 
 -- Streak sparks flung out from `at`, turned along their flight, arcing down.
@@ -494,8 +511,9 @@ function VfxRecipe.flames(at: Vector3, count: number, size: number, palette: Col
 		speed = { 1, 2.5 },
 		spread = 12,
 		acceleration = Vector3.new(0, 3, 0),
-		lightEmission = 1,
-		brightness = 2.2,
+		-- Modest light so the saturated palette shows (full light washed flames out to cream).
+		lightEmission = 0.45,
+		brightness = 1.8,
 		rotation = { -8, 8 },
 	})
 end
@@ -661,6 +679,7 @@ export type Options = {
 	smokeLifetime: { number }?, -- aftermath: the smoke puffs' life { min, max } (default DEFAULTS)
 	smoke: ColorSequence?, -- aftermath: the smoke's colors (default the theme's)
 	smokeWaves: number?, -- aftermath: 1 for a single wave of puffs (default 2)
+	flames: number?, -- aftermath: the ground flames' count, times (default 1; each emit is a counted layer)
 }
 
 local function optionsOf(opts: (Options | boolean)?): Options
@@ -670,9 +689,10 @@ local function optionsOf(opts: (Options | boolean)?): Options
 	return (opts :: Options?) or {}
 end
 
--- A burst over an area: core flash, explosion or glow sheet (plus side blasts by tier: extra), ground
--- shockwave, sparks, light, scorch (fire themes), shake. `opts.big`: bigger (x1.35), darker or
--- redder; `opts.theme` (default fire); `opts.tier` (default the run's).
+-- A burst over an area: core flash, explosion or glow sheet (plus side blasts by tier: extra), the
+-- flat shock ring (VfxRecipe.shock: no need for a second ring at the same spot), sparks, light,
+-- scorch (fire themes), shake. `opts.big`: bigger (x1.35), darker or redder; `opts.theme` (default
+-- fire); `opts.tier` (default the run's).
 function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | boolean)?)
 	local o = optionsOf(opts)
 	local theme = themeOf(o.theme)
@@ -690,9 +710,9 @@ function VfxRecipe.burst(run, center: Vector3, radius: number, opts: (Options | 
 		VfxRecipe.explosion(
 			air,
 			radius * k,
-			colors({ { 0, tint:Lerp(WHITE, 0.35) }, { 0.35, tint }, { 1, tint:Lerp(BLACK, 0.45) } }),
+			colors({ { 0, tint:Lerp(WHITE, 0.15) }, { 0.35, tint }, { 1, tint:Lerp(BLACK, 0.45) } }),
 			"glow",
-			0.8,
+			0.5,
 			least
 		)
 	end
@@ -753,11 +773,20 @@ function VfxRecipe.aftermath(run, center: Vector3, radius: number, opts: Options
 	local now = run:designTime()
 	local flames = D.flames
 	if theme.flames then
-		local steps = math.max(2, math.floor(flames.seconds * tier.after / flames.every))
+		local share = o.flames or 1
+		local steps = math.max(2, math.floor(flames.seconds * tier.after / flames.every * share))
+		-- fewer steps still span the same time
+		local every = if share == 1 then flames.every else flames.seconds * tier.after / steps
 		-- a ring of flames at once, then more across the area
-		VfxRecipe.flameRing(center, radius * 0.6, 4, flames.size * s * tier.k, theme.flames)
+		VfxRecipe.flameRing(
+			center,
+			radius * 0.6,
+			math.max(2, math.floor(4 * share + 0.5)),
+			flames.size * s * tier.k,
+			theme.flames
+		)
 		for j = 0, steps - 1 do
-			run:at(now + 0.05 + j * flames.every, function()
+			run:at(now + 0.05 + j * every, function()
 				VfxRecipe.flames(
 					within(center, radius * flames.reach),
 					flames.perStep,
@@ -1024,12 +1053,12 @@ function VfxRecipe.hit(run, at: Vector3, size: number, theme: Theme?, direction:
 	VfxRecipe.light(run, at, radius, t.light, 0.7)
 end
 
--- An aura around a body from design time `from` for `seconds`: glow motes rising around it, a soft
--- rim glow (camera-facing, drawn behind the body) and a few sparks, in the theme's colors,
--- `intensity` times (default 1). `body` is a unit view (the caster, a summon, a healed ally) or, for
--- a body with no view (a spirit, a clone), a function returning its center and height now. Never a
--- solid or see-through part: a spirit reads from the particles shaped around it. Rim glow and
--- sparks are extra. Cost: particles only (no shapes).
+-- An aura around a body from design time `from` for `seconds`: glow motes rising around it and a few
+-- sparks, in the theme's colors, `intensity` times (default 1). `body` is a unit view (the caster, a
+-- summon, a healed ally) or, for a body with no view (a spirit, a clone), a function returning its
+-- center and height now. Never a solid or see-through part, and no rim glow sheet any more (a
+-- camera-facing glow 1-2 bodies wide read as a giant cream sphere around the unit): a spirit reads
+-- from the particles shaped around it. Sparks are extra. Cost: particles only (no shapes).
 function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from: number?, seconds: number?)
 	local t = themeOf(theme)
 	local k = intensity or 1
@@ -1060,7 +1089,7 @@ function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from:
 					count = math.max(1, math.floor(3 * k)),
 					color = t.ember,
 					-- ~0.45 studs at a unit's height: readable at the close camera
-				size = curve({ { 0, 0.1 * height }, { 0.6, 0.08 * height }, { 1, 0 } }),
+					size = curve({ { 0, 0.1 * height }, { 0.6, 0.08 * height }, { 1, 0 } }),
 					transparency = curve({ { 0, 0.2 }, { 0.7, 0.35 }, { 1, 1 } }),
 					lifetime = { 0.55, 0.85 },
 					speed = { 2.5, 4.5 },
@@ -1074,19 +1103,6 @@ function VfxRecipe.aura(run, body: any, theme: Theme?, intensity: number?, from:
 			end
 			if run.reduced then
 				return
-			end
-			if j % 2 == 0 then
-				ImpactEffects.emit(center, {
-					usage = "glow",
-					count = 1,
-					color = t.blast,
-					size = curve({ { 0, height * 0.95 * k }, { 1, height * 1.1 * k } }),
-					transparency = curve({ { 0, 1 }, { 0.3, 0.55 }, { 0.7, 0.65 }, { 1, 1 } }),
-					lifetime = { 0.34, 0.34 },
-					lightEmission = 1,
-					brightness = 1,
-					zOffset = -2, -- behind the body
-				})
 			end
 			if j % 3 == 0 then
 				VfxRecipe.sparks(center, 0.3 * k, 4, t.spark)
@@ -1157,6 +1173,8 @@ export type KitEmit = {
 	size: number, -- studs
 	grow: number?, -- end size, times `size` (default 1)
 	color: Color3?, -- tint for white textures (baked ones ignore it: tint = false); default white
+	palette: ColorSequence?, -- the tint over its life instead of `color`
+	flicker: boolean?, -- its transparency flickers through its life
 	count: number?,
 	lifetime: number?, -- default: the flipbook's own length (flipbookLife), else 0.6
 	speed: { number }?,
@@ -1174,23 +1192,34 @@ export type KitEmit = {
 }
 
 -- One batch 2 kit particle (or `count`) of `usage` at `at`: its flipbook plays over its life. Draws
--- nothing until the texture is uploaded and loaded (never the plain sparkle fallback).
+-- nothing until the texture is uploaded, loaded and warmed up as a particle (Vfx.particleReady; never
+-- the plain sparkle fallback).
 function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
 	local texture = FxKit.textured(usage, opts.color or WHITE, "particle")
-	if not texture or not Vfx.isLoaded(texture.id) then
-		return -- not uploaded, still loading, or failed to load: nothing (never a blank square)
+	if not texture or not Vfx.particleReady(texture.id) then
+		return -- not uploaded, still loading or warming, or failed: nothing (never a blank square)
 	end
 	local life = opts.lifetime or VfxRecipe.flipbookLife(usage, opts.color) or 0.6
+	local first = opts.start or 0
 	ImpactEffects.emit(at, {
 		usage = usage,
 		count = opts.count or 1,
-		color = ColorSequence.new(opts.color or WHITE),
+		color = opts.palette or ColorSequence.new(opts.color or WHITE),
 		size = curve({ { 0, opts.size }, { 1, opts.size * (opts.grow or 1) } }),
-		transparency = curve({
-			{ 0, opts.start or 0 },
-			{ 0.85, math.min(1, (opts.start or 0) + 0.05) },
-			{ 1, 1 },
-		}),
+		transparency = if opts.flicker
+			then curve({
+				{ 0, first },
+				{ 0.18, math.min(1, first + 0.35) },
+				{ 0.36, first },
+				{ 0.54, math.min(1, first + 0.3) },
+				{ 0.72, first + 0.05 },
+				{ 1, 1 },
+			})
+			else curve({
+				{ 0, first },
+				{ 0.85, math.min(1, first + 0.05) },
+				{ 1, 1 },
+			}),
 		lifetime = { life, life },
 		speed = opts.speed,
 		spread = opts.spread,
@@ -1214,7 +1243,20 @@ end
 
 -- `count` lightning bolts (fx_lightning, a different bolt each frame) from `a` to `b`: each a
 -- particle as long as the path, turned along it, the ends jittered so strands fan a little.
-function VfxRecipe.kitBolts(a: Vector3, b: Vector3, color: Color3, count: number, life: number?, width: number?)
+-- The particle is square, as wide as the path is long, and each frame carries a faint glow band
+-- (~10% alpha over half its width) cut off flat at the frame's ends: at full light, tinted toward
+-- white and many studs long, that band read as a straight-edged cream wedge across the screen. So
+-- the bolts keep their color (barely toward white) at moderate light; `brightness` (default 1.8)
+-- for a strike that must read big and bright.
+function VfxRecipe.kitBolts(
+	a: Vector3,
+	b: Vector3,
+	color: Color3,
+	count: number,
+	life: number?,
+	width: number?,
+	brightness: number?
+)
 	local along = b - a
 	local length = along.Magnitude
 	if length < 0.2 then
@@ -1226,14 +1268,14 @@ function VfxRecipe.kitBolts(a: Vector3, b: Vector3, color: Color3, count: number
 		VfxRecipe.kit((from + to) / 2, "kitBolt", {
 			-- the bolt art fills ~85% of its frame's height
 			size = (to - from).Magnitude / 0.85 * (width or 1),
-			color = tinted(color, 0.3),
+			color = tinted(color, 0.1),
 			lifetime = (life or 0.22) * (0.8 + 0.4 * math.random()),
 			speed = { 0.01, 0.01 },
 			spread = 0,
 			direction = (to - from).Unit,
 			stretch = true,
-			lightEmission = 1,
-			brightness = 3,
+			lightEmission = 0.7,
+			brightness = brightness or 1.8,
 		})
 	end
 end
@@ -1259,7 +1301,11 @@ function VfxRecipe.kitCrackleAura(
 			local size = part.Size
 			for _ = 1, if run.reduced then 1 else (per or 2) do
 				local at = part.Position
-					+ Vector3.new((math.random() - 0.5) * size.X, (math.random() - 0.4) * size.Y, (math.random() - 0.5) * size.Z)
+					+ Vector3.new(
+						(math.random() - 0.5) * size.X,
+						(math.random() - 0.4) * size.Y,
+						(math.random() - 0.5) * size.Z
+					)
 				VfxRecipe.kit(at, "kitCrackle", {
 					size = size.Y * (0.35 + 0.25 * math.random()) * (scale or 1),
 					color = tinted(color, 0.25),
@@ -1274,10 +1320,23 @@ function VfxRecipe.kitCrackleAura(
 	end
 end
 
--- A flame aura on a body (fx_aura_spike): `layers` overlapping sheets rising from the feet, each
--- turned a little (+-10 degrees) and flickering, from design time `from` for `seconds`.
-function VfxRecipe.kitAuraSpike(run, view: any, color: Color3, from: number, seconds: number, layers: number?)
+-- A flame aura on a body (fx_aura_spike): `layers` overlapping sheets on the torso, rising off it,
+-- each turned a little (+-10 degrees) and flickering, from design time `from` for `seconds`, in
+-- `color` fading to `deep` (default a darker `color`): saturated, at moderate light (full light and a
+-- white tint read as pale paper). The art stands on a flat base at the bottom of its frame: emitted
+-- at the body's center it stood on the floor like a ring of teeth, so each sheet is centered above
+-- the torso (its base at the hips) and drifts up.
+function VfxRecipe.kitAuraSpike(
+	run,
+	view: any,
+	color: Color3,
+	from: number,
+	seconds: number,
+	layers: number?,
+	deep: Color3?
+)
 	local every = 0.12
+	local palette = colors({ { 0, color }, { 1, deep or color:Lerp(BLACK, 0.3) } })
 	for j = 0, math.max(1, math.floor(seconds / every)) - 1 do
 		run:at(from + j * every, function()
 			local part = view and view.part
@@ -1286,19 +1345,21 @@ function VfxRecipe.kitAuraSpike(run, view: any, color: Color3, from: number, sec
 			end
 			local height = part.Size.Y
 			for k = 1, if run.reduced then 1 else (layers or 3) do
-				VfxRecipe.kit(part.Position + Vector3.new(0, height * 0.05, 0), "kitAuraSpike", {
-					size = height * (1.25 + 0.2 * math.random()),
+				local size = height * (1 + 0.3 * math.random()) -- 1-1.3x the body
+				VfxRecipe.kit(part.Position + Vector3.new(0, size * 0.22, 0), "kitAuraSpike", {
+					size = size,
 					grow = 1.1,
-					color = tinted(color, 0.2),
+					palette = palette,
 					lifetime = 0.3,
-					speed = { 0.6, 1.4 },
+					speed = { 1.5, 2.5 },
 					spread = 8,
 					direction = Vector3.yAxis,
 					rotation = { -10, 10 },
-					lightEmission = 1,
+					lightEmission = 0.45,
 					brightness = 1.6,
-					start = 0.25 + 0.15 * (k - 1),
-					zOffset = if k == 1 then -1 else 0.5, -- one sheet behind the body, the rest in front
+					start = 0.15 + 0.15 * (k - 1),
+					flicker = true,
+					zOffset = if k == 1 then -1 else 0.3, -- one sheet behind the body, the rest over it
 				})
 			end
 		end)
@@ -1355,7 +1416,14 @@ end
 
 -- Steam billows (fx_steam_billow, baked white) from `at`, `count` of them thrown out along
 -- `direction` (default up) by `speed` studs/s.
-function VfxRecipe.kitSteam(at: Vector3, size: number, count: number?, direction: Vector3?, speed: number?, spread: number?)
+function VfxRecipe.kitSteam(
+	at: Vector3,
+	size: number,
+	count: number?,
+	direction: Vector3?,
+	speed: number?,
+	spread: number?
+)
 	VfxRecipe.kit(at, "kitSteam", {
 		size = size,
 		grow = 1.3,
@@ -1385,36 +1453,12 @@ function VfxRecipe.kitSwoosh(at: Vector3, size: number, color: Color3, normal: V
 	})
 end
 
--- A short expanding shock ring (mesh_shock_ring): it lies flat `lift` (>= 0.25) studs above the
--- ground point `at`, grows from `diameter` to 3x and fades out over `seconds` (<= 0.45). Without the
--- mesh, the camera-facing particle shock (VfxRecipe.shock) instead.
+-- A short expanding shock ring (mesh_shock_ring, ImpactEffects.flatRing): it lies flat `lift`
+-- (>= 0.25) studs above the ground point `at`, grows from `diameter` to 3x and fades out over
+-- `seconds` (<= 0.45). Without the mesh, the capped camera-facing shock sprite instead.
 function VfxRecipe.meshRing(at: Vector3, diameter: number, color: Color3, seconds: number?, lift: number?)
-	local life = math.min(seconds or 0.35, 0.45)
-	local base = ImpactEffects.meshSize("mesh_shock_ring")
-	local shown = false
-	if base then
-		-- Lie it flat on its thinnest side, however it was imported.
-		local turn, flat, wide
-		if base.Y <= base.X and base.Y <= base.Z then
-			turn, flat, wide = CFrame.identity, base.Y, math.max(base.X, base.Z)
-		elseif base.X <= base.Z then
-			turn, flat, wide = CFrame.Angles(0, 0, math.pi / 2), base.X, math.max(base.Y, base.Z)
-		else
-			turn, flat, wide = CFrame.Angles(math.pi / 2, 0, 0), base.Z, math.max(base.X, base.Y)
-		end
-		local height = math.max(lift or 0.3, 0.25)
-		shown = ImpactEffects.mesh("mesh_shock_ring", life, function(part, progress)
-			local eased = 1 - (1 - progress) * (1 - progress)
-			local scale = diameter / wide * (1 + 2 * eased) -- 1x -> 3x
-			part.Size = base * scale
-			part.CFrame = CFrame.new(at + Vector3.new(0, height + flat * scale * 0.5, 0)) * turn
-			part.Color = color
-			part.Material = Enum.Material.Neon
-			part.Transparency = 0.3 + 0.7 * progress
-		end)
-	end
-	if not shown then
-		VfxRecipe.shock(at, diameter / 2, color)
+	if not ImpactEffects.flatRing(at, diameter, color, seconds, lift) then
+		shockSprite(at, diameter * 3, color, math.min(seconds or 0.35, 0.45))
 	end
 end
 
@@ -1422,12 +1466,25 @@ end
 -- flame loop is "fire", the smoke billow "smoke"). `baked`: the preset's textures carry their own
 -- colors (draw them white); otherwise pass the unit's color.
 VfxRecipe.KIT = {
-	fire = { burst = "kitFireBurst", flame = "fire", smoke = "smoke", hit = "kitHitStar", swoosh = "kitSwoosh", baked = true },
+	fire = {
+		burst = "kitFireBurst",
+		flame = "fire",
+		smoke = "smoke",
+		hit = "kitHitStar",
+		swoosh = "kitSwoosh",
+		baked = true,
+	},
 	lightning = { bolt = "kitBolt", crackle = "kitCrackle", hit = "kitHitStar", slash = "kitSlashLine" },
 	steam = { burst = "kitSteam", smoke = "kitSteam", hit = "kitHitStar", baked = true },
 	dust = { burst = "kitDust", smoke = "smoke", hit = "kitHitStar", baked = true },
 	water = { burst = "kitSplash", smoke = "kitSteam", hit = "kitHitStar", baked = true },
-	toon = { burst = "kitPoof", hit = "kitHitStar", lines = "kitSpeedLines", halftone = "kitHalftone", smear = "kitSmear" },
+	toon = {
+		burst = "kitPoof",
+		hit = "kitHitStar",
+		lines = "kitSpeedLines",
+		halftone = "kitHalftone",
+		smear = "kitSmear",
+	},
 	ink = {
 		burst = "kitInkBurst",
 		splatter = "kitInk",
@@ -1451,7 +1508,11 @@ function VfxRecipe.kitBurst(preset: string, at: Vector3, size: number, color: Co
 		VfxRecipe.kit(at + Vector3.new(0, size * 0.45, 0), kit.burst, { size = size, color = tint })
 	end
 	if kit.hit then
-		VfxRecipe.kit(at + Vector3.new(0, size * 0.4, 0), kit.hit, { size = size * 0.8, color = color or WHITE, lightEmission = 1 })
+		VfxRecipe.kit(
+			at + Vector3.new(0, size * 0.4, 0),
+			kit.hit,
+			{ size = size * 0.8, color = color or WHITE, lightEmission = 1 }
+		)
 	end
 end
 

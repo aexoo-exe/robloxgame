@@ -7,7 +7,10 @@
 --          scrape on the ground; the stun stars are the real ones
 -- Layers: the shared recipe (VfxRecipe steam, dust and an impact theme in gold, tier 1) and the
 -- batch 2 kit: steam billows (fx_steam_billow) trailing the charge; on the impact a dust burst
--- (fx_dust_burst), debris and a shock ring (mesh_shock_ring). The gold sparks stay.
+-- (fx_dust_burst), debris and the burst's flat shock ring. The gold sparks stay.
+-- Budget (tier 1: 14 live layers): one dust burst for the stomp, two steam billows on the rush, and
+-- at the ram the recipe burst (its dust cloud, debris and ring) with two dust bursts; no aftermath
+-- (its rolling dust and puffs doubled the dust bursts), no second ring, steam column or debris.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
@@ -23,7 +26,8 @@ local def = {}
 local function goldImpact()
 	local theme = VfxRecipe.impact(GOLD)
 	theme.spark = VfxRecipe.colors({ { 0, Color3.new(1, 1, 1) }, { 0.3, GOLD }, { 1, Color3.fromRGB(230, 120, 40) } })
-	theme.ember = VfxRecipe.colors({ { 0, Color3.fromRGB(255, 235, 170) }, { 0.5, GOLD }, { 1, Color3.fromRGB(200, 110, 40) } })
+	theme.ember =
+		VfxRecipe.colors({ { 0, Color3.fromRGB(255, 235, 170) }, { 0.5, GOLD }, { 1, Color3.fromRGB(200, 110, 40) } })
 	theme.edge = GOLD
 	theme.edgeBig = GOLD
 	return theme
@@ -54,9 +58,10 @@ def.beats = {
 	{
 		at = -0.1,
 		run = function(run)
-			-- The stomp: dust kicked up at his feet, then the charge's trail of dust and grinding sparks
-			-- racing to the target.
-			VfxRecipe.dust(run:ground(), 1.2 * run:scale(), if run.reduced then 1 else 3)
+			-- The stomp: one dust burst at his feet, then the charge's trail of grinding sparks racing
+			-- to the target.
+			local height = run.view.part.Size.Y
+			VfxRecipe.kitDust(run:ground(), height * 0.6, 1)
 			local target = run:target()
 			if target then
 				local from = run:ground()
@@ -68,13 +73,18 @@ def.beats = {
 					span = 0.1,
 					size = 2 * run:scale(),
 				})
-				-- Dust kicked up and steam billowing off him along the rush (fx_steam_billow).
-				local height = run.view.part.Size.Y
-				for i = 1, if run.reduced then 1 else 3 do
-					run:at(-0.1 + 0.03 * i, function()
-						local at = from:Lerp(to, i / 4)
-						VfxRecipe.dust(at, 1.4 * run:scale(), 1)
-						VfxRecipe.kitSteam(at + Vector3.new(0, height * 0.55, 0), height * 0.6, 1, Vector3.yAxis, 2.5, 30)
+				-- Steam billowing off him along the rush (fx_steam_billow).
+				for i = 1, if run.reduced then 1 else 2 do
+					run:at(-0.1 + 0.04 * i, function()
+						local at = from:Lerp(to, i / 3)
+						VfxRecipe.kitSteam(
+							at + Vector3.new(0, height * 0.55, 0),
+							height * 0.6,
+							1,
+							Vector3.yAxis,
+							2.5,
+							30
+						)
 					end)
 				end
 			end
@@ -93,23 +103,14 @@ function def.event(run, event): boolean
 		local view = run.context.views[event.target]
 		if view and not run.memo.ram then
 			run.memo.ram = true
-			-- The ram: the recipe's gold impact burst at the target (core, dust cloud, raised shock
-			-- ring, sparks, stone debris, light), sparks along the charge, a burst of steam off the
-			-- plates, dust rolling out after.
+			-- The ram: the recipe's gold impact burst at the target (core, dust cloud, the flat gold
+			-- shock ring, sparks, stone debris, light), sparks along the charge, and dust bursting up
+			-- (fx_dust_burst). The steam off the plates is the column from the armor beat.
 			local floor = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
 			local impact = goldImpact()
 			VfxRecipe.burst(run, floor, 1.5 * run:scale(), { theme = impact })
-			VfxRecipe.aftermath(run, floor, 1.5 * run:scale(), { theme = impact })
 			VfxRecipe.sparks(view.part.Position, 0.6, 20, impact.spark, run:forward())
-			VfxRecipe.steamColumn(
-				run:chest(),
-				1.1 * run:scale(),
-				VfxRecipe.colors({ { 0, STEAM }, { 1, STEAM:Lerp(Color3.fromRGB(160, 160, 165), 0.6) } })
-			)
-			-- The impact on the ground: dust bursting up (fx_dust_burst), stone chips, a shock ring.
-			VfxRecipe.kitDust(floor, 3 * run:scale(), if run.reduced then 2 else 3)
-			VfxRecipe.debris(floor, if run.reduced then 2 else 3, 0.28 * run:scale(), impact.debris, 1.6)
-			VfxRecipe.meshRing(floor, 3 * run:scale(), GOLD, 0.35)
+			VfxRecipe.kitDust(floor, 3 * run:scale(), if run.reduced then 1 else 2)
 			run:hitStop(view, 0.09)
 			run:shake(0.12)
 			run:sound("whoosh", 0.6)

@@ -29,6 +29,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnimationConfig = require(Shared:WaitForChild("AnimationConfig"))
+local RenderConfig = require(Shared:WaitForChild("RenderConfig"))
 local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
 
 local Vfx = require(script.Parent.Vfx)
@@ -37,7 +38,10 @@ local ImpactEffects = {}
 
 local POOLS = AnimationConfig.pools
 local RING_THICKNESS = 0.08
-local RING_MAX = 9 -- studs: the widest camera-facing ring (ImpactEffects.ring)
+-- Studs: the widest camera-facing ring sprite (ImpactEffects.ring and VfxRecipe.shock without the
+-- flat ring mesh). Wider, it read as a see-through bubble filling the close camera.
+local RING_MAX = 1.5 * RenderConfig.unitSize.Y
+ImpactEffects.RING_MAX = RING_MAX
 
 -- Particle kinds: the built-in texture (kept when no picked texture fits), the physics that do not
 -- change per burst, and `usage`, the VfxConfig.uses entry that picks its texture.
@@ -766,6 +770,36 @@ function ImpactEffects.meshSize(name: string): Vector3?
 	return if template and template:IsA("BasePart") then template.Size else nil
 end
 
+-- A short expanding flat ring (mesh_shock_ring): it lies flat `lift` (>= 0.25) studs above the
+-- ground point `at`, grows from `diameter` to 3x and fades out over `seconds` (<= 0.45). False when
+-- the mesh is not loaded (or the quality level has no rings): the caller draws its fallback.
+function ImpactEffects.flatRing(at: Vector3, diameter: number, color: Color3, seconds: number?, lift: number?): boolean
+	local life = math.min(seconds or 0.35, 0.45)
+	local base = ImpactEffects.meshSize("mesh_shock_ring")
+	if not base then
+		return false
+	end
+	-- Lie it flat on its thinnest side, however it was imported.
+	local turn, flat, wide
+	if base.Y <= base.X and base.Y <= base.Z then
+		turn, flat, wide = CFrame.identity, base.Y, math.max(base.X, base.Z)
+	elseif base.X <= base.Z then
+		turn, flat, wide = CFrame.Angles(0, 0, math.pi / 2), base.X, math.max(base.Y, base.Z)
+	else
+		turn, flat, wide = CFrame.Angles(math.pi / 2, 0, 0), base.Z, math.max(base.X, base.Y)
+	end
+	local height = math.max(lift or 0.3, 0.25)
+	return ImpactEffects.mesh("mesh_shock_ring", life, function(part, progress)
+		local eased = 1 - (1 - progress) * (1 - progress)
+		local scale = diameter / wide * (1 + 2 * eased) -- 1x -> 3x
+		part.Size = base * scale
+		part.CFrame = CFrame.new(at + Vector3.new(0, height + flat * scale * 0.5, 0)) * turn
+		part.Color = color
+		part.Material = Enum.Material.Neon
+		part.Transparency = 0.3 + 0.7 * progress
+	end)
+end
+
 -- Particles -------------------------------------------------------------------------------------------
 
 -- Host emitters per key (a kind or emit texture), up to HOST_CAP. A ParticleEmitter's Size, Color,
@@ -1280,16 +1314,19 @@ local function animate(
 	})
 end
 
--- A ring at `position` (ground) growing to `diameter` studs and fading: a soft camera-facing ring
--- raised off the ground. Never a plane lying on the floor (the ring texture on a flat Block read as
--- a sticker, the reel check's "SurfaceGui at floor").
+-- A ring at `position` (ground) growing to `diameter` studs and fading: the flat ring mesh lying
+-- just above the ground (ImpactEffects.flatRing, a third of `diameter` growing to all of it). Without
+-- the mesh, a soft camera-facing ring raised off the ground, capped at RING_MAX (a wider one read as a
+-- see-through bubble around the caster). Never a textured plane on the floor (a sticker).
 function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?, start: number?)
 	local seconds = duration or 0.35
 	local first = start or 0.25 -- the starting transparency
 	if not level.rings then
 		return
 	end
-	-- Camera-facing, a ring as wide as a big area would cover the whole close-up: capped.
+	if ImpactEffects.flatRing(position, diameter / 3, color, seconds) then
+		return
+	end
 	diameter = math.min(diameter, RING_MAX)
 	-- Raised so its lower edge stays above the floor (cut by the floor it read as a faint partial
 	-- arc); a wide ring rises at most ~3 studs.
