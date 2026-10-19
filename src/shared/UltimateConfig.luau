@@ -14,9 +14,6 @@
 --   linger    design seconds the finish plays after the release
 --   look      what to judge in Studio (DevLineup: key 3, or DevLineupQA:Invoke("ultimate", id))
 --   wanted    the sounds a real version needs (this build uses built-in sounds only: `sounds`)
---   moment    true / false: the local player's cast of it gets an ultimate moment (the board slows
---             around it, the camera leans in, then it catches up: src/client/UltimateMoment.luau).
---             Unset: on for tier 2 and up, off for tier 1
 -- A unit is DONE when src/client/Ultimates/<unit id>.luau exists (scripts/audit-units checks it).
 
 local function deepFreeze<T>(value: T): T
@@ -337,7 +334,6 @@ return deepFreeze({
 			-- The vertical slice: a three-strike spiral, the finisher on the real hit (client only).
 			preroll = 1.3,
 			linger = 1.25, -- through the hop, the recovery and the slide home (+0.92) and the trails' fade
-			moment = true, -- the slice: a tier 1 that gets the ultimate moment
 			look = "deep twisted coil, blade far back, heat on it; a dash into a spin slash, a rising backhand, a load dip and a leaping finisher on the real hit: blade trails, hit-stops, staggers and a launch, the fire bloom; he hops, lands, slides home",
 			wanted = { "ember crackle", "fire arc swing" },
 		},

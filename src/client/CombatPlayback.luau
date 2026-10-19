@@ -49,7 +49,6 @@ local CombatEffects = require(script.Parent.CombatEffects)
 local CombatFx = require(script.Parent.CombatFx)
 local FastForwardBadge = require(script.Parent.FastForwardBadge)
 local ImpactEffects = require(script.Parent.ImpactEffects)
-local UltimateMoment = require(script.Parent.UltimateMoment)
 local UnitMotion = require(script.Parent.UnitMotion)
 local UnitView = require(script.Parent.UnitView)
 
@@ -72,7 +71,6 @@ local function clear()
 		connection = nil
 	end
 	FastForwardBadge.setSpeed(1)
-	UltimateMoment.clear()
 	CombatEffects.setClock(nil)
 	ImpactEffects.setClock(nil)
 	ImpactEffects.clear()
@@ -117,27 +115,18 @@ local function play(playback, placement: Placement?)
 		return Arena.cellPosition(column, row) + shift
 	end
 	-- Fight time: the moment of the fight on screen now, with fast-forward applied. Every view and
-	-- effect of this fight runs on it. It is the server's fight time warped by ultimate moments
-	-- (UltimateMoment: slowed around the local player's ultimate, then caught up); the warp is
-	-- stepped once a frame, before anything reads it.
+	-- effect of this fight runs on it.
 	local clock = if placement then placement.clock else nil
-	local function serverFightNow(): number
+	local function fightNow(): number
 		if clock then
 			return clock()
 		end
 		return Playback.fightSeconds(workspace:GetServerTimeNow() - playback.startsAt)
 	end
-	local warp = UltimateMoment.newClock(serverFightNow)
-	local function fightNow(): number
-		return warp.now()
-	end
 	local function fightTimeOf(tick: number): number
 		return tick / result.ticksPerSecond
 	end
 	local fightEnd = fightTimeOf(result.endTick)
-	warp.setEnd(fightEnd)
-	-- Moments only in real matches (and in dev previews when asked for: UltimateMoment.inPreview).
-	local momentsHere = placement == nil or UltimateMoment.inPreview()
 	CombatEffects.setClock(fightNow)
 	ImpactEffects.setClock(fightNow)
 	-- The fight on screen is the one the local player watches (one playback at a time): its
@@ -607,34 +596,6 @@ local function play(playback, placement: Placement?)
 		return at - length
 	end
 
-	-- An ultimate moment for the cast at event `index`, if it gets one (UltimateMoment: the local
-	-- player's own unit, an ultimate that opts in, the limits): its anticipation then starts `rate x
-	-- preroll` fight seconds before the cast (the warp plays that span at `rate`, so the caster's
-	-- anticipation runs its full designed length in real time), never before the unit's previous
-	-- cast and its room. Returns that start, or nil (no moment: the usual wind-up).
-	local function momentStartOf(index: number): number?
-		local event = events[index]
-		local unit = info[event.unit]
-		if not momentsHere or not unit or unit.side ~= localSide or unit.summoner then
-			return nil
-		end
-		local unitType = unit.unitType
-		if not Cinematic.has(unitType) or not UltimateMoment.optedIn(unitType) then
-			return nil
-		end
-		local at = fightTimeOf(event.tick)
-		local from = at - (Cinematic.preroll(unitType) or 0) * UltimateMoment.SETTINGS.rate
-		local previous = previousCastAt[index]
-		if previous then
-			from = math.max(from, previous + UltimateConfig.afterPreviousCast)
-		end
-		local planned = warp.plan(from, at, function()
-			local view = views[event.unit]
-			return if view and view.part.Parent then view.part.Position else nil
-		end)
-		return if planned then from else nil
-	end
-
 	local nextEvent = 1
 	local nextAnticipated = 1
 	local maxLead = math.max(CombatFx.maxLead(), AbilityFx.maxWindup())
@@ -646,7 +607,6 @@ local function play(playback, placement: Placement?)
 	-- Every time below is fight time: lead windows, durations and the frame step all scale with
 	-- the playback speed.
 	connection = RunService.RenderStepped:Connect(function()
-		warp.step() -- the warped fight time for this frame (ultimate moments)
 		local now = fightNow()
 		local dt = math.max(0, now - lastFrame)
 		lastFrame = now
@@ -663,7 +623,7 @@ local function play(playback, placement: Placement?)
 				-- Mana fills from attacks, so a cast usually comes right after the unit's last attack:
 				-- the wind-up takes over the motion of that unit's attacks that would overlap it (they
 				-- still land, with their numbers and projectiles).
-				local startsAt = momentStartOf(index) or windupStartOf(index)
+				local startsAt = windupStartOf(index)
 				local caster = events[index].unit
 				for _, entry in upcoming do
 					local other = events[entry.index]
