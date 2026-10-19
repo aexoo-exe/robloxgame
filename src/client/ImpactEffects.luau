@@ -311,6 +311,11 @@ function ImpactEffects.setClock(source: (() -> number)?)
 	end
 end
 
+-- The effects' clock now (the fight's or the dev stage's; it follows slow motion and freezes).
+function ImpactEffects.now(): number
+	return clock()
+end
+
 -- Texture objects -----------------------------------------------------------------------------------
 
 local function skinOf(part: BasePart): Skin
@@ -1007,6 +1012,44 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	emitter:Emit(count)
 end
 
+-- Hit-stop for effects (HitFeel.hitStop): every host emitter with particles out whose emit point is
+-- within `radius` studs of one of `points` pauses (TimeScale 0) for `seconds` of the effects' clock,
+-- then plays on at the current time scale. Only those near the hit: the rest of the fight runs on.
+-- Particles emitted after the call are not paused (a bloom that lands on the hit-stop plays).
+local frozenHosts: { [ParticleEmitter]: number } = {} -- host -> effects-clock time it resumes
+function ImpactEffects.freezeNear(points: { Vector3 }, radius: number, seconds: number)
+	if seconds <= 0 or #points == 0 then
+		return
+	end
+	local real = os.clock()
+	local resumeAt = clock() + seconds
+	for _, list in hosts do
+		for _, emitter in list do
+			local part = emitter.Parent
+			if (busyUntil[emitter] or 0) > real and part and part:IsA("BasePart") then
+				for _, point in points do
+					if (part.Position - point).Magnitude <= radius then
+						emitter.TimeScale = 0
+						frozenHosts[emitter] = math.max(frozenHosts[emitter] or 0, resumeAt)
+						break
+					end
+				end
+			end
+		end
+	end
+	ImpactEffects.later(seconds, function()
+		local now = clock()
+		for emitter, at in frozenHosts do
+			if at <= now + 1e-3 then
+				frozenHosts[emitter] = nil
+				if emitter.Parent then
+					emitter.TimeScale = particleTimeScale
+				end
+			end
+		end
+	end)
+end
+
 -- Fully specified particles (the showcase recipe) ----------------------------------------------------
 
 function ImpactEffects.setTimeScale(scale: number)
@@ -1463,16 +1506,50 @@ function ImpactEffects.shake(amount: number)
 	trauma = math.min(1, trauma + amount)
 end
 
+-- Timed shakes (ImpactEffects.shakeFor): each `amount` of trauma held for `seconds` of the effects'
+-- clock with a falloff to nothing, on top of the decaying trauma above (the strongest counts).
+type TimedShake = { amount: number, startsAt: number, seconds: number }
+local timedShakes: { TimedShake } = {}
+
+-- A shake of `amount` (0-1 trauma) lasting `seconds` on the effects' clock (so slow motion slows
+-- it), falling off as (1 - t)^2.
+function ImpactEffects.shakeFor(amount: number, seconds: number)
+	if not AnimationConfig.cameraShake or amount <= 0 or seconds <= 0 then
+		return
+	end
+	table.insert(timedShakes, { amount = math.min(amount, 1), startsAt = clock(), seconds = seconds })
+end
+
+-- The strongest timed shake now (dropping finished ones).
+local function timedTrauma(): number
+	local now = clock()
+	local most = 0
+	for i = #timedShakes, 1, -1 do
+		local entry = timedShakes[i]
+		local t = (now - entry.startsAt) / entry.seconds
+		if t >= 1 or t < -1 then
+			table.remove(timedShakes, i) -- done (or the clock was reset under it)
+		elseif t >= 0 then
+			most = math.max(most, entry.amount * (1 - t) * (1 - t))
+		end
+	end
+	return most
+end
+
 -- The camera's shake offset right now (identity when still), to multiply onto the camera's CFrame.
 function ImpactEffects.shakeOffset(): CFrame
-	if trauma <= 0 then
+	local timed = if #timedShakes > 0 then timedTrauma() else 0
+	if trauma <= 0 and timed <= 0 then
 		return CFrame.identity
 	end
 	local config = AnimationConfig.shake
 	local real = os.clock()
-	local current = math.max(0, trauma - (real - traumaAt) * config.decay)
-	if current <= 0 then
+	local decayed = math.max(0, trauma - (real - traumaAt) * config.decay)
+	if decayed <= 0 then
 		trauma = 0
+	end
+	local current = math.max(decayed, timed)
+	if current <= 0 then
 		return CFrame.identity
 	end
 	local power = current * current
@@ -1534,6 +1611,14 @@ function ImpactEffects.clear()
 	table.clear(meshes)
 	hideFrame()
 	trauma = 0
+	table.clear(timedShakes)
+	-- A hit-stop's resume was in `waiting`: resume its paused hosts now.
+	for emitter in frozenHosts do
+		if emitter.Parent then
+			emitter.TimeScale = particleTimeScale
+		end
+	end
+	table.clear(frozenHosts)
 end
 
 return ImpactEffects

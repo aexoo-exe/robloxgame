@@ -267,7 +267,8 @@ end
 -- A track is { [channel] = { { t, value, ease? }, ... } }, keys in design seconds (relative to the
 -- release) and in order; each key's `ease` shapes the way into it: "linear", "in", "out", "inOut"
 -- (default), "snap" (slow, then violent: a release), "back" (overshoots, then settles), "hold"
--- (jumps at the key). Channels, so each body part can run on its own timing:
+-- (jumps at the key), "quadIn", "quadOut", "expoIn", "expoOut", "backOut" (a bigger overshoot).
+-- Channels, so each body part can run on its own timing:
 --   leftArm, rightArm          degrees raised forward from the resting angle (set, not added)
 --   leftArmOut, rightArmOut    degrees raised out to the side
 --   lean, twist, tilt, fall    degrees (twist positive: the right shoulder forward)
@@ -297,7 +298,27 @@ local EASES: { [string]: (number) -> number } = {
 	hold = function(t)
 		return if t < 1 then 0 else 1
 	end,
+	-- Named curves for keyframed poses (PoseAnimator): quadratic and exponential in / out, and a
+	-- stronger overshoot.
+	quadIn = function(t)
+		return t * t
+	end,
+	quadOut = function(t)
+		return 1 - (1 - t) * (1 - t)
+	end,
+	expoIn = function(t)
+		return if t <= 0 then 0 else 2 ^ (10 * (t - 1))
+	end,
+	expoOut = function(t)
+		return if t >= 1 then 1 else 1 - 2 ^ (-10 * t)
+	end,
+	backOut = function(t)
+		local s = 2.4
+		t -= 1
+		return 1 + t * t * ((s + 1) * t + s)
+	end,
 }
+UnitMotion.EASES = EASES
 
 -- A channel's value at design time `t`: the first key's before it, the last key's after it.
 function UnitMotion.keyValue(keys: { any }, t: number): number

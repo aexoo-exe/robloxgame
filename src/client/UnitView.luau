@@ -949,6 +949,26 @@ function UnitView.ultimatePose(view: UnitView, track: any, startAt: number, rele
 	view.ultimate = { track = track, startAt = startAt, releaseAt = releaseAt, endAt = endAt, k = k }
 end
 
+-- Ends `track`'s pose keys early (PoseAnimator handle:stop), if they are still the ones playing: they
+-- settle out over AnimationConfig.overlap.ultimateSettle from now, as at a normal end. Returns
+-- whether they were playing.
+function UnitView.endUltimatePose(view: UnitView, track: any): boolean
+	local ultimate = view.ultimate
+	if not ultimate or ultimate.track ~= track then
+		return false
+	end
+	local now = view.clock()
+	ultimate.endAt = math.min(ultimate.endAt, now + AnimationConfig.overlap.ultimateSettle)
+	return true
+end
+
+-- Whether `track`'s pose keys are still playing on the view (they end at their endAt, on death, or
+-- when another ultimate's keys replace them).
+function UnitView.playingPose(view: UnitView, track: any): boolean
+	local ultimate = view.ultimate
+	return ultimate ~= nil and ultimate.track == track and view.clock() <= ultimate.endAt and not view.dyingSince
+end
+
 -- Shows a status marker (StatusMarkers; AbilityFxConfig.statuses) until `untilTime` (its clock).
 function UnitView.mark(view: UnitView, status: string, untilTime: number)
 	if not view.dyingSince then
