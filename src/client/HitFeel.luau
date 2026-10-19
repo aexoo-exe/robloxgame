@@ -29,7 +29,11 @@ HitFeel.SETTINGS = {
 	punchFocused = 8, -- degrees of field of view a full punch-in takes when focused
 	punchNormal = 2.5, -- ... and in a normal match
 	punchSeconds = 0.15,
-	freezeRadius = 6, -- studs around each held unit whose effects pause with it
+	maxHitStop = 0.07, -- seconds: the longest hit-stop
+	freezeRadius = 3, -- studs around each held target whose impact particles pause with it
+	-- What a hit-stop pauses: impact sparks, stars and flashes only. Never a slash's trail or swoosh,
+	-- flames or blooms (paused, they read as frozen stickers).
+	freezeUsages = { "sparks", "star", "kitHitStar", "flash", "critFlash", "spark" },
 	knock = 1, -- studs a strike slides its target (normal size)
 	finalKnock = 1.8, -- the finisher's
 }
@@ -42,18 +46,23 @@ function HitFeel.setFocused(on: boolean)
 	focused = on
 end
 
--- Hit-stop: each view holds its pose for `seconds` (the ones hit jitter; `opts.caster` holds still),
--- and the particles out around them pause as long.
+-- Hit-stop: each view holds its pose for `seconds` (at most SETTINGS.maxHitStop; the ones hit jitter,
+-- `opts.caster` holds still), and the impact particles out around the ones hit (not the caster)
+-- pause as long (SETTINGS.freezeUsages: sparks, stars, flashes). Slash trails are never paused:
+-- they are not particles, and the caster's swoosh is not an impact usage.
 function HitFeel.hitStop(views: { any }, seconds: number, opts: { caster: any? }?)
 	local caster = opts and opts.caster
+	local hold = math.min(seconds, S.maxHitStop)
 	local points = {}
 	for _, view in views do
 		if view and view.part and view.part.Parent then
-			UnitView.hitStop(view, seconds, view ~= caster, true)
-			table.insert(points, view.part.Position)
+			UnitView.hitStop(view, hold, view ~= caster, true)
+			if view ~= caster then
+				table.insert(points, view.part.Position)
+			end
 		end
 	end
-	ImpactEffects.freezeNear(points, S.freezeRadius, seconds)
+	ImpactEffects.freezeNear(points, S.freezeRadius, hold, S.freezeUsages)
 end
 
 -- Recent shakes (effects-clock time, trauma), for the budget.

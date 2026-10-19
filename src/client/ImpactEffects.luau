@@ -1012,12 +1012,27 @@ function ImpactEffects.burst(kind: string, position: Vector3, direction: Vector3
 	emitter:Emit(count)
 end
 
+-- The particle time scale now (slow motion: 0.25; frozen: 0).
+function ImpactEffects.timeScale(): number
+	return particleTimeScale
+end
+
 -- Hit-stop for effects (HitFeel.hitStop): every host emitter with particles out whose emit point is
 -- within `radius` studs of one of `points` pauses (TimeScale 0) for `seconds` of the effects' clock,
 -- then plays on at the current time scale. Only those near the hit: the rest of the fight runs on.
--- Particles emitted after the call are not paused (a bloom that lands on the hit-stop plays).
+-- `usages` (optional): only hosts whose usage (ImpactEffects.emit `usage`, or a burst's kind) is
+-- listed pause, e.g. impact sparks but never a slash's swoosh. Particles emitted after the call are
+-- not paused (a bloom that lands on the hit-stop plays).
 local frozenHosts: { [ParticleEmitter]: number } = {} -- host -> effects-clock time it resumes
-function ImpactEffects.freezeNear(points: { Vector3 }, radius: number, seconds: number)
+local function usageOf(emitter: ParticleEmitter): string
+	local tag = emitter:GetAttribute("vfx")
+	if type(tag) == "string" then
+		return string.match(tag, "^(%S+)") or tag
+	end
+	local part = emitter.Parent
+	return if part then part.Name else "" -- burst hosts are named by their kind
+end
+function ImpactEffects.freezeNear(points: { Vector3 }, radius: number, seconds: number, usages: { string }?)
 	if seconds <= 0 or #points == 0 then
 		return
 	end
@@ -1026,6 +1041,9 @@ function ImpactEffects.freezeNear(points: { Vector3 }, radius: number, seconds: 
 	for _, list in hosts do
 		for _, emitter in list do
 			local part = emitter.Parent
+			if usages and not table.find(usages, usageOf(emitter)) then
+				continue
+			end
 			if (busyUntil[emitter] or 0) > real and part and part:IsA("BasePart") then
 				for _, point in points do
 					if (part.Position - point).Magnitude <= radius then

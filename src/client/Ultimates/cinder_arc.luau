@@ -5,23 +5,27 @@
 --   -0.85  he sinks into a low crouch, torso twisted far back, blade drawn behind his right hip,
 --          weight on the back leg; heat gathers on the blade (embers, motes, a small flame)
 --   -0.55  set: held, shivering with tension
---   -0.42  STRIKE 1: he snaps through a big horizontal spin slash (yellow swoosh along the blade's
---          real arc, flames off the blade); the target flashes and slides; a short hit-stop
+--   -0.42  STRIKE 1: he snaps through a big horizontal spin slash; the blade's own trail draws the
+--          arc (yellow -> orange); flames off the tip; the target flashes and slides; a short hit-stop
 --   -0.32  follow-through
---   -0.22  STRIKE 2: a rising backhand diagonal, still spinning (orange swoosh), the target hit again
+--   -0.22  STRIKE 2: a rising backhand diagonal, still spinning (orange -> crimson trail), the
+--          target hit again
 --   -0.07  a quick dip to load the last one
---    0     STRIKE 3, the finisher, on the real hit: a rising cut to a high pose (crimson swoosh);
---          hit-stop, the fire bloom lands on it over the real splash, a boom, a stronger shake, a
---          punch-in, every target knocked back (the main one furthest); embers drift after
+--    0     STRIKE 3, the finisher, on the real hit: a rising cut to a high pose (a yellow -> crimson
+--          trail, and one swoosh wiping in along it); hit-stop on the bodies; the fire bloom lands
+--          on the target (behind it, half size, short), a boom, a stronger shake, a punch-in, every
+--          target knocked back (the main one furthest); embers drift after
 --   +0.30  the high pose held, then he recovers to idle by +0.55
--- Layers (tier 1, within its 14): the batch 2 kit's swoosh ribbon (fx_swoosh_ribbon), fire flipbook
--- flames, one fire bloom (fx_fire_burst), small hit stars, embers and motes. Poses: PoseAnimator;
--- hit feel: HitFeel; sounds: Sfx (SfxConfig names windup, whoosh, hitImpact, fireBurst, finisherBoom).
+-- Layers (tier 1, within its 14): slash trails on the blade (BladeTrail: Roblox Trails between a
+-- hilt and a tip attachment), fire flipbook flames, one fire bloom (fx_fire_burst), one swoosh on
+-- the finisher (fx_swoosh_ribbon), small hit stars, embers and motes. Poses: PoseAnimator; hit
+-- feel: HitFeel; sounds: Sfx (SfxConfig names windup, whoosh, hitImpact, fireBurst, finisherBoom).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
 
+local BladeTrail = require(script.Parent.Parent.BladeTrail)
 local HitFeel = require(script.Parent.Parent.HitFeel)
 local PoseAnimator = require(script.Parent.Parent.PoseAnimator)
 local Sfx = require(script.Parent.Parent.Sfx)
@@ -44,12 +48,46 @@ local T = {
 	held = 0.3,
 	rest = 0.55,
 }
--- Each strike's contact time, swoosh color (yellow -> orange -> crimson: saturated, so the tint
--- shows) and, if the blade's real arc cannot be read, its swing plane's tilt from level (degrees).
+-- Each strike: its contact time; its trail's window (on just before the snap, off after the
+-- follow-through), colors (head to tail: yellow -> orange -> crimson over the three, saturated so
+-- the tint shows) and life (seconds at 1x); the color of its hit star / swoosh; and, if the blade's
+-- real arc cannot be read, its swing plane's tilt from level (degrees).
+local function trail(points: { { any } }): ColorSequence
+	local keys = {}
+	for _, point in points do
+		table.insert(keys, ColorSequenceKeypoint.new(point[1], point[2]))
+	end
+	return ColorSequence.new(keys)
+end
+local YELLOW, ORANGE, CRIMSON = rgb(255, 215, 70), rgb(255, 125, 25), rgb(210, 35, 20)
 local STRIKES = {
-	{ at = T.strike1, color = rgb(255, 210, 60), tilt = 12 },
-	{ at = T.strike2, color = rgb(255, 120, 20), tilt = 40 },
-	{ at = T.finisher, color = rgb(215, 35, 20), tilt = 70 },
+	{
+		at = T.strike1,
+		on = -0.5,
+		off = -0.33,
+		trail = trail({ { 0, YELLOW }, { 1, ORANGE } }),
+		life = 0.2,
+		color = YELLOW,
+		tilt = 12,
+	},
+	{
+		at = T.strike2,
+		on = -0.32,
+		off = -0.14,
+		trail = trail({ { 0, ORANGE }, { 1, CRIMSON } }),
+		life = 0.2,
+		color = ORANGE,
+		tilt = 40,
+	},
+	{
+		at = T.finisher,
+		on = -0.07,
+		off = 0.12,
+		trail = trail({ { 0, YELLOW }, { 0.4, ORANGE }, { 1, CRIMSON } }),
+		life = 0.25,
+		color = CRIMSON,
+		tilt = 70,
+	},
 }
 local HEAT = rgb(255, 170, 60)
 local SAMPLE = 0.035 -- design seconds before a contact the blade is sampled (its arc's direction)
@@ -195,12 +233,61 @@ local function hand(run): Vector3
 	return run:hand("right")
 end
 
--- The blade's tip now: past the hand along the arm.
+-- The blade's tip now: its trail attachment (on the real blade line), else past the hand along the arm.
 local function tip(run): Vector3
+	local blade = run.memo.blade
+	if blade then
+		return blade:tip()
+	end
 	local h = hand(run)
 	local arm = h - run:chest()
 	local along = if arm.Magnitude > 1e-3 then arm.Unit else run:forward()
 	return h + along * UNIT_HEIGHT * BLADE * 0.6 * run:scale()
+end
+
+-- The blade's trails (BladeTrail): one per cut, each with its own colors, made at the windup.
+local function attachBlade(run)
+	if run.memo.blade then
+		return
+	end
+	local blade = BladeTrail.attach(run.view, { hand = "right", from = 0.2, to = 0.66 })
+	for index, spec in STRIKES do
+		blade:add("cut" .. index, { colors = spec.trail, lifetime = spec.life })
+	end
+	run.memo.blade = blade
+	-- Gone once every cut has faded.
+	run:at(T.rest + 0.4, function()
+		blade:destroy()
+		run.memo.blade = nil
+	end)
+end
+
+-- A cut's trail on from just before its strike to the end of its follow-through, with embers flung
+-- off the tip along the arc as the blade moves.
+local function cut(run, index: number)
+	local spec = STRIKES[index]
+	run:at(spec.on, function()
+		local blade = run.memo.blade
+		if blade then
+			blade:enable("cut" .. index)
+		end
+	end)
+	local step = 0.04
+	local t = spec.on + step
+	while t < spec.off do
+		run:at(t, function()
+			if not run.reduced then
+				VfxRecipe.embers(run, tip(run), run:scale(), nil, 3)
+			end
+		end)
+		t += step
+	end
+	run:at(spec.off, function()
+		local blade = run.memo.blade
+		if blade then
+			blade:disable("cut" .. index)
+		end
+	end)
 end
 
 -- The swing plane's normal at a strike: from the blade's real motion (the hand a moment ago and
@@ -219,23 +306,27 @@ local function swingNormal(run, strike, before: Vector3?): Vector3
 	return (CFrame.fromAxisAngle(run:forward(), math.rad(strike.tilt)) * Vector3.yAxis).Unit
 end
 
--- One strike at its contact: the swoosh along the blade's arc, flames off the blade, the whoosh;
--- strikes 1-2 also hit the target (a small hit star, its reaction, a short hit-stop and shake).
+-- One strike at its contact (its trail is already drawing the arc: cut): flames off the blade tip,
+-- the whoosh; the finisher also wipes in one swoosh along its arc (in over 0.08 s, out over 0.2 s);
+-- strikes 1-2 hit the target (a small hit star, its reaction, a short hit-stop and shake).
 local function strike(run, index: number)
 	local s = run:scale()
 	local spec = STRIKES[index]
 	local pivot = run:chest()
-	local reach = (hand(run) - pivot).Magnitude + UNIT_HEIGHT * BLADE * s
-	VfxRecipe.kitSwoosh(
-		pivot,
-		reach * 2.1,
-		spec.color,
-		swingNormal(run, spec, run.memo["blade" .. index]),
-		120 * (index - 1),
-		0.3
-	)
-	-- Flames trailing the blade (one emit of two), embers flung off it.
-	VfxRecipe.flames(tip(run), 2, (1.2 + 0.2 * index) * s)
+	if index == #STRIKES then
+		local reach = (hand(run) - pivot).Magnitude + UNIT_HEIGHT * BLADE * s
+		VfxRecipe.kitSwoosh(
+			pivot,
+			reach * 1.6,
+			spec.color,
+			swingNormal(run, spec, run.memo["sample" .. index]),
+			0,
+			0.28,
+			0.08
+		)
+	end
+	-- Flames off the blade tip (one emit of two), embers flung off it.
+	VfxRecipe.flames(tip(run), 2, (1.1 + 0.15 * index) * s)
 	VfxRecipe.embers(run, tip(run), s, nil, 6)
 	Sfx.play("whoosh", { pitch = 1 + 0.06 * (index - 1) })
 	if index >= #STRIKES then
@@ -263,6 +354,7 @@ def.beats = {
 			run:face(run:target())
 			local s = run:scale()
 			Sfx.play("windup")
+			attachBlade(run)
 			-- Heat gathering on the blade: motes drawn in, embers glowing off it, a small flame.
 			Kit.converge(run, T.windup + 0.05, T.set + 0.03, function()
 				return tip(run)
@@ -271,10 +363,12 @@ def.beats = {
 			run:at(T.set, function()
 				VfxRecipe.flames(tip(run), 1, 0.7 * s)
 			end)
-			-- Each strike: the blade sampled just before contact (its arc), then the strike itself.
+			-- Each strike: its trail on through the cut, the blade sampled just before contact (the
+			-- finisher's swoosh plane), then the strike itself.
 			for index, spec in STRIKES do
+				cut(run, index)
 				run:at(spec.at - SAMPLE, function()
-					run.memo["blade" .. index] = hand(run)
+					run.memo["sample" .. index] = hand(run)
 				end)
 				if index < #STRIKES then
 					run:at(spec.at, function()
@@ -297,9 +391,11 @@ function def.release(_run): boolean
 	return true
 end
 
--- The finisher on the real hit: the strike, hit-stop (poses and the effects around them), the
--- fire bloom landing on it over the real splash, the boom, a stronger shake, the punch-in, every
--- target knocked back (the main one furthest), embers drifting after.
+-- The finisher on the real hit: the strike, hit-stop (bodies and impact sparks only, 0.07 s), the
+-- fire bloom landing on it on the target (half the old size, just behind the target as the camera
+-- sees it and drawn behind what is in front of it, so the caster stays visible; faded by 0.42 s),
+-- the boom, a stronger shake, the punch-in, every target knocked back (the main one furthest),
+-- embers drifting after.
 finisher = function(run)
 	local center, radius = run:area()
 	local s = run:scale()
@@ -309,10 +405,18 @@ finisher = function(run)
 	for _, view in targets do
 		table.insert(held, view)
 	end
-	-- The swoosh first (it is not paused), then the hold: the bloom emitted after it plays through.
 	strike(run, #STRIKES)
-	HitFeel.hitStop(held, 0.09, { caster = run.view })
-	VfxRecipe.kitFireBurst(center, radius * 1.5)
+	HitFeel.hitStop(held, 0.07, { caster = run.view })
+	local bloomAt = if main then main.part.Position - Vector3.new(0, main.part.Size.Y / 2, 0) else center
+	local camera = workspace.CurrentCamera
+	if camera then
+		local away = bloomAt - camera.CFrame.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		if away.Magnitude > 1e-3 then
+			bloomAt += away.Unit * 0.6
+		end
+	end
+	VfxRecipe.kitFireBurst(bloomAt, radius * 0.75, nil, { lifetime = 0.42, zOffset = -1.5 })
 	VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 0.8, nil, VfxRecipe.themes.fire.spark)
 	VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, VfxRecipe.themes.fire.light, 0.8)
 	for _, view in targets do

@@ -94,6 +94,7 @@ local PREVIEW = AnimationConfig.preview
 local QUALITIES = { "low", "medium", "high" }
 local DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
 local SLICE_UNIT = "cinder_arc" -- K: the vertical slice's unit
+local SLICE_FILL = 0.4 -- the slice camera: the caster's share of the frame height
 
 -- Key 3's preview fight (cast): the unit in its side's front middle cell and dummies across from
 -- it, in the dummies' own board coordinates (row 4 = their front): one in front, two beside it,
@@ -609,11 +610,28 @@ end
 --   close     a 3/4 view from behind the caster's side, the caster and the dummy in front of it
 --             together filling CLOSE_FILL of the frame height (sized to the caster's height)
 --   wide      high and to the side over the whole field: the full area of an ultimate
+--   slice     (K and S on the slice unit set it, not C) side-on 3/4: from the caster's side and a
+--             little behind and above, the caster and the target in front of it framed, the
+--             caster SLICE_FILL of the frame height
 local function arenaFraming(s: Stage, offset: Vector3): CFrame
 	if arenaCamera == "gameplay" then
 		return Arena.boardCamera() + offset
 	end
 	local caster = Arena.cellPosition(FIELD_UNIT[1], FIELD_UNIT[2]) + offset
+	if arenaCamera == "slice" then
+		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
+		local height = HEIGHT * CharacterLook.of(s.unitType).scale * RenderConfig.starSizeScale[s.starLevel]
+		local between = caster:Lerp(target, 0.45) + Vector3.new(0, height * 0.5, 0)
+		local fov = math.rad(workspace.CurrentCamera.FieldOfView)
+		local distance = math.max(height / (SLICE_FILL * 2 * math.tan(fov / 2)), 6)
+		local along = Vector3.new(target.X - caster.X, 0, target.Z - caster.Z)
+		along = if along.Magnitude > 1e-3 then along.Unit else Vector3.zAxis
+		-- The side the other arena cameras look from (-X), never between the caster and the target.
+		local side = along:Cross(Vector3.yAxis)
+		side = if side.X > 0 then -side.Unit else side.Unit
+		local direction = (side * 0.85 - along * 0.35 + Vector3.yAxis * 0.35).Unit
+		return CFrame.lookAt(between + direction * distance, between)
+	end
 	if arenaCamera == "close" then
 		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
 		local height = HEIGHT * CharacterLook.of(s.unitType).scale * RenderConfig.starSizeScale[s.starLevel]
@@ -1345,8 +1363,48 @@ local function finishReel()
 	print("[Reel] stopped at " .. string.format("%.3f", os.clock()))
 end
 
+-- The slice camera (K, S on the slice unit): the arena's "slice" framing (a gray arena if none is
+-- on), then, once the replay has played (`seconds` real seconds after it starts), the arena and
+-- camera from before, the field preview ended (back on the stage). A new replay restarts the wait.
+local sliceSaved: { arena: string, camera: string }? = nil
+local sliceToken = 0
+local function enterSliceCamera()
+	if not sliceSaved then
+		sliceSaved = { arena = arenaMode, camera = arenaCamera }
+	end
+	if arenaMode == "off" then
+		arenaMode = "gray"
+	end
+	arenaCamera = "slice"
+	sliceToken += 1
+	refreshTitle()
+end
+local function leaveSliceCamera()
+	local saved = sliceSaved
+	if not saved then
+		return
+	end
+	sliceSaved = nil
+	sliceToken += 1
+	arenaMode, arenaCamera = saved.arena, saved.camera
+	local s = stage
+	if s and s.fieldPreview then
+		endFieldPreview(s)
+	end
+	refreshTitle()
+end
+local function leaveSliceCameraAfter(seconds: number)
+	local token = sliceToken
+	task.delay(seconds, function()
+		if token == sliceToken then
+			leaveSliceCamera()
+		end
+	end)
+end
+
 local function close()
 	finishReel()
+	leaveSliceCamera()
 	closeStage()
 	closeHud()
 	-- Never leave the effects frozen (Dump FX / O) or slowed (S) after the lineup closes.
@@ -1377,10 +1435,15 @@ local function slowReplay(s: Stage)
 	local slow = 0.25
 	timeScale = slow
 	ImpactEffects.setTimeScale(slow)
-	if s.unitType == SLICE_UNIT then
+	local slice = s.unitType == SLICE_UNIT
+	if slice then
 		s.castPresses = 0 -- the slice: the same ultimate K shows (its first cast), not the next one
+		enterSliceCamera()
 	end
 	cast(s)
+	if slice then
+		leaveSliceCameraAfter((s.previewSeconds or FIELD_AFTER) / slow + 0.5)
+	end
 	print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
 	task.delay(14, function()
 		if timeScale == slow then
@@ -1415,7 +1478,9 @@ local function sliceReplay()
 	timeScale = 1
 	ImpactEffects.setTimeScale(1)
 	s.castPresses = 0
+	enterSliceCamera()
 	cast(s)
+	leaveSliceCameraAfter((s.previewSeconds or FIELD_AFTER) + 0.5)
 	print("[DevLineup] slice: " .. SLICE_UNIT .. " (S: the same at 0.25x)")
 end
 
@@ -1480,6 +1545,7 @@ local function startReel()
 	if not folder then
 		open()
 	end
+	leaveSliceCamera() -- a pending slice-camera restore must not end the reel's previews
 	local units = reelUnits()
 	if #units == 0 then
 		warn("[Reel] no units to play")

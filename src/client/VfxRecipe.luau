@@ -1170,6 +1170,8 @@ export type KitEmit = {
 	color: Color3?, -- tint for white textures (baked ones ignore it: tint = false); default white
 	palette: ColorSequence?, -- the tint over its life instead of `color`
 	flicker: boolean?, -- its transparency flickers through its life
+	sizeCurve: NumberSequence?, -- its size over its life instead of `size` -> `size` x `grow`
+	fadeCurve: NumberSequence?, -- its transparency over its life instead of `start` (and `flicker`)
 	count: number?,
 	lifetime: number?, -- default: the flipbook's own length (flipbookLife), else 0.6
 	speed: { number }?,
@@ -1200,9 +1202,10 @@ function VfxRecipe.kit(at: Vector3, usage: string, opts: KitEmit)
 		usage = usage,
 		count = opts.count or 1,
 		color = opts.palette or ColorSequence.new(opts.color or WHITE),
-		size = curve({ { 0, opts.size }, { 1, opts.size * (opts.grow or 1) } }),
-		transparency = if opts.flicker
-			then curve({
+		size = opts.sizeCurve or curve({ { 0, opts.size }, { 1, opts.size * (opts.grow or 1) } }),
+		transparency = if opts.fadeCurve
+			then opts.fadeCurve
+			elseif opts.flicker then curve({
 				{ 0, first },
 				{ 0.18, math.min(1, first + 0.35) },
 				{ 0.36, first },
@@ -1402,10 +1405,23 @@ function VfxRecipe.kitDust(at: Vector3, size: number, count: number?)
 	end
 end
 
--- A fire bloom (fx_fire_burst, baked colors) at `at` (ground), raised to clear the floor.
-function VfxRecipe.kitFireBurst(at: Vector3, size: number, delay: number?)
+-- A fire bloom (fx_fire_burst, baked colors) at `at` (ground), raised to clear the floor. `opts`:
+-- `lifetime` plays its flipbook faster (default its own ~0.67 s), `zOffset` moves it toward the
+-- camera (default: half its size, so it covers what is behind it) or away (negative: drawn behind
+-- what is in front of it).
+function VfxRecipe.kitFireBurst(
+	at: Vector3,
+	size: number,
+	delay: number?,
+	opts: { lifetime: number?, zOffset: number? }?
+)
 	ImpactEffects.later(delay, function()
-		VfxRecipe.kit(at + Vector3.new(0, size * 0.42, 0), "kitFireBurst", { size = size, rotation = { -15, 15 } })
+		VfxRecipe.kit(at + Vector3.new(0, size * 0.42, 0), "kitFireBurst", {
+			size = size,
+			rotation = { -15, 15 },
+			lifetime = opts and opts.lifetime,
+			zOffset = opts and opts.zOffset,
+		})
 	end)
 end
 
@@ -1436,12 +1452,26 @@ end
 -- in the swing plane whose normal is `normal` (world-oriented, never camera-facing), turned `angle`
 -- degrees within it, in `color`. A low LightEmission and the color untouched by white, so the tint
 -- shows (a strong glow washed it out to cream). It swells a little and fades over `life` seconds.
-function VfxRecipe.kitSwoosh(at: Vector3, size: number, color: Color3, normal: Vector3, angle: number?, life: number?)
+-- `wipe` (seconds): instead it wipes in from a third of its size over `wipe`, then fades out over
+-- the rest of `life` (never a static sticker).
+function VfxRecipe.kitSwoosh(
+	at: Vector3,
+	size: number,
+	color: Color3,
+	normal: Vector3,
+	angle: number?,
+	life: number?,
+	wipe: number?
+)
+	local seconds = life or 0.3
+	local inShare = if wipe then math.clamp(wipe / seconds, 0.05, 0.8) else nil
 	VfxRecipe.kit(at, "kitSwoosh", {
 		size = size * 0.85,
 		grow = 1.18,
+		sizeCurve = if inShare then curve({ { 0, size * 0.33 }, { inShare, size }, { 1, size * 1.08 } }) else nil,
+		fadeCurve = if inShare then curve({ { 0, 0.5 }, { inShare, 0.05 }, { 1, 1 } }) else nil,
 		color = color,
-		lifetime = life or 0.3,
+		lifetime = seconds,
 		normal = if normal.Magnitude > 1e-3 then normal.Unit else Vector3.yAxis,
 		rotation = { (angle or 0) - 6, (angle or 0) + 6 },
 		lightEmission = 0.42,
