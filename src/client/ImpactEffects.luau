@@ -770,14 +770,44 @@ function ImpactEffects.meshSize(name: string): Vector3?
 	return if template and template:IsA("BasePart") then template.Size else nil
 end
 
+-- The ring cap. An ultimate's texture context (Vfx.within; Cinematic gives each cast one) carries
+-- `rings` = { left = n, points = { { at, t } } }: each flat ring takes one, a ring within
+-- RING_SPACING studs of one drawn in the last RING_REPEAT seconds is the same impact point (skipped),
+-- and once none are left the rest are skipped silently. No context budget (outside ultimates): drawn.
+local RING_SPACING = 2
+local RING_REPEAT = 0.6
+local function ringAllowed(at: Vector3): boolean
+	local context = Vfx.context()
+	local rings = context and (context :: any).rings
+	if not rings then
+		return true
+	end
+	if rings.left <= 0 then
+		return false
+	end
+	local now = os.clock()
+	for _, point in rings.points do
+		if (point.at - at).Magnitude < RING_SPACING and now - point.t < RING_REPEAT then
+			return false
+		end
+	end
+	rings.left -= 1
+	table.insert(rings.points, { at = at, t = now })
+	return true
+end
+
 -- A short expanding flat ring (mesh_shock_ring): it lies flat `lift` (>= 0.25) studs above the
 -- ground point `at`, grows from `diameter` to 3x and fades out over `seconds` (<= 0.45). False when
--- the mesh is not loaded (or the quality level has no rings): the caller draws its fallback.
+-- the mesh is not loaded (or the quality level has no rings): the caller draws its fallback. True
+-- (nothing drawn) when the cast's ring cap skips it (ringAllowed).
 function ImpactEffects.flatRing(at: Vector3, diameter: number, color: Color3, seconds: number?, lift: number?): boolean
 	local life = math.min(seconds or 0.35, 0.45)
 	local base = ImpactEffects.meshSize("mesh_shock_ring")
-	if not base then
+	if not base or not level.rings then
 		return false
+	end
+	if not ringAllowed(at) then
+		return true
 	end
 	-- Lie it flat on its thinnest side, however it was imported.
 	local turn, flat, wide
@@ -1314,34 +1344,28 @@ local function animate(
 	})
 end
 
--- A ring at `position` (ground) growing to `diameter` studs and fading: the flat ring mesh lying
--- just above the ground (ImpactEffects.flatRing, a third of `diameter` growing to all of it). Without
--- the mesh, a soft camera-facing ring raised off the ground, capped at RING_MAX (a wider one read as a
--- see-through bubble around the caster). Never a textured plane on the floor (a sticker).
+-- A decoration "ring" at `position` (ground): basic hits, casts, ability marks and the old ring calls
+-- of ultimates. It draws no ring any more (as flat ring meshes these multiplied to 24-48 counted
+-- parts per ultimate): one small soft puff of `color` just above the ground, at most half a unit
+-- tall, as long as the ring lasted (a plain particle: not a counted layer). Real shock rings are the
+-- recipe's (VfxRecipe.shock / meshRing: ImpactEffects.flatRing, one per impact, capped per cast).
 function ImpactEffects.ring(position: Vector3, color: Color3, diameter: number, duration: number?, start: number?)
 	local seconds = duration or 0.35
 	local first = start or 0.25 -- the starting transparency
 	if not level.rings then
 		return
 	end
-	if ImpactEffects.flatRing(position, diameter / 3, color, seconds) then
-		return
-	end
-	diameter = math.min(diameter, RING_MAX)
-	-- Raised so its lower edge stays above the floor (cut by the floor it read as a faint partial
-	-- arc); a wide ring rises at most ~3 studs.
-	ImpactEffects.emit(position + Vector3.new(0, 0.3 + math.min(diameter * 0.45, 2.8), 0), {
-		usage = "shock",
-		fallback = KINDS.bubble.texture,
+	local size = math.min(diameter * 0.2, RING_MAX / 3)
+	ImpactEffects.emit(position + Vector3.new(0, 0.3 + size * 0.5, 0), {
+		usage = "smokePuff",
+		fallback = KINDS.puff.texture,
 		count = 1,
 		color = ColorSequence.new(color),
-		size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, diameter * 0.3),
-			NumberSequenceKeypoint.new(1, diameter),
-		}),
-		transparency = NumberSequence.new(math.max(first, 0.45), 1),
+		size = NumberSequence.new(size * 0.6, size),
+		transparency = NumberSequence.new(math.max(first, 0.55), 1),
 		lifetime = { seconds, seconds },
-		lightEmission = 1,
+		lightEmission = 0.3,
+		zOffset = 0.5,
 	})
 end
 

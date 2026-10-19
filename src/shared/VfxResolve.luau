@@ -34,7 +34,8 @@ export type Texture = {
 	opacity: number, -- the most opaque it is ever drawn (usage `opacity`; 1: as its shape says)
 }
 
-export type Context = { unit: string?, element: string?, color: Color3? }
+-- `rings`: an ultimate cast's flat ring budget (client ImpactEffects.flatRing); not used here.
+export type Context = { unit: string?, element: string?, color: Color3?, rings: any? }
 
 -- One step of a choice, for reports: the candidate and why it was taken or passed over.
 export type Trace = { key: string, reason: string }

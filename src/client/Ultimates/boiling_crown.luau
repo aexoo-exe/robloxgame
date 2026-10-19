@@ -25,6 +25,18 @@ local Kit = UltimateKit
 local WHITE = Kit.WHITE
 local HOT = Color3.fromRGB(255, 140, 60)
 local EMBER = Color3.fromRGB(255, 80, 40)
+-- The eruption's steam billows: at most this many unit heights once grown, at least this
+-- transparent, and never within CAMERA_CLEAR studs of the camera's line to him.
+local BILLOW_CAP = 1.6
+local BILLOW_START = 0.4
+local CAMERA_CLEAR = 6
+
+-- How far `point` is from the segment from `a` to `b`.
+local function offLine(point: Vector3, a: Vector3, b: Vector3): number
+	local along = b - a
+	local t = math.clamp((point - a):Dot(along) / math.max(along:Dot(along), 1e-6), 0, 1)
+	return (point - (a + along * t)).Magnitude
+end
 
 local def = {}
 
@@ -40,23 +52,24 @@ def.beats = {
 		at = -1.05,
 		run = function(run)
 			run:camera(-1.05, 0.5, { key = "dim", dim = 0.25, rise = 0.4, fall = 0.4 })
-			-- His steam thickens and heats from white to orange (a puff every 0.15 s: budget).
+			-- His steam thickens and heats from white to orange (a puff every 0.15 s: budget), small and
+			-- see-through, rising off his head so he stays visible.
 			local t = -1.0
 			while t < -0.15 do
 				local heat = (t + 1.0) / 0.85
 				run:at(t, function()
 					ImpactEffects.burst(
 						"puff",
-						run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.2, 0),
+						run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.45, 0),
 						Vector3.yAxis,
 						{
 							color = WHITE:Lerp(HOT, heat),
-							count = if run.reduced then 3 else 6,
-							size = 1.2 + heat,
+							count = if run.reduced then 2 else 3,
+							size = 0.8 + 0.5 * heat,
 							speed = { 2, 4 + heat * 3 },
 							lifetime = { 0.6, 1 },
-							spread = 50,
-							transparency = 0.45 - heat * 0.15,
+							spread = 40,
+							transparency = 0.55,
 						}
 					)
 				end)
@@ -98,26 +111,47 @@ function def.event(run, event): boolean
 		-- heights: an area-wide cloud centered on him read as a see-through dome; the flat shock
 		-- ring, sparks, light), then pale steam rolling out for the longest (tier 5) aftermath.
 		VfxRecipe.burst(run, center, radius, { theme = theme })
-		VfxRecipe.aftermath(run, center, radius, { theme = theme })
+		VfxRecipe.aftermath(run, center, radius, { theme = theme, smokeScale = 0.6 })
 		-- The eruption: large steam billows thrown out in a ring from his body, a column of them
 		-- rising, orange embers, a brief speed-lines flash at the peak (about his size, not the
 		-- screen). The burst's ring is the only ring (budget).
+		-- The steam wall stays see-through and off the camera: each billow at most BILLOW_CAP unit
+		-- heights (after it grows), starting BILLOW_START transparent, spawned clear of his body and
+		-- thrown outward and sideways: none toward the camera and none within CAMERA_CLEAR studs of the
+		-- line from the camera to him (three of them filled the close camera with white). He stays
+		-- visible through the whole ultimate. No second wave of steam (it whited the screen again).
 		local body = run.view.part.Position
+		local bodySize = run.view.part.Size
+		local billowSize = math.min(height * 0.55, BILLOW_CAP * VfxRecipe.UNIT_HEIGHT / 1.3)
+		local camera = workspace.CurrentCamera
+		local eye = if camera then camera.CFrame.Position else nil
+		local toward = if eye then Vector3.new(eye.X - body.X, 0, eye.Z - body.Z) else Vector3.zero
+		toward = if toward.Magnitude > 1e-3 then toward.Unit else Vector3.zero
+		local function clear(from: Vector3, to: Vector3): boolean
+			if not eye then
+				return true
+			end
+			return offLine(from, eye, body) >= CAMERA_CLEAR and offLine(to, eye, body) >= CAMERA_CLEAR
+		end
 		local billows = if run.reduced then 6 else 9
+		local throw = radius * 2.2
 		for i = 1, billows do
 			local angle = (i / billows) * math.pi * 2 + math.random() * 0.3
 			local out = Vector3.new(math.cos(angle), 0.25, math.sin(angle)).Unit
-			VfxRecipe.kitSteam(body + out * 0.8, height * 0.55, 1, out, radius * 2.2, 8)
+			local flat = Vector3.new(out.X, 0, out.Z).Unit
+			local from = body + flat * (bodySize.X * 0.5 + billowSize * 0.5)
+			local to = from + out * throw * 0.6 -- about where it is when it has grown
+			if flat:Dot(toward) < 0.25 and clear(from, to) then
+				VfxRecipe.kitSteam(from, billowSize, 1, out, throw, 8, BILLOW_START)
+			end
 		end
-		VfxRecipe.kitSteam(body + Vector3.new(0, height * 0.3, 0), height * 0.6, 2, Vector3.yAxis, height * 1.2, 15)
+		-- The column: rising from above his head (never over his body).
+		local top = body + Vector3.new(0, bodySize.Y * 0.5 + billowSize * 0.5, 0)
+		if clear(top, top + Vector3.new(0, height * 0.6, 0)) then
+			VfxRecipe.kitSteam(top, billowSize, 2, Vector3.yAxis, height * 1.2, 15, BILLOW_START + 0.1)
+		end
 		VfxRecipe.embers(run, center + Vector3.new(0, 1, 0), run:scale() * 1.4, VfxRecipe.energy(EMBER, HOT).ember, 22)
-		VfxRecipe.kitSpeedLines(run:chest(), run.view.part.Size.Y * 1.5, HOT, 0.2)
-		if not run.reduced then
-			-- A second wave of steam further out, rolling across the area.
-			run:at(0.4, function()
-				VfxRecipe.smoke(center, radius * 1.4, 4, theme.smoke, theme.smokeTransparency)
-			end)
-		end
+		VfxRecipe.kitSpeedLines(run:chest(), bodySize.Y * 1.5, HOT, 0.2)
 		for _, target in run:targets() do
 			run:hitStop(target, 0.12)
 		end

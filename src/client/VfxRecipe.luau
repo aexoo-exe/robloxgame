@@ -22,6 +22,7 @@ local Vfx = require(script.Parent.Vfx)
 local VfxRecipe = {}
 
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
+VfxRecipe.UNIT_HEIGHT = UNIT_HEIGHT
 local UNIT_WIDTH = RenderConfig.unitSize.X
 local rgb = Color3.fromRGB
 local WHITE = Color3.new(1, 1, 1)
@@ -777,14 +778,8 @@ function VfxRecipe.aftermath(run, center: Vector3, radius: number, opts: Options
 		local steps = math.max(2, math.floor(flames.seconds * tier.after / flames.every * share))
 		-- fewer steps still span the same time
 		local every = if share == 1 then flames.every else flames.seconds * tier.after / steps
-		-- a ring of flames at once, then more across the area
-		VfxRecipe.flameRing(
-			center,
-			radius * 0.6,
-			math.max(2, math.floor(4 * share + 0.5)),
-			flames.size * s * tier.k,
-			theme.flames
-		)
+		-- flames across the area, a few at a time (no ring of flames at once: it was decoration,
+		-- 2-4 counted layers on top of the burst)
 		for j = 0, steps - 1 do
 			run:at(now + 0.05 + j * every, function()
 				VfxRecipe.flames(
@@ -1414,15 +1409,16 @@ function VfxRecipe.kitFireBurst(at: Vector3, size: number, delay: number?)
 	end)
 end
 
--- Steam billows (fx_steam_billow, baked white) from `at`, `count` of them thrown out along
--- `direction` (default up) by `speed` studs/s.
+-- Steam billows (fx_steam_billow, baked white, a dense wall) from `at`, `count` of them thrown out
+-- along `direction` (default up) by `speed` studs/s, starting `start` transparent (default 0).
 function VfxRecipe.kitSteam(
 	at: Vector3,
 	size: number,
 	count: number?,
 	direction: Vector3?,
 	speed: number?,
-	spread: number?
+	spread: number?,
+	start: number?
 )
 	VfxRecipe.kit(at, "kitSteam", {
 		size = size,
@@ -1432,6 +1428,7 @@ function VfxRecipe.kitSteam(
 		spread = spread or 25,
 		direction = direction,
 		rotation = { 0, 360 },
+		start = start,
 	})
 end
 

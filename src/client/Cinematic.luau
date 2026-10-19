@@ -278,9 +278,21 @@ function Methods.face(self: Run, target: any?)
 	end
 end
 
--- The caster's texture context (Vfx.within): its id, element and color.
+-- The caster's texture context (Vfx.within): its id, element and color, and the cast's flat ring
+-- budget (ImpactEffects.flatRing).
 local function vfxContext(run: Run): Vfx.Context
-	return { unit = run.unitType, element = run.style and run.style.element, color = run.style and run.style.primary }
+	return {
+		unit = run.unitType,
+		element = run.style and run.style.element,
+		color = run.style and run.style.primary,
+		rings = (run :: any).rings,
+	}
+end
+
+-- Flat shock rings one cast may draw (one per impact point; extras are skipped): tier 1-2 four,
+-- tier 3-5 six. A shift (a form change outside a cast) draws none.
+local function ringBudget(tier: number): { left: number, points: { any } }
+	return { left = if tier <= 2 then 4 else 6, points = {} }
 end
 
 -- Calls `fn(...)` protected, with the run's texture context.
@@ -421,6 +433,7 @@ function Cinematic.start(
 		reduced = EffectSettings.reducedEffects(),
 		pending = {},
 		memo = {},
+		rings = ringBudget(config.tier),
 	}, Methods) :: any
 	runs[unitIndex] = run
 	-- `poseFor(run)` picks the pose keys from the cast's own events (a unit whose casts differ).
@@ -522,6 +535,7 @@ function Cinematic.shift(context: Context, unitIndex: number, unitType: string, 
 		reduced = EffectSettings.reducedEffects(),
 		pending = {},
 		memo = {},
+		rings = { left = 0, points = {} }, -- a shift draws no flat ring
 	}, Methods) :: any
 	local ok, result = within(run, def.shift, run, event)
 	if not ok then

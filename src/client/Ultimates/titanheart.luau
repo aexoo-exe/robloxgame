@@ -25,6 +25,7 @@ local BOLT = Color3.fromRGB(255, 230, 90)
 local STEAM = Color3.fromRGB(245, 240, 232)
 local STEAM_THEME = VfxRecipe.themes.steam
 local BOLT_THEME = VfxRecipe.lightning(BOLT, WHITE)
+local STRIKE_HEIGHT = 18 -- studs above him the transform's bolts start
 
 local def = {}
 
@@ -105,20 +106,28 @@ function def.shift(run, event): boolean
 		run:pose(ROAR)
 		local height = run.view.part.Size.Y
 		local now = run:designTime()
-		-- The strike: 2-3 large, bright yellow bolts from high above onto him, a beat apart, each from
-		-- a slightly different point in the sky; a brief yellow flash where they land (the core, at
-		-- most 1.5 unit heights) and a light.
+		-- The strike: 2-3 big, bright yellow bolts from high above (STRIKE_HEIGHT: inside the gameplay
+		-- camera's view, not above it) clearly hitting him, a beat apart, each from a slightly
+		-- different point in the sky. Each bolt is the recipe's lightning arc (a wide yellow beam
+		-- strip with a white-hot core: always drawn, and seen from any camera) with the kit's bolt
+		-- sheet over it once that is loaded. Where they land: a short yellow flash (the core, at most
+		-- 1.5 unit heights, and a pop) and a light.
 		local strikes = if run.reduced then 2 else 3
 		local land = ground + Vector3.new(0, height * 0.5, 0)
 		for i = 1, strikes do
-			run:at(now + 0.06 * (i - 1), function()
+			run:at(now + 0.07 * (i - 1), function()
 				local angle = (i / strikes) * math.pi * 2 + math.random() * 0.6
-				local sky = ground + Vector3.new(math.cos(angle) * 2.5, 28, math.sin(angle) * 2.5)
-				-- Width 1: the bolt runs the whole 28-stud fall (wider would overshoot it).
-				VfxRecipe.kitBolts(sky, land, BOLT, 1, 0.42, 1, 2.8)
+				local sky = ground + Vector3.new(math.cos(angle) * 2, STRIKE_HEIGHT, math.sin(angle) * 2)
+				-- (The neon core only on the first: each core segment is a counted part.)
+				VfxRecipe.arc(sky, land, BOLT, 1.8 * run:scale(), 0.4, nil, i == 1, i == 1)
+				-- Width 1: the bolt sheet runs the whole fall (wider would overshoot it).
+				VfxRecipe.kitBolts(sky, land, BOLT, 1, 0.4, 1, 2.8)
+				if i == 1 then
+					VfxRecipe.core(land, height, 1, BOLT_THEME.core)
+					VfxRecipe.pop(run, land, VfxRecipe.UNIT_HEIGHT * 1.2, BOLT_THEME)
+				end
 			end)
 		end
-		VfxRecipe.core(land, height, 1, BOLT_THEME.core)
 		VfxRecipe.light(run, land, 6, BOLT, 1.3)
 		-- Steam billows bursting out at his feet as the titan emerges.
 		local billows = if run.reduced then 4 else 6

@@ -70,7 +70,10 @@ function def.event(run, event): boolean
 		local center, radius = run:area()
 		-- The water-splash landing: the recipe's water burst (core, mist, the flat shock ring, droplet
 		-- fountain, light), then bubbling and falling droplets with a little mist (one small wave).
-		local water = VfxRecipe.water(run.style.primary, run.style.secondary)
+		-- Highlights in white-blue, never his secondary color: that is a salmon pink (235,120,120),
+		-- and as the water theme's pale highlight it tinted the core flash, the spray and the light
+		-- flash (a PointLight over the whole close-up) pink: the pink screen wash.
+		local water = VfxRecipe.water(run.style.primary, SPLASH)
 		VfxRecipe.burst(run, center, radius, { theme = water })
 		VfxRecipe.aftermath(run, center, radius, { theme = water, smokeScale = 0.6, smokeWaves = 1 })
 		-- The hero: one big white-blue crown splash (fx_water_splash, rendered to fill its frame:

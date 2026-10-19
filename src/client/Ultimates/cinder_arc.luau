@@ -51,19 +51,17 @@ function def.event(run, event): boolean
 		-- The hero: a fire spiral of three swooshes turning around him (yellow -> orange -> crimson,
 		-- each a little bigger and a beat later, at most 1.4x his height), each lying in its own
 		-- tilted swing plane turned 120 degrees on from the last (world-oriented, never facing the
-		-- camera), trailing two fire-flipbook flames on its turn around him.
+		-- camera), trailing fire-flipbook flames (one emit of two) on its turn around him.
 		for i, color in SPIRAL do
 			local turn = math.rad(120 * (i - 1))
 			local plane = (CFrame.Angles(0, turn, 0) * CFrame.Angles(math.rad(28), 0, 0)).UpVector
 			run:at(run:designTime() + 0.05 * (i - 1), function()
 				local lift = Vector3.new(0, height * (0.05 * i - 0.1), 0) -- rising: a spiral, not a stack
 				VfxRecipe.kitSwoosh(body + lift, height * (0.95 + 0.15 * i) * s, color, plane, 120 * (i - 1), 0.32)
+				-- One flame per turn (two per turn, with the fight around it, ran past the tier's 14).
 				local reach = height * (0.55 + 0.15 * i) * s
-				for k = 0, if run.reduced then 0 else 1 do
-					local angle = turn + math.rad(50 * k)
-					local at = ground + Vector3.new(math.cos(angle), 0, math.sin(angle)) * reach
-					VfxRecipe.flames(at + Vector3.new(0, 0.1, 0), 1, (1.3 + 0.2 * i) * s)
-				end
+				local at = ground + Vector3.new(math.cos(turn + math.rad(25)), 0, math.sin(turn + math.rad(25))) * reach
+				VfxRecipe.flames(at + Vector3.new(0, 0.1, 0), 2, (1.3 + 0.2 * i) * s)
 			end)
 		end
 		-- Embers drifting up off the spiral, and the cut bursting out over the real splash: one
