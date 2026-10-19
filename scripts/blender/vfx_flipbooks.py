@@ -131,6 +131,18 @@ def bolt_frame(seed, short=False):
     return arcs
 
 
+# The glow around a bolt reaches at most GLOW_REACH (cell units: the cell is 2 wide, so 0.12 is 6% of
+# the frame) and is exactly 0 past it. The old exponential glows never reached 0: several arcs'
+# tails summed to a ~10% alpha band over half the frame, cut flat by the border fade, which drew as
+# a broad smear or a white panel on a long particle.
+GLOW_REACH = 0.12
+
+
+def tight_glow(sd, width, strength):
+    d = np.maximum(sd, 0.0)
+    return glow(sd, width, strength) * (1.0 - ss(GLOW_REACH * 0.45, GLOW_REACH, d))
+
+
 def lightning_draw(X, Y, px, arcs):
     layers = []
     for pts, w in arcs:
@@ -138,7 +150,12 @@ def lightning_draw(X, Y, px, arcs):
         sd, _ = seg_distance(X, Y, pts, widths)
         core = fill(sd + w * 0.45, px)  # thick white core
         body = fill(sd, px)
-        layers += [(1.0, core), (0.86, body * 0.85), (1.0, glow(sd, 0.05, 0.45)), (1.0, glow(sd, 0.12, 0.18))]
+        layers += [
+            (1.0, core),
+            (0.86, body * 0.85),
+            (1.0, tight_glow(sd, 0.03, 0.45)),
+            (1.0, tight_glow(sd, 0.06, 0.16)),
+        ]
     return union(*layers)
 
 
