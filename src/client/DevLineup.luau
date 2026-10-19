@@ -34,7 +34,11 @@
 --            so every recording of a cast is framed the same.
 --   K        the vertical slice (SLICE_UNIT): opens its close-up if needed and replays its
 --            ultimate (its first cast) on key 3's field of dummies; S then replays that same
---            ultimate at 0.25x to study the timing (S on any other unit shows its next cast)
+--            ultimate at 0.25x to study the timing (S on any other unit shows its next cast).
+--            Both use the slice camera, an orbit locked on the caster / front target midpoint:
+--            right-mouse drag or the arrows orbit, the wheel or + / - zoom, Q raises, E lowers,
+--            P prints the framing and keeps it for this session's next K / S. It hands back the
+--            previous camera 2 s after the replay ends.
 --   R        the reel (ReelConfig): plays a batch of ultimates in one clip, hands off; R again
 --            stops it. Per unit: a title card (id and tier), the ultimate at 1x, a pause, the
 --            ultimate at 0.25x, a gap; then "REEL END". It forces its arena and camera, hides the
@@ -44,6 +48,7 @@
 -- On opening, the output shows the part counts of the figures. Does nothing outside Studio.
 -- Presentation only.
 
+local ContextActionService = game:GetService("ContextActionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -94,7 +99,13 @@ local PREVIEW = AnimationConfig.preview
 local QUALITIES = { "low", "medium", "high" }
 local DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
 local SLICE_UNIT = "cinder_arc" -- K: the vertical slice's unit
-local SLICE_FILL = 0.4 -- the slice camera: the caster's share of the frame height
+-- The slice camera's orbit (arenaFraming "slice"): degrees around the focus from square-on side,
+-- degrees above level, studs from the focus, studs the focus is raised. `sliceFraming` is what each
+-- K / S replay starts from (P saves the live `sliceView` into it, for this session).
+type SliceView = { yaw: number, pitch: number, distance: number, height: number }
+local SLICE_DEFAULT: SliceView = { yaw = 0, pitch = 15, distance = 10, height = 0 }
+local sliceFraming: SliceView = table.clone(SLICE_DEFAULT)
+local sliceView: SliceView = table.clone(SLICE_DEFAULT)
 
 -- Key 3's preview fight (cast): the unit in its side's front middle cell and dummies across from
 -- it, in the dummies' own board coordinates (row 4 = their front): one in front, two beside it,
@@ -211,7 +222,10 @@ local CLOSE_UP_HELP = table.concat({
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
 	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate   O freeze + dump",
 	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)   R reel (ReelConfig)",
-	"K slice: " .. SLICE_UNIT .. "'s ultimate (S after it: the same at 0.25x)",
+	"K slice: "
+		.. SLICE_UNIT
+		.. "'s ultimate (S after it: the same at 0.25x)   slice camera: RMB drag / arrows"
+		.. " orbit, wheel / + - zoom, Q / E up / down, P save",
 }, "\n")
 
 -- The HUD title, with the arena and its camera in a close-up ("gray / close").
@@ -610,9 +624,11 @@ end
 --   close     a 3/4 view from behind the caster's side, the caster and the dummy in front of it
 --             together filling CLOSE_FILL of the frame height (sized to the caster's height)
 --   wide      high and to the side over the whole field: the full area of an ultimate
---   slice     (K and S on the slice unit set it, not C) side-on 3/4: from the caster's side and a
---             little behind and above, the caster and the target in front of it framed, the
---             caster SLICE_FILL of the frame height
+--   slice     (K and S on the slice unit set it, not C) an orbit the user aims (sliceView): locked
+--             on the focus, the midpoint of the caster and the target in front of it at chest
+--             height (raised or lowered by `height`), from `distance` studs at `yaw` degrees
+--             around it (0: square from the side, perpendicular to the caster -> target line, on
+--             the -X side the other arena cameras use) and `pitch` degrees above level
 local function arenaFraming(s: Stage, offset: Vector3): CFrame
 	if arenaCamera == "gameplay" then
 		return Arena.boardCamera() + offset
@@ -621,16 +637,15 @@ local function arenaFraming(s: Stage, offset: Vector3): CFrame
 	if arenaCamera == "slice" then
 		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
 		local height = HEIGHT * CharacterLook.of(s.unitType).scale * RenderConfig.starSizeScale[s.starLevel]
-		local between = caster:Lerp(target, 0.45) + Vector3.new(0, height * 0.5, 0)
-		local fov = math.rad(workspace.CurrentCamera.FieldOfView)
-		local distance = math.max(height / (SLICE_FILL * 2 * math.tan(fov / 2)), 6)
+		local focusPoint = caster:Lerp(target, 0.5) + Vector3.new(0, height * 0.6 + sliceView.height, 0)
 		local along = Vector3.new(target.X - caster.X, 0, target.Z - caster.Z)
 		along = if along.Magnitude > 1e-3 then along.Unit else Vector3.zAxis
-		-- The side the other arena cameras look from (-X), never between the caster and the target.
 		local side = along:Cross(Vector3.yAxis)
 		side = if side.X > 0 then -side.Unit else side.Unit
-		local direction = (side * 0.85 - along * 0.35 + Vector3.yAxis * 0.35).Unit
-		return CFrame.lookAt(between + direction * distance, between)
+		local around = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(sliceView.yaw)) * side
+		local pitch = math.rad(sliceView.pitch)
+		local direction = around * math.cos(pitch) + Vector3.yAxis * math.sin(pitch)
+		return CFrame.lookAt(focusPoint + direction * sliceView.distance, focusPoint)
 	end
 	if arenaCamera == "close" then
 		local target = Arena.cellPosition(FIELD_UNIT[1], BoardConfig.rows + 1) + offset
@@ -1148,6 +1163,9 @@ local function updateStage(s: Stage, now: number, dt: number)
 	if not s.fieldPreview then
 		CombatEffects.update(now) -- a field preview's playback updates its own effects
 	end
+	if s.fieldPreview and s.fieldOffset and arenaMode ~= "off" and arenaCamera == "slice" then
+		s.camera = arenaFraming(s, s.fieldOffset) -- the slice orbit moves every frame
+	end
 	if s.fieldPreview and arenaMode ~= "off" then
 		-- An arena's fixed camera: no cues, no drift. The slice's unit keeps its camera shake (its hit
 		-- feel is what is being judged); every other unit's recording stays still.
@@ -1368,6 +1386,140 @@ end
 -- camera from before, the field preview ended (back on the stage). A new replay restarts the wait.
 local sliceSaved: { arena: string, camera: string }? = nil
 local sliceToken = 0
+
+-- The slice camera's controls, while it is on: right-mouse drag or the arrow keys orbit around the
+-- focus, the mouse wheel or + / - zoom, Q raises and E lowers, P prints the framing and keeps it
+-- for this session's next K / S (sliceFraming). Bound through ContextActionService above every
+-- default binding and sunk, so the default camera and the character controls never see them.
+local SLICE_ACTION = "DevLineupSliceCamera"
+local SLICE_KEYS: { [Enum.KeyCode]: boolean } = {
+	[Enum.KeyCode.Up] = true,
+	[Enum.KeyCode.Down] = true,
+	[Enum.KeyCode.Left] = true,
+	[Enum.KeyCode.Right] = true,
+	[Enum.KeyCode.Q] = true,
+	[Enum.KeyCode.E] = true,
+	[Enum.KeyCode.P] = true,
+	[Enum.KeyCode.Equals] = true,
+	[Enum.KeyCode.Minus] = true,
+	[Enum.KeyCode.KeypadPlus] = true,
+	[Enum.KeyCode.KeypadMinus] = true,
+}
+local ORBIT_RATE = 90 -- degrees per second (arrow keys)
+local MOUSE_RATE = 0.3 -- degrees per pixel of right-mouse drag
+local ZOOM_RATE = 1.8 -- distance factor per second (+ / - held)
+local WHEEL_STEP = 0.88 -- distance factor per wheel notch
+local RISE_RATE = 4 -- studs per second (Q / E)
+local sliceHeld: { [Enum.KeyCode]: boolean } = {}
+local sliceOrbiting = false
+local sliceControls: RBXScriptConnection? = nil
+
+local function clampSliceView()
+	sliceView.pitch = math.clamp(sliceView.pitch, -10, 80)
+	sliceView.distance = math.clamp(sliceView.distance, 3, 60)
+	sliceView.height = math.clamp(sliceView.height, -4, 12)
+end
+
+local function saveSliceView()
+	sliceFraming = table.clone(sliceView)
+	print(
+		string.format(
+			"[DevLineup] slice camera saved for this session: yaw %.1f, pitch %.1f, distance %.2f, height %.2f"
+				.. " (DevLineup SLICE_DEFAULT to keep it)",
+			sliceView.yaw,
+			sliceView.pitch,
+			sliceView.distance,
+			sliceView.height
+		)
+	)
+end
+
+local function onSliceInput(_: string, state: Enum.UserInputState, input: InputObject): Enum.ContextActionResult
+	local kind = input.UserInputType
+	if kind == Enum.UserInputType.MouseButton2 then
+		sliceOrbiting = state == Enum.UserInputState.Begin
+		UserInputService.MouseBehavior = if sliceOrbiting
+			then Enum.MouseBehavior.LockCurrentPosition
+			else Enum.MouseBehavior.Default
+		return Enum.ContextActionResult.Sink
+	elseif kind == Enum.UserInputType.MouseMovement then
+		if not sliceOrbiting then
+			return Enum.ContextActionResult.Pass -- only a drag is ours
+		end
+		sliceView.yaw -= input.Delta.X * MOUSE_RATE
+		sliceView.pitch += input.Delta.Y * MOUSE_RATE
+		clampSliceView()
+		return Enum.ContextActionResult.Sink
+	elseif kind == Enum.UserInputType.MouseWheel then
+		sliceView.distance *= WHEEL_STEP ^ input.Position.Z
+		clampSliceView()
+		return Enum.ContextActionResult.Sink
+	end
+	local key = input.KeyCode
+	if key == Enum.KeyCode.P then
+		if state == Enum.UserInputState.Begin then
+			saveSliceView()
+		end
+	else
+		sliceHeld[key] = state == Enum.UserInputState.Begin
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function held(...: Enum.KeyCode): number
+	for _, key in { ... } do
+		if sliceHeld[key] then
+			return 1
+		end
+	end
+	return 0
+end
+
+local function bindSliceControls()
+	if sliceControls then
+		return
+	end
+	local inputs: { any } = {
+		Enum.UserInputType.MouseButton2,
+		Enum.UserInputType.MouseMovement,
+		Enum.UserInputType.MouseWheel,
+	}
+	for key in SLICE_KEYS do
+		table.insert(inputs, key)
+	end
+	ContextActionService:BindActionAtPriority(
+		SLICE_ACTION,
+		onSliceInput,
+		false,
+		Enum.ContextActionPriority.High.Value + 50,
+		table.unpack(inputs)
+	)
+	-- Held keys move the orbit at a steady rate (real seconds: the same in slow motion).
+	sliceControls = RunService.RenderStepped:Connect(function(dt)
+		sliceView.yaw += (held(Enum.KeyCode.Left) - held(Enum.KeyCode.Right)) * ORBIT_RATE * dt
+		sliceView.pitch += (held(Enum.KeyCode.Up) - held(Enum.KeyCode.Down)) * ORBIT_RATE * dt
+		local zoom = held(Enum.KeyCode.Minus, Enum.KeyCode.KeypadMinus)
+			- held(Enum.KeyCode.Equals, Enum.KeyCode.KeypadPlus)
+		sliceView.distance *= ZOOM_RATE ^ (zoom * dt)
+		sliceView.height += (held(Enum.KeyCode.Q) - held(Enum.KeyCode.E)) * RISE_RATE * dt
+		clampSliceView()
+	end)
+end
+
+local function unbindSliceControls()
+	if not sliceControls then
+		return
+	end
+	ContextActionService:UnbindAction(SLICE_ACTION)
+	sliceControls:Disconnect()
+	sliceControls = nil
+	table.clear(sliceHeld)
+	if sliceOrbiting then
+		sliceOrbiting = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	end
+end
+
 local function enterSliceCamera()
 	if not sliceSaved then
 		sliceSaved = { arena = arenaMode, camera = arenaCamera }
@@ -1376,11 +1528,14 @@ local function enterSliceCamera()
 		arenaMode = "gray"
 	end
 	arenaCamera = "slice"
+	sliceView = table.clone(sliceFraming) -- each replay starts from the saved framing
+	bindSliceControls()
 	sliceToken += 1
 	refreshTitle()
 end
 local function leaveSliceCamera()
 	local saved = sliceSaved
+	unbindSliceControls()
 	if not saved then
 		return
 	end
@@ -1393,9 +1548,15 @@ local function leaveSliceCamera()
 	end
 	refreshTitle()
 end
+-- After `seconds` (the replay's length) plus SLICE_AIM seconds to aim on the still field; never in
+-- the middle of a right-mouse drag (it waits for the drag to end).
+local SLICE_AIM = 2
 local function leaveSliceCameraAfter(seconds: number)
 	local token = sliceToken
-	task.delay(seconds, function()
+	task.delay(seconds + SLICE_AIM, function()
+		while sliceOrbiting and token == sliceToken do
+			task.wait(0.2)
+		end
 		if token == sliceToken then
 			leaveSliceCamera()
 		end
@@ -1778,6 +1939,10 @@ function DevLineup.start()
 			if key == Enum.KeyCode.R then
 				finishReel()
 			end
+			return
+		end
+		-- While the slice camera is on, its keys (arrows, Q, E, P, + / -) are its controls only.
+		if sliceControls and SLICE_KEYS[key] then
 			return
 		end
 		-- Roblox's emotes menu (and the default camera, for the arrows) mark these keys processed:
