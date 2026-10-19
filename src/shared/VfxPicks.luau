@@ -56,10 +56,10 @@ return {
 			{ rank = 1, kind = "image", name = "fx_steam_billow", image = 80414161487307, asset = 104090005125774 },
 		},
 		bolts = {
-			{ rank = 1, kind = "image", name = "fx_lightning", image = 136304739164379, asset = 102069120194244 },
+			{ rank = 1, kind = "image", name = "fx_lightning", image = 139401095780555, asset = 130888275310572 },
 		},
 		crackle = {
-			{ rank = 1, kind = "image", name = "fx_crackle", image = 114019519903016, asset = 111163913390408 },
+			{ rank = 1, kind = "image", name = "fx_crackle", image = 94353182705214, asset = 134483249919406 },
 		},
 		hitStar = {
 			{ rank = 1, kind = "image", name = "fx_impact_star", image = 90567699300232, asset = 78381368552616 },
