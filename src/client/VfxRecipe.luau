@@ -500,15 +500,16 @@ function VfxRecipe.sparks(at: Vector3, k: number?, count: number?, palette: Colo
 	})
 end
 
--- Ground flames: `count` fire-flipbook flames standing at `at`, `size` studs.
-function VfxRecipe.flames(at: Vector3, count: number, size: number, palette: ColorSequence?)
+-- Ground flames: `count` fire-flipbook flames standing at `at`, `size` studs, living `lifetime`
+-- { min, max } seconds (default 0.4-0.65; short ones for a flame that must not outlast what it is on).
+function VfxRecipe.flames(at: Vector3, count: number, size: number, palette: ColorSequence?, lifetime: { number }?)
 	ImpactEffects.emit(at, {
 		usage = "fire",
 		count = count,
 		color = palette or P.fire,
 		size = curve({ { 0, size * 0.45 }, { 0.15, size }, { 0.7, size * 0.85 }, { 1, size * 0.4 } }),
 		transparency = curve({ { 0, 0.15 }, { 0.1, 0 }, { 0.65, 0.2 }, { 1, 1 } }),
-		lifetime = { 0.4, 0.65 },
+		lifetime = lifetime or { 0.4, 0.65 },
 		speed = { 1, 2.5 },
 		spread = 12,
 		acceleration = Vector3.new(0, 3, 0),
@@ -1394,13 +1395,15 @@ end
 
 -- Dust kicked up (fx_dust_burst, baked tan): `count` billows around `at` (ground), each 0.8-1.3x
 -- `size` and turned at random so they never stack into the same shape; raised to clear the floor.
-function VfxRecipe.kitDust(at: Vector3, size: number, count: number?)
+-- `lifetime` (seconds) plays the flipbook faster, so it is gone sooner (default its own ~0.8 s).
+function VfxRecipe.kitDust(at: Vector3, size: number, count: number?, lifetime: number?)
 	for _ = 1, count or 3 do
 		local s = size * (0.8 + 0.5 * math.random())
 		local offset = Vector3.new((math.random() - 0.5) * size * 0.5, 0, (math.random() - 0.5) * size * 0.5)
 		VfxRecipe.kit(at + offset + Vector3.new(0, s * 0.38, 0), "kitDust", {
 			size = s,
 			rotation = { -12, 12 },
+			lifetime = lifetime,
 		})
 	end
 end

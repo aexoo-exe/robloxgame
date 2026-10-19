@@ -103,7 +103,7 @@ local SLICE_UNIT = "cinder_arc" -- K: the vertical slice's unit
 -- degrees above level, studs from the focus, studs the focus is raised. `sliceFraming` is what each
 -- K / S replay starts from (P saves the live `sliceView` into it, for this session).
 type SliceView = { yaw: number, pitch: number, distance: number, height: number }
-local SLICE_DEFAULT: SliceView = { yaw = 0, pitch = 15, distance = 10, height = 0 }
+local SLICE_DEFAULT: SliceView = { yaw = 131.4, pitch = 20.4, distance = 12, height = 0 }
 local sliceFraming: SliceView = table.clone(SLICE_DEFAULT)
 local sliceView: SliceView = table.clone(SLICE_DEFAULT)
 

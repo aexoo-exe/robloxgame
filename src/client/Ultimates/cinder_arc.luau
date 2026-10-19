@@ -29,6 +29,7 @@ local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 
 local BladeTrail = require(script.Parent.Parent.BladeTrail)
 local HitFeel = require(script.Parent.Parent.HitFeel)
+local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
 local PoseAnimator = require(script.Parent.Parent.PoseAnimator)
 local Sfx = require(script.Parent.Parent.Sfx)
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
@@ -104,6 +105,13 @@ local STRIKES = {
 	},
 }
 local HEAT = rgb(255, 170, 60)
+-- The windup's blade flame: re-emitted at the tip at these times, each living 0.07-0.08 s, so the
+-- last is gone by -0.88, the dash's start (one long flame hung in the air where he stood).
+local WINDUP_FLAMES = { -1.05, -1.0, -0.96 }
+-- The finisher's light: a short, tight warm flash at the target's chest (the recipe's light, range
+-- 1.5x the area and brightness 3.6, washed the floor orange across the frame).
+local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
+local DASH_DUST = 0.4 -- seconds the dash's dust burst lives (its flipbook's own 0.8 s lingered)
 local SAMPLE = 0.035 -- design seconds before a contact the blade is sampled (its arc's direction)
 local BLADE = 0.55 -- the sword's reach past the hand, in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
@@ -357,7 +365,7 @@ end
 -- The dash's streak at his feet: a dust burst where he pushes off, embers along the way.
 local function dashStreak(run)
 	local s = run:scale()
-	VfxRecipe.kitDust(run:ground(), UNIT_HEIGHT * 0.5 * s, 1)
+	VfxRecipe.kitDust(run:ground(), UNIT_HEIGHT * 0.5 * s, 1, DASH_DUST)
 	local t = T.dash + 0.03
 	while t < T.dashEnd do
 		run:at(t, function()
@@ -438,9 +446,13 @@ def.beats = {
 				return tip(run)
 			end, HEAT, 1.4 * s, if run.reduced then 5 else 10)
 			VfxRecipe.embers(run, hand(run), s, nil, 8)
-			run:at(T.set, function()
-				VfxRecipe.flames(tip(run), 1, 0.7 * s)
-			end)
+			-- A small flame licking the blade through the set: short flames re-emitted at the tip as
+			-- it moves (a particle stays where it was emitted), the last gone before the dash.
+			for _, at in WINDUP_FLAMES do
+				run:at(at, function()
+					VfxRecipe.flames(tip(run), 1, 0.7 * s, nil, { 0.07, 0.08 })
+				end)
+			end
 			run:at(T.dash, dashStreak)
 			-- Each strike: its trail on through the cut, the blade sampled just before contact (the
 			-- finisher's swoosh plane), then the strike itself.
@@ -497,7 +509,16 @@ finisher = function(run)
 	end
 	VfxRecipe.kitFireBurst(bloomAt, radius * 0.75, nil, { lifetime = 0.42, zOffset = -1.5 })
 	VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 0.8, nil, VfxRecipe.themes.fire.spark)
-	VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, VfxRecipe.themes.fire.light, 0.8)
+	if not run.reduced then
+		local lightAt = (if main then main.part.Position else center + Vector3.new(0, UNIT_HEIGHT * 0.6, 0))
+		ImpactEffects.light(
+			lightAt,
+			VfxRecipe.themes.fire.light,
+			FINISH_LIGHT.brightness,
+			FINISH_LIGHT.range * UNIT_HEIGHT,
+			FINISH_LIGHT.seconds
+		)
+	end
 	for _, view in targets do
 		HitFeel.react(view, run:chest(), if view == main then { final = true } else { knock = 1.5, tilt = 18 })
 	end
