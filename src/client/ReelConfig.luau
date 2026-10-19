@@ -4,18 +4,9 @@
 return {
 	-- Unit ids to play, in order, e.g. { "thunder_nest", "volt_spear" }. Empty: every roster unit
 	-- with an ultimate (UltimateConfig.units), by tier then id.
-	-- Batch 2 group 1: the fix-pass units (flashline, cinder_arc, flare_kick) and the second half.
+	-- The vertical slice: cinder_arc alone (DevLineup K replays it too).
 	units = {
-		"flashline",
 		"cinder_arc",
-		"flare_kick",
-		"burst_vector",
-		"boiling_crown",
-		"titanheart",
-		"iron_rush",
-		"ascending_core",
-		"marsh_fortress",
-		"skyboulder",
 	} :: { string },
 	arena = "gray", -- the test arena during the reel: "off", "gray" or "bright"
 	camera = "close", -- its fixed camera: "gameplay", "close" or "wide"

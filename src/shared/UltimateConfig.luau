@@ -331,9 +331,10 @@ return deepFreeze({
 		},
 		cinder_arc = {
 			tier = 1,
-			preroll = 0.2,
-			linger = 0.6,
-			look = "blade drawn back two-handed, embers along it; one wide arc of fire over the real splash with a ring and flames; blade forward, a warm ring for his attack speed",
+			-- The vertical slice: a three-strike spiral, the finisher on the real hit (client only).
+			preroll = 0.85,
+			linger = 1.0,
+			look = "low twisted crouch, blade behind the hip, heat on it; two spin slashes into a rising finisher on the real hit: swooshes along the blade, hit-stops, the fire bloom on the finisher, a high pose, recover",
 			wanted = { "ember crackle", "fire arc swing" },
 		},
 		wolfstep = {

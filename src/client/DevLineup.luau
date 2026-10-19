@@ -32,6 +32,9 @@
 --   C        the arena's fixed camera: gameplay (the match camera), close (3/4 on the caster and
 --            its target) or wide (the whole field). In an arena the camera never shakes or drifts,
 --            so every recording of a cast is framed the same.
+--   K        the vertical slice (SLICE_UNIT): opens its close-up if needed and replays its
+--            ultimate (its first cast) on key 3's field of dummies; S then replays that same
+--            ultimate at 0.25x to study the timing (S on any other unit shows its next cast)
 --   R        the reel (ReelConfig): plays a batch of ultimates in one clip, hands off; R again
 --            stops it. Per unit: a title card (id and tier), the ultimate at 1x, a pause, the
 --            ultimate at 0.25x, a gap; then "REEL END". It forces its arena and camera, hides the
@@ -70,6 +73,7 @@ local CombatEffects = require(script.Parent.CombatEffects)
 local CombatPlayback = require(script.Parent.CombatPlayback)
 local CombatFx = require(script.Parent.CombatFx)
 local Figure = require(script.Parent.Figure)
+local HitFeel = require(script.Parent.HitFeel)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local ReelCheck = require(script.Parent.ReelCheck)
 local ReelConfig = require(script.Parent.ReelConfig)
@@ -89,6 +93,7 @@ local STAGE = BASE + Vector3.new(0, 0, -40) -- the preview stage, in front of th
 local PREVIEW = AnimationConfig.preview
 local QUALITIES = { "low", "medium", "high" }
 local DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
+local SLICE_UNIT = "cinder_arc" -- K: the vertical slice's unit
 
 -- Key 3's preview fight (cast): the unit in its side's front middle cell and dummies across from
 -- it, in the dummies' own board coordinates (row 4 = their front): one in front, two beside it,
@@ -205,6 +210,7 @@ local CLOSE_UP_HELP = table.concat({
 	"1 attack   2 crit   3 real ability   4 get hit   5 stun   6 death   7 victory   8 heal + shield",
 	"9 auto loop   F form   X star level   Q quality   V kit textures   S slow ultimate   O freeze + dump",
 	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)   R reel (ReelConfig)",
+	"K slice: " .. SLICE_UNIT .. "'s ultimate (S after it: the same at 0.25x)",
 }, "\n")
 
 -- The HUD title, with the arena and its camera in a close-up ("gray / close").
@@ -528,8 +534,8 @@ end
 local function neutralLighting(): () -> ()
 	local saved: { [string]: any } = {}
 	for name, value in GRAY_LIGHTING do
-		saved[name] = (Lighting :: any)[name]
-		;(Lighting :: any)[name] = value
+		saved[name] = (Lighting :: any)[name];
+		(Lighting :: any)[name] = value
 	end
 	local removed, disabled = {}, {}
 	for _, child in Lighting:GetChildren() do
@@ -635,6 +641,8 @@ local function closeStage()
 	leaveArena()
 	CombatEffects.clear()
 	ImpactEffects.clear()
+	HitFeel.clear()
+	HitFeel.setFocused(false)
 	CombatEffects.setClock(nil)
 	ImpactEffects.setClock(nil)
 	CameraCues.setClock(nil)
@@ -677,6 +685,7 @@ local function openStage(unitType: string)
 	CombatEffects.setClock(stageClock)
 	ImpactEffects.setClock(stageClock)
 	CameraCues.setClock(stageClock)
+	HitFeel.setFocused(true) -- one unit is the focus: full punch-ins
 	spawnActors(s)
 	print("[DevLineup] keys: 1 attack, 2 crit, 3 cast, 4 get hit, 5 stun, 6 death, 7 victory, 8 heal + shield,")
 	print(
@@ -1079,7 +1088,9 @@ end
 -- C: the arena's next fixed camera, applied to a shown cast at once.
 local function nextArenaCamera(s: Stage)
 	arenaCamera = cycle(ARENA_CAMERAS, arenaCamera)
-	print("[DevLineup] arena camera: " .. arenaCamera .. (if arenaMode == "off" then " (T: an arena to use it)" else ""))
+	print(
+		"[DevLineup] arena camera: " .. arenaCamera .. (if arenaMode == "off" then " (T: an arena to use it)" else "")
+	)
 	if s.fieldPreview and s.fieldOffset and arenaMode ~= "off" then
 		s.camera = arenaFraming(s, s.fieldOffset)
 	end
@@ -1120,7 +1131,10 @@ local function updateStage(s: Stage, now: number, dt: number)
 		CombatEffects.update(now) -- a field preview's playback updates its own effects
 	end
 	if s.fieldPreview and arenaMode ~= "off" then
-		setCamera(s.camera) -- an arena's fixed camera: no shake, no cues, no drift
+		-- An arena's fixed camera: no cues, no drift. The slice's unit keeps its camera shake (its hit
+		-- feel is what is being judged); every other unit's recording stays still.
+		local shake = if s.unitType == SLICE_UNIT then ImpactEffects.shakeOffset() else CFrame.identity
+		setCamera(s.camera * shake)
 	else
 		setCamera(s.camera * ImpactEffects.shakeOffset() * CameraCues.offset(s.camera))
 	end
@@ -1363,6 +1377,9 @@ local function slowReplay(s: Stage)
 	local slow = 0.25
 	timeScale = slow
 	ImpactEffects.setTimeScale(slow)
+	if s.unitType == SLICE_UNIT then
+		s.castPresses = 0 -- the slice: the same ultimate K shows (its first cast), not the next one
+	end
 	cast(s)
 	print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
 	task.delay(14, function()
@@ -1381,6 +1398,27 @@ local function toggle()
 	end
 end
 
+local showUnit: (string) -> () -- below
+
+-- K: the vertical slice's ultimate at 1x on key 3's field (its first cast, every time).
+local function sliceReplay()
+	if not folder then
+		open()
+	end
+	if not stage or stage.unitType ~= SLICE_UNIT then
+		showUnit(SLICE_UNIT)
+	end
+	local s = stage
+	if not s then
+		return
+	end
+	timeScale = 1
+	ImpactEffects.setTimeScale(1)
+	s.castPresses = 0
+	cast(s)
+	print("[DevLineup] slice: " .. SLICE_UNIT .. " (S: the same at 0.25x)")
+end
+
 step = function(by: number)
 	if not folder then
 		open()
@@ -1389,7 +1427,7 @@ step = function(by: number)
 	closeUp(index)
 end
 
-local function showUnit(unitType: string)
+showUnit = function(unitType: string)
 	if not folder then
 		open()
 	end
@@ -1508,11 +1546,7 @@ local function startReel()
 				showCard(nil)
 				print(string.format("[Reel] %s start at %.3f", unitType, os.clock()))
 				ReelCheck.begin(unitType, tier, fieldFloor)
-				if
-					not play(s, 1)
-					or not hold(ReelConfig.pauseSeconds)
-					or not play(s, ReelConfig.slowScale)
-				then
+				if not play(s, 1) or not hold(ReelConfig.pauseSeconds) or not play(s, ReelConfig.slowScale) then
 					return
 				end
 				timeScale = 1
@@ -1720,6 +1754,8 @@ function DevLineup.start()
 			nextArenaCamera(stage)
 		elseif key == Enum.KeyCode.R and folder then
 			startReel()
+		elseif key == Enum.KeyCode.K then
+			sliceReplay()
 		elseif stage and PREVIEW_KEYS[key] then
 			if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
 				endFieldPreview(stage)
