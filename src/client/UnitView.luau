@@ -962,6 +962,12 @@ function UnitView.endUltimatePose(view: UnitView, track: any): boolean
 	return true
 end
 
+-- Whether any pose keys (an ultimate's, a PoseAnimator handle's) are playing on the view now.
+function UnitView.posing(view: UnitView): boolean
+	local ultimate = view.ultimate
+	return ultimate ~= nil and view.clock() <= ultimate.endAt
+end
+
 -- Whether `track`'s pose keys are still playing on the view (they end at their endAt, on death, or
 -- when another ultimate's keys replace them).
 function UnitView.playingPose(view: UnitView, track: any): boolean

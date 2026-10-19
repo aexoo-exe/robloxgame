@@ -1,25 +1,27 @@
 -- cinder_arc (Tier 1): a three-strike spiral of fire, the last one the real hit. The real cast cuts
 -- his target, splashes magic over everything within 1 hex of it and speeds up his attacks, all at
 -- the Cast event (t = 0). Everything before 0 is anticipation (compressed when the real window is
--- short); the finisher lands exactly on the real hit. Sword in the right hand.
---   -0.85  he sinks into a low crouch, torso twisted far back, blade drawn behind his right hip,
+-- short); the finisher lands exactly on the real hit. Sword in the right hand. Every movement is
+-- the figure's pose offset (UnitView): his real position never changes.
+--   -1.30  he coils: a deep crouch, torso twisted ~95 degrees back, blade far behind the right hip,
 --          weight on the back leg; heat gathers on the blade (embers, motes, a small flame)
---   -0.55  set: held, shivering with tension
---   -0.42  STRIKE 1: he snaps through a big horizontal spin slash; the blade's own trail draws the
---          arc (yellow -> orange); flames off the tip; the target flashes and slides; a short hit-stop
---   -0.32  follow-through
---   -0.22  STRIKE 2: a rising backhand diagonal, still spinning (orange -> crimson trail), the
---          target hit again
---   -0.07  a quick dip to load the last one
---    0     STRIKE 3, the finisher, on the real hit: a rising cut to a high pose (a yellow -> crimson
---          trail, and one swoosh wiping in along it); hit-stop on the bodies; the fire bloom lands
---          on the target (behind it, half size, short), a boom, a stronger shake, a punch-in, every
---          target knocked back (the main one furthest); embers drift after
---   +0.30  the high pose held, then he recovers to idle by +0.55
+--   -1.05  set: held, shivering with tension, until -0.85
+--   -0.85  STRIKE 1 (contact -0.79): a 0.06 s snap through a full-body horizontal spin slash as he
+--          dashes ~65% of the way to his target (dust and embers streak at his feet); the target
+--          flashes, slides 1 stud and staggers; held through the follow-through to -0.61
+--   -0.61  STRIKE 2 (contact -0.55): a 0.06 s rising backhand diagonal, still spinning, a little
+--          air; the target hit again; held (with a shiver) to -0.18
+--   -0.18  a 0.12 s load dip, the blade low
+--    0     STRIKE 3, the finisher, on the real hit: a 0.06 s rising cut into a high leaping pose
+--          (one swoosh wipes in along it); hit-stop on the bodies; the fire bloom lands behind the
+--          target; a boom, a stronger shake, a punch-in; every target knocked back, the main one
+--          2.5 studs and launched 0.8 up; he hops (apex +0.14) and lands (+0.32); embers drift
+--   +0.62  recovered to idle where he stands, then slides back to his cell by +0.92
 -- Layers (tier 1, within its 14): slash trails on the blade (BladeTrail: Roblox Trails between a
--- hilt and a tip attachment), fire flipbook flames, one fire bloom (fx_fire_burst), one swoosh on
--- the finisher (fx_swoosh_ribbon), small hit stars, embers and motes. Poses: PoseAnimator; hit
--- feel: HitFeel; sounds: Sfx (SfxConfig names windup, whoosh, hitImpact, fireBurst, finisherBoom).
+-- hilt and a tip attachment on the hand anchor, so they follow every offset), fire flipbook flames,
+-- one fire bloom (fx_fire_burst), one swoosh on the finisher (fx_swoosh_ribbon), a dust burst at
+-- the dash, small hit stars, embers and motes. Poses: PoseAnimator; hit feel: HitFeel; sounds: Sfx
+-- (SfxConfig names windup, whoosh, hitImpact, fireBurst, finisherBoom).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -30,24 +32,36 @@ local HitFeel = require(script.Parent.Parent.HitFeel)
 local PoseAnimator = require(script.Parent.Parent.PoseAnimator)
 local Sfx = require(script.Parent.Parent.Sfx)
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
+local UnitView = require(script.Parent.Parent.UnitView)
 local VfxRecipe = require(script.Parent.Parent.VfxRecipe)
 
 local Kit = UltimateKit
 local rgb = Color3.fromRGB
 
--- The beats (design seconds; 0 is the real hit).
+-- The beats (design seconds; 0 is the real hit). Each strike: a 0.06 s snap into its contact, then
+-- its follow-through held.
 local T = {
-	windup = -0.85,
-	set = -0.55,
-	strike1 = -0.42,
-	follow1 = -0.32,
-	strike2 = -0.22,
-	follow2 = -0.12,
-	load = -0.07,
+	windup = -1.3,
+	set = -1.05,
+	setEnd = -0.85, -- strike 1's snap starts
+	dash = -0.88, -- the dash starts (just before the snap) ...
+	dashEnd = -0.76, -- ... and arrives (eased)
+	strike1 = -0.79,
+	follow1 = -0.76,
+	hold1End = -0.61, -- strike 2's snap starts
+	strike2 = -0.55,
+	follow2 = -0.52,
+	hold2End = -0.18, -- the load dip starts
+	load = -0.06, -- the finisher's snap starts
 	finisher = 0,
-	held = 0.3,
-	rest = 0.55,
+	apex = 0.14, -- the hop's top
+	land = 0.32,
+	rest = 0.62, -- recovered (where he stands)
+	home = 0.92, -- slid back to his cell
 }
+local DASH_SHARE = 0.65 -- of the way to his target
+local DASH_MAX = 6 -- studs (normal size): never further, however far the target
+
 -- Each strike: its contact time; its trail's window (on just before the snap, off after the
 -- follow-through), colors (head to tail: yellow -> orange -> crimson over the three, saturated so
 -- the tint shows) and life (seconds at 1x); the color of its hit star / swoosh; and, if the blade's
@@ -63,8 +77,8 @@ local YELLOW, ORANGE, CRIMSON = rgb(255, 215, 70), rgb(255, 125, 25), rgb(210, 3
 local STRIKES = {
 	{
 		at = T.strike1,
-		on = -0.5,
-		off = -0.33,
+		on = T.setEnd - 0.01,
+		off = T.follow1 + 0.08,
 		trail = trail({ { 0, YELLOW }, { 1, ORANGE } }),
 		life = 0.2,
 		color = YELLOW,
@@ -72,8 +86,8 @@ local STRIKES = {
 	},
 	{
 		at = T.strike2,
-		on = -0.32,
-		off = -0.14,
+		on = T.hold1End - 0.01,
+		off = T.follow2 + 0.08,
 		trail = trail({ { 0, ORANGE }, { 1, CRIMSON } }),
 		life = 0.2,
 		color = ORANGE,
@@ -81,8 +95,8 @@ local STRIKES = {
 	},
 	{
 		at = T.finisher,
-		on = -0.07,
-		off = 0.12,
+		on = T.load - 0.01,
+		off = T.apex,
 		trail = trail({ { 0, YELLOW }, { 0.4, ORANGE }, { 1, CRIMSON } }),
 		life = 0.25,
 		color = CRIMSON,
@@ -94,140 +108,188 @@ local SAMPLE = 0.035 -- design seconds before a contact the blade is sampled (it
 local BLADE = 0.55 -- the sword's reach past the hand, in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
 
--- The poses (PoseAnimator channels): big, readable anime poses, not realistic ones.
-local KEYFRAMES: { PoseAnimator.Keyframe } = {
-	{
-		at = T.windup,
-		pose = { crouch = 0, lean = 0, twist = 0, rightArm = 0, rightArmOut = 0, spin = 0 },
-	},
-	-- Anticipation: low, twisted back, blade behind the right hip, weight on the back leg.
-	{
-		at = T.set,
-		ease = "quadOut",
-		hold = 0.05,
-		shiver = 1.6,
-		pose = {
-			crouch = 0.42,
-			lean = 16,
-			twist = -70,
-			tilt = -6,
-			rightArm = -30,
-			rightArmOut = 65,
-			leftArm = 40,
-			leftArmOut = -25,
-			leftLeg = 38,
-			rightLeg = -32,
-			headYaw = 45,
-			headPitch = 6,
+-- The poses (PoseAnimator channels), about twice a realistic swing: big, readable anime poses.
+-- Every body pose names every body channel, so a held pose holds the whole body still (a channel a
+-- key leaves out would drift on toward its next key). `lunge` (the dash) and the finisher's hop
+-- (`rise`, and the legs and lean that go with it) run on keys of their own.
+local function pose(values: { [string]: number }): { [string]: number }
+	local full = {
+		crouch = 0,
+		lean = 0,
+		twist = 0,
+		tilt = 0,
+		spin = 0,
+		rise = 0,
+		rightArm = 0,
+		rightArmOut = 0,
+		leftArm = 0,
+		leftArmOut = 0,
+		leftLeg = 0,
+		rightLeg = 0,
+		headYaw = 0,
+		headPitch = 0,
+	}
+	for channel, value in values do
+		full[channel] = value
+	end
+	return full
+end
+local function with(base: { [string]: number }, changes: { [string]: number }): { [string]: number }
+	local out = table.clone(base)
+	for channel, value in changes do
+		out[channel] = value
+	end
+	return out
+end
+local function without(base: { [string]: number }, channels: { string }): { [string]: number }
+	local out = table.clone(base)
+	for _, channel in channels do
+		out[channel] = nil
+	end
+	return out
+end
+
+-- The coil: deep crouch, torso twisted far back, blade far behind the right hip, weight on the back
+-- leg, eyes on the target.
+local COIL = pose({
+	crouch = 0.75,
+	lean = 32,
+	twist = -95,
+	tilt = -10,
+	spin = -20,
+	rightArm = -45,
+	rightArmOut = 80,
+	leftArm = 55,
+	leftArmOut = -35,
+	leftLeg = 55,
+	rightLeg = -50,
+	headYaw = 70,
+	headPitch = 10,
+})
+-- Strike 1: a full-body horizontal spin slash, leaning hard into it, arm straight across.
+local STRIKE1 = pose({
+	crouch = 0.5,
+	lean = 40,
+	twist = 85,
+	tilt = 8,
+	spin = 140,
+	rightArm = 95,
+	rightArmOut = -80,
+	leftArm = -30,
+	leftArmOut = 70,
+	leftLeg = 60,
+	rightLeg = -55,
+	headYaw = -40,
+})
+local FOLLOW1 = with(STRIKE1, { twist = 95, rightArmOut = -100, spin = 160, lean = 36 })
+-- Strike 2: a rising backhand diagonal, still turning, off the ground a little.
+local STRIKE2 = pose({
+	crouch = 0.3,
+	lean = 15,
+	twist = -60,
+	tilt = -14,
+	spin = 290,
+	rise = 0.6,
+	rightArm = 160,
+	rightArmOut = 85,
+	leftArm = 50,
+	leftArmOut = -50,
+	leftLeg = 25,
+	rightLeg = -30,
+	headYaw = 30,
+	headPitch = -12,
+})
+local FOLLOW2 = with(STRIKE2, { rightArm = 170, rightArmOut = 100, spin = 305, twist = -70, rise = 0.3 })
+-- The load: a dip, the blade low, coiled for the last one.
+local LOAD = pose({
+	crouch = 0.8,
+	lean = 35,
+	twist = -85,
+	spin = 330,
+	rightArm = 30,
+	rightArmOut = 50,
+	leftArm = 20,
+	leftArmOut = -20,
+	leftLeg = 45,
+	rightLeg = -45,
+	headPitch = 6,
+})
+-- Strike 3, the finisher: a rising cut into a high leaping pose, knee up.
+local FINISH = pose({
+	lean = -22,
+	twist = 30,
+	spin = 360,
+	rise = 1.4,
+	rightArm = 180,
+	leftArm = 95,
+	leftArmOut = 75,
+	leftLeg = 70,
+	rightLeg = -35,
+	headPitch = -22,
+})
+local HOP = { "rise", "crouch", "leftLeg", "lean" } -- the finisher's channels its hop drives
+
+-- `dash`: studs (normal size) the dash carries him toward his target (`lunge`).
+local function keyframes(dash: number): { PoseAnimator.Keyframe }
+	return {
+		{ at = T.windup, pose = with(pose({}), { lunge = 0 }) },
+		-- The coil, held with a shiver until strike 1's snap.
+		{ at = T.set, ease = "quadOut", hold = T.setEnd - T.set, shiver = 2.2, pose = COIL },
+		-- The dash: from where he stands, eased, arriving just after strike 1's contact.
+		{ at = T.dash, pose = { lunge = 0 } },
+		{ at = T.dashEnd, ease = "expoOut", pose = { lunge = dash } },
+		-- Strike 1 (a 0.06 s snap), its follow-through held to strike 2's snap.
+		{ at = T.strike1, ease = "snap", pose = STRIKE1 },
+		{ at = T.follow1, ease = "quadOut", hold = T.hold1End - T.follow1, pose = FOLLOW1 },
+		-- Strike 2 (a 0.06 s snap), its follow-through held (shivering) to the load dip.
+		{ at = T.strike2, ease = "snap", pose = STRIKE2 },
+		{ at = T.follow2, ease = "quadOut", hold = T.hold2End - T.follow2, shiver = 1.2, pose = FOLLOW2 },
+		-- The load dip (0.12 s).
+		{ at = T.load, ease = "quadOut", pose = LOAD },
+		-- The finisher (a 0.06 s snap): the high pose held to the landing; the hop on its own keys.
+		{ at = T.finisher, ease = "snap", hold = T.land - T.finisher, pose = without(FINISH, HOP) },
+		{
+			at = T.finisher,
+			ease = "snap",
+			pose = { rise = FINISH.rise, crouch = 0, leftLeg = FINISH.leftLeg, lean = FINISH.lean },
 		},
-	},
-	-- Strike 1: a horizontal spin slash, the torso fully round, the arm out straight across.
-	{
-		at = T.strike1,
-		ease = "snap",
-		pose = {
-			crouch = 0.3,
-			lean = 24,
-			twist = 65,
-			tilt = 4,
-			rightArm = 92,
-			rightArmOut = -55,
-			leftArm = -15,
-			leftArmOut = 45,
-			leftLeg = 42,
-			rightLeg = -38,
-			headYaw = -25,
-			headPitch = 0,
-			spin = 120,
-			lunge = 0.6,
-		},
-	},
-	{
-		at = T.follow1,
-		ease = "quadOut",
-		pose = { twist = 78, rightArm = 80, rightArmOut = -80, spin = 145, lean = 18 },
-	},
-	-- Strike 2: a rising backhand diagonal, still turning.
-	{
-		at = T.strike2,
-		ease = "snap",
-		pose = {
-			crouch = 0.18,
-			lean = 6,
-			twist = -35,
-			tilt = -8,
-			rightArm = 135,
-			rightArmOut = 70,
-			leftArm = 30,
-			leftArmOut = -35,
-			leftLeg = 15,
-			rightLeg = -15,
-			headYaw = 20,
-			headPitch = -8,
-			spin = 250,
-			rise = 0.5,
-			lunge = 0.4,
-		},
-	},
-	{ at = T.follow2, ease = "quadOut", pose = { rightArm = 145, rightArmOut = 85, spin = 268, twist = -45 } },
-	-- A quick dip that loads the finisher.
-	{
-		at = T.load,
-		ease = "quadOut",
-		pose = { crouch = 0.32, rise = 0.1, rightArm = 60, rightArmOut = 30, lean = 20, twist = -55 },
-	},
-	-- Strike 3, the finisher: a rising cut to a high finishing pose, held.
-	{
-		at = T.finisher,
-		ease = "snap",
-		hold = T.held - T.finisher,
-		pose = {
-			crouch = 0,
-			lean = -14,
-			twist = 20,
-			tilt = 0,
-			rightArm = 178,
-			rightArmOut = 8,
-			leftArm = 70,
-			leftArmOut = 60,
-			leftLeg = -12,
-			rightLeg = 28,
-			headYaw = 0,
-			headPitch = -14,
-			spin = 360,
-			rise = 0.7,
-			lunge = 0.2,
-		},
-	},
-	-- One whole turn is facing front again: drop it to 0 at once (no unwinding spin in the recovery).
-	{ at = T.held + 0.001, ease = "hold", pose = { spin = 0 } },
-	-- Recover to idle, settling with a small overshoot ("back": ~10%; "backOut" swung the sword arm
-	-- ~25 degrees past rest coming down from overhead).
-	{
-		at = T.rest,
-		ease = "back",
-		pose = {
-			crouch = 0,
-			lean = 0,
-			twist = 0,
-			tilt = 0,
-			rightArm = 0,
-			rightArmOut = 0,
-			leftArm = 0,
-			leftArmOut = 0,
-			leftLeg = 0,
-			rightLeg = 0,
-			headYaw = 0,
-			headPitch = 0,
-			rise = 0,
-			lunge = 0,
-		},
-	},
-}
+		{ at = T.apex, ease = "quadOut", pose = { rise = 1.9 } },
+		{ at = T.land, ease = "quadIn", pose = { rise = 0, crouch = 0.4, leftLeg = 30, lean = -6 } },
+		-- One whole turn is facing front again: drop it to 0 at once (no unwinding spin).
+		{ at = T.land + 0.001, ease = "hold", pose = { spin = 0 } },
+		-- Recover to idle where he stands ("back": a ~10% settle).
+		{ at = T.rest, ease = "back", pose = pose({}) },
+		-- Then slide back to his cell.
+		{ at = T.rest + 0.001, pose = { lunge = dash } },
+		{ at = T.home, ease = "inOut", pose = { lunge = 0 } },
+	}
+end
 
 local def = {}
 
-def.pose = PoseAnimator.track(KEYFRAMES)
+-- The dash for this cast: DASH_SHARE of the way to the target (none without one), in studs at
+-- normal size (UnitView scales the lunge by the unit's size).
+local function dashOf(run): number
+	local target = run:target()
+	if not target or not target.part then
+		return 0
+	end
+	local from, to = run.view.part.Position, target.part.Position
+	local flat = Vector3.new(to.X - from.X, 0, to.Z - from.Z).Magnitude
+	return math.min(flat * DASH_SHARE / math.max(UnitView.sizeFactor(run.view), 0.1), DASH_MAX)
+end
+
+-- Tracks by dash length (rounded to a tenth of a stud), built once each.
+local tracks: { [number]: any } = {}
+function def.poseFor(run)
+	local dash = math.floor(dashOf(run) * 10 + 0.5) / 10
+	local track = tracks[dash]
+	if not track then
+		track = PoseAnimator.track(keyframes(dash))
+		tracks[dash] = track
+	end
+	return track
+end
 
 local function hand(run): Vector3
 	return run:hand("right")
@@ -245,7 +307,9 @@ local function tip(run): Vector3
 	return h + along * UNIT_HEIGHT * BLADE * 0.6 * run:scale()
 end
 
--- The blade's trails (BladeTrail): one per cut, each with its own colors, made at the windup.
+-- The blade's trails (BladeTrail): one per cut, each with its own colors, made at the windup. The
+-- carrier follows the hand anchor, which UnitView places with every pose offset (the dash, the
+-- hop), so the ribbon stays on the blade as he travels.
 local function attachBlade(run)
 	if run.memo.blade then
 		return
@@ -256,7 +320,7 @@ local function attachBlade(run)
 	end
 	run.memo.blade = blade
 	-- Gone once every cut has faded.
-	run:at(T.rest + 0.4, function()
+	run:at(T.home + 0.2, function()
 		blade:destroy()
 		run.memo.blade = nil
 	end)
@@ -290,6 +354,19 @@ local function cut(run, index: number)
 	end)
 end
 
+-- The dash's streak at his feet: a dust burst where he pushes off, embers along the way.
+local function dashStreak(run)
+	local s = run:scale()
+	VfxRecipe.kitDust(run:ground(), UNIT_HEIGHT * 0.5 * s, 1)
+	local t = T.dash + 0.03
+	while t < T.dashEnd do
+		run:at(t, function()
+			VfxRecipe.embers(run, run:ground() + Vector3.new(0, 0.3, 0), s, nil, 4)
+		end)
+		t += 0.03
+	end
+end
+
 -- The swing plane's normal at a strike: from the blade's real motion (the hand a moment ago and
 -- now, about the chest), or the strike's fallback tilt when that cannot be read.
 local function swingNormal(run, strike, before: Vector3?): Vector3
@@ -308,7 +385,8 @@ end
 
 -- One strike at its contact (its trail is already drawing the arc: cut): flames off the blade tip,
 -- the whoosh; the finisher also wipes in one swoosh along its arc (in over 0.08 s, out over 0.2 s);
--- strikes 1-2 hit the target (a small hit star, its reaction, a short hit-stop and shake).
+-- strikes 1-2 hit the target (a small hit star, its reaction: a flash, a 1 stud slide and a
+-- stagger; a short hit-stop and shake).
 local function strike(run, index: number)
 	local s = run:scale()
 	local spec = STRIKES[index]
@@ -356,13 +434,14 @@ def.beats = {
 			Sfx.play("windup")
 			attachBlade(run)
 			-- Heat gathering on the blade: motes drawn in, embers glowing off it, a small flame.
-			Kit.converge(run, T.windup + 0.05, T.set + 0.03, function()
+			Kit.converge(run, T.windup + 0.05, T.set + 0.05, function()
 				return tip(run)
 			end, HEAT, 1.4 * s, if run.reduced then 5 else 10)
 			VfxRecipe.embers(run, hand(run), s, nil, 8)
 			run:at(T.set, function()
 				VfxRecipe.flames(tip(run), 1, 0.7 * s)
 			end)
+			run:at(T.dash, dashStreak)
 			-- Each strike: its trail on through the cut, the blade sampled just before contact (the
 			-- finisher's swoosh plane), then the strike itself.
 			for index, spec in STRIKES do
@@ -394,8 +473,8 @@ end
 -- The finisher on the real hit: the strike, hit-stop (bodies and impact sparks only, 0.07 s), the
 -- fire bloom landing on it on the target (half the old size, just behind the target as the camera
 -- sees it and drawn behind what is in front of it, so the caster stays visible; faded by 0.42 s),
--- the boom, a stronger shake, the punch-in, every target knocked back (the main one furthest),
--- embers drifting after.
+-- the boom, a stronger shake, the punch-in, every target knocked back (the main one 2.5 studs and
+-- launched 0.8 up; the rest 1.5 studs), embers drifting after.
 finisher = function(run)
 	local center, radius = run:area()
 	local s = run:scale()
@@ -420,7 +499,7 @@ finisher = function(run)
 	VfxRecipe.sparks(center + Vector3.new(0, 1.2, 0), 0.8, nil, VfxRecipe.themes.fire.spark)
 	VfxRecipe.light(run, center + Vector3.new(0, 1.2, 0), radius, VfxRecipe.themes.fire.light, 0.8)
 	for _, view in targets do
-		HitFeel.react(view, run:chest(), if view == main then { final = true } else { knock = 1.2 })
+		HitFeel.react(view, run:chest(), if view == main then { final = true } else { knock = 1.5, tilt = 18 })
 	end
 	HitFeel.cameraShake(0.3, 0.35)
 	HitFeel.punchIn(1)
@@ -443,8 +522,8 @@ function def.event(run, event): boolean
 		end
 		return true
 	elseif kind == "Buff" and event.target == run.unitIndex then
-		-- The attack speed: embers off the blade once he has recovered.
-		run:at(T.rest, function()
+		-- The attack speed: embers off the blade once he is home.
+		run:at(T.home, function()
 			VfxRecipe.embers(run, tip(run), run:scale(), nil, 8)
 		end)
 		return true

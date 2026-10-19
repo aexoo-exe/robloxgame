@@ -16,6 +16,7 @@ local RunService = game:GetService("RunService")
 
 local EffectSettings = require(script.Parent.EffectSettings)
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local PoseAnimator = require(script.Parent.PoseAnimator)
 local UnitView = require(script.Parent.UnitView)
 
 local HitFeel = {}
@@ -35,7 +36,10 @@ HitFeel.SETTINGS = {
 	-- flames or blooms (paused, they read as frozen stickers).
 	freezeUsages = { "sparks", "star", "kitHitStar", "flash", "critFlash", "spark" },
 	knock = 1, -- studs a strike slides its target (normal size)
-	finalKnock = 1.8, -- the finisher's
+	finalKnock = 2.5, -- the finisher's
+	tilt = 15, -- degrees a strike staggers its target (back and to one side), recovering
+	finalTilt = 24, -- the finisher's
+	finalLaunch = 0.8, -- studs the finisher launches its target up before it lands
 }
 local S = HitFeel.SETTINGS
 
@@ -150,13 +154,20 @@ function HitFeel.punchIn(strength: number, seconds: number?)
 end
 
 export type ReactOptions = {
-	final: boolean?, -- the finisher: knocked further (SETTINGS.finalKnock)
+	final: boolean?, -- the finisher: knocked further, staggered harder, launched (SETTINGS final*)
 	knock: number?, -- studs (normal size), instead of the default
+	tilt: number?, -- degrees of stagger, instead of the default
+	launch: number?, -- studs up, instead of the default (0 for a strike)
 }
 
+local staggerSide = 1 -- alternates, so hit after hit the target rocks both ways
+
 -- A target's reaction to a hit from `from` (a point: the attacker or its blade): a white flash
--- (UnitView's hit flash, a Highlight on avatars), a knockback slide away from `from` that eases back,
--- and a stagger (the hit pose: lean back, head snap, arms flail) that recovers.
+-- (UnitView's hit flash, a Highlight on avatars) and a knockback slide away from `from` that eases
+-- back (UnitView.flash: also its hit pose, a lean back and head snap), plus a stagger: tilted back
+-- and to one side by `tilt` degrees and recovering, and for the finisher a launch up that lands.
+-- The stagger and launch are pose keys of their own (PoseAnimator), skipped on a unit playing its
+-- own (an enemy mid-ultimate keeps its ultimate). All visual: the real position never moves.
 function HitFeel.react(view: any, from: Vector3, opts: ReactOptions?)
 	if not view or not view.part or not view.part.Parent or not UnitView.isAlive(view) then
 		return
@@ -164,6 +175,30 @@ function HitFeel.react(view: any, from: Vector3, opts: ReactOptions?)
 	local o = opts or {}
 	local knock = o.knock or (if o.final then S.finalKnock else S.knock)
 	UnitView.flash(view, false, view.part.Position - from, knock)
+	if UnitView.posing(view) then
+		return
+	end
+	local tilt = o.tilt or (if o.final then S.finalTilt else S.tilt)
+	local launch = o.launch or (if o.final then S.finalLaunch else 0)
+	local recover = if o.final then 0.55 else 0.35
+	staggerSide = -staggerSide
+	local frames: { PoseAnimator.Keyframe } = {
+		{ at = 0, pose = { lean = 0, tilt = 0, rise = 0, headRoll = 0 } },
+		{
+			at = 0.06,
+			ease = "quadOut",
+			pose = { lean = -tilt, tilt = staggerSide * tilt * 0.6, headRoll = staggerSide * tilt * 0.5 },
+		},
+		{ at = recover, ease = "back", pose = { lean = 0, tilt = 0, headRoll = 0 } },
+	}
+	if launch > 0 then
+		table.insert(frames, { at = 0.14, ease = "quadOut", pose = { rise = launch } })
+		table.insert(frames, { at = 0.32, ease = "quadIn", pose = { rise = 0 } })
+	end
+	table.sort(frames, function(a, b)
+		return a.at < b.at
+	end)
+	PoseAnimator.play(view, frames, { at = view.clock() })
 end
 
 -- Drops a running punch-in (a fight or preview ends).
