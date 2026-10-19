@@ -5,7 +5,7 @@
 -- (`asset` the decal it came in); a texture without one is not uploaded yet (`pending`).
 
 return {
-	generated = "2026-10-18",
+	generated = "2026-10-19",
 	roles = {
 		slash = {
 			{ rank = 1, kind = "image", name = "slash_thin", image = 106612806680342, asset = 70403912553608 },
@@ -74,7 +74,7 @@ return {
 			{ rank = 1, kind = "image", name = "fx_toon_poof", image = 99844752520598, asset = 72466073726407 },
 		},
 		swoosh = {
-			{ rank = 1, kind = "image", name = "fx_swoosh_ribbon", image = 131788974067053, asset = 130789465766190 },
+			{ rank = 1, kind = "image", name = "fx_swoosh_ribbon", image = 114421529925353, asset = 93380983883977 },
 		},
 		crescent = {
 			{ rank = 1, kind = "image", name = "fx_slash_crescent", image = 113103546708653, asset = 111616618707770 },
