@@ -28,13 +28,15 @@ end
 
 return deepFreeze({
 	-- Presentation budget per tier: camera cues allowed, the largest camera shake, the shortest
-	-- anticipation kept when compressing (a fraction of `preroll`).
+	-- anticipation kept when compressing (a fraction of `preroll`). The floor is 0.6 for every tier:
+	-- below it, from the match camera an ultimate read as a ~1 s flicker. A module that knows its
+	-- beats can spend the compression on its holds first (Cinematic run.k; cinder_arc does).
 	tiers = {
-		[1] = { camera = false, dim = false, shake = 0.08, minShare = 0.35 },
-		[2] = { camera = false, dim = false, shake = 0.12, minShare = 0.35 },
-		[3] = { camera = false, dim = false, shake = 0.2, minShare = 0.4 },
-		[4] = { camera = true, dim = true, shake = 0.32, minShare = 0.45 },
-		[5] = { camera = true, dim = true, shake = 0.45, minShare = 0.5 },
+		[1] = { camera = false, dim = false, shake = 0.08, minShare = 0.6 },
+		[2] = { camera = false, dim = false, shake = 0.12, minShare = 0.6 },
+		[3] = { camera = false, dim = false, shake = 0.2, minShare = 0.6 },
+		[4] = { camera = true, dim = true, shake = 0.32, minShare = 0.6 },
+		[5] = { camera = true, dim = true, shake = 0.45, minShare = 0.6 },
 	},
 	-- Room kept after a unit's previous cast before its next anticipation may start.
 	afterPreviousCast = 0.3,

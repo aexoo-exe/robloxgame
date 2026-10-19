@@ -32,6 +32,8 @@
 --   C        the arena's fixed camera: gameplay (the match camera), close (3/4 on the caster and
 --            its target) or wide (the whole field). In an arena the camera never shakes or drifts,
 --            so every recording of a cast is framed the same.
+--   G        as K, with the match camera's framing (the arena's "gameplay" camera, no orbit): the
+--            slice the way players see it; S after it replays at 0.25x with that camera
 --   K        the vertical slice (SLICE_UNIT): opens its close-up if needed and replays its
 --            ultimate (its first cast) on key 3's field of dummies; S then replays that same
 --            ultimate at 0.25x to study the timing (S on any other unit shows its next cast).
@@ -224,7 +226,7 @@ local CLOSE_UP_HELP = table.concat({
 	"T arena (off / gray / bright)   C arena camera (gameplay / close / wide)   R reel (ReelConfig)",
 	"K slice: "
 		.. SLICE_UNIT
-		.. "'s ultimate (S after it: the same at 0.25x)   slice camera: RMB drag / arrows"
+		.. "'s ultimate, G: with the match camera (S after it: the same at 0.25x)   slice camera: RMB drag / arrows"
 		.. " orbit, wheel / + - zoom, Q / E up / down, P save",
 }, "\n")
 
@@ -1520,6 +1522,9 @@ local function unbindSliceControls()
 	end
 end
 
+-- Which camera the slice replays use: "slice" (K: the orbit) or "gameplay" (G: the match camera's
+-- framing, Arena.boardCamera). S replays with the last one used.
+local sliceCameraMode = "slice"
 local function enterSliceCamera()
 	if not sliceSaved then
 		sliceSaved = { arena = arenaMode, camera = arenaCamera }
@@ -1527,9 +1532,15 @@ local function enterSliceCamera()
 	if arenaMode == "off" then
 		arenaMode = "gray"
 	end
-	arenaCamera = "slice"
-	sliceView = table.clone(sliceFraming) -- each replay starts from the saved framing
-	bindSliceControls()
+	arenaCamera = sliceCameraMode
+	-- With the match camera, hit feel is as in a match (a mild punch-in), not a focused close-up's.
+	HitFeel.setFocused(sliceCameraMode ~= "gameplay")
+	if sliceCameraMode == "slice" then
+		sliceView = table.clone(sliceFraming) -- each replay starts from the saved framing
+		bindSliceControls()
+	else
+		unbindSliceControls() -- the match camera is not aimed
+	end
 	sliceToken += 1
 	refreshTitle()
 end
@@ -1542,6 +1553,7 @@ local function leaveSliceCamera()
 	sliceSaved = nil
 	sliceToken += 1
 	arenaMode, arenaCamera = saved.arena, saved.camera
+	HitFeel.setFocused(stage ~= nil)
 	local s = stage
 	if s and s.fieldPreview then
 		endFieldPreview(s)
@@ -1624,8 +1636,11 @@ end
 
 local showUnit: (string) -> () -- below
 
--- K: the vertical slice's ultimate at 1x on key 3's field (its first cast, every time).
-local function sliceReplay()
+-- K: the vertical slice's ultimate at 1x on key 3's field (its first cast, every time), with the
+-- slice camera (`mode` "slice"); G: the same with the match camera's framing ("gameplay"), to judge
+-- it the way players see it.
+local function sliceReplay(mode: string)
+	sliceCameraMode = mode
 	if not folder then
 		open()
 	end
@@ -1642,7 +1657,13 @@ local function sliceReplay()
 	enterSliceCamera()
 	cast(s)
 	leaveSliceCameraAfter((s.previewSeconds or FIELD_AFTER) + 0.5)
-	print("[DevLineup] slice: " .. SLICE_UNIT .. " (S: the same at 0.25x)")
+	print(
+		string.format(
+			"[DevLineup] slice: %s, %s camera (S: the same at 0.25x)",
+			SLICE_UNIT,
+			if mode == "gameplay" then "match" else "slice"
+		)
+	)
 end
 
 step = function(by: number)
@@ -1986,7 +2007,9 @@ function DevLineup.start()
 		elseif key == Enum.KeyCode.R and folder then
 			startReel()
 		elseif key == Enum.KeyCode.K then
-			sliceReplay()
+			sliceReplay("slice")
+		elseif key == Enum.KeyCode.G then
+			sliceReplay("gameplay")
 		elseif stage and PREVIEW_KEYS[key] then
 			if key ~= Enum.KeyCode.Three and key ~= Enum.KeyCode.Q then
 				endFieldPreview(stage)

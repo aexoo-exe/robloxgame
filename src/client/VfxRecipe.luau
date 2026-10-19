@@ -18,8 +18,13 @@ local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 local FxKit = require(script.Parent.FxKit)
 local ImpactEffects = require(script.Parent.ImpactEffects)
 local Vfx = require(script.Parent.Vfx)
+local ViewScale = require(script.Parent.ViewScale)
 
 local VfxRecipe = {}
+
+-- How much bigger to draw an effect at `position` so it reads from the camera (ViewScale: 1 at
+-- close cameras, up to 1.8 at the match camera).
+VfxRecipe.viewScale = ViewScale.of
 
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
 VfxRecipe.UNIT_HEIGHT = UNIT_HEIGHT
@@ -478,8 +483,16 @@ function VfxRecipe.shock(at: Vector3, radius: number, edge: Color3, k: number?, 
 	VfxRecipe.meshRing(at, widest / 3, edge, config.lifetime)
 end
 
--- Streak sparks flung out from `at`, turned along their flight, arcing down.
-function VfxRecipe.sparks(at: Vector3, k: number?, count: number?, palette: ColorSequence?, direction: Vector3?)
+-- Streak sparks flung out from `at`, turned along their flight, arcing down. `bright` multiplies
+-- their brightness (default 1).
+function VfxRecipe.sparks(
+	at: Vector3,
+	k: number?,
+	count: number?,
+	palette: ColorSequence?,
+	direction: Vector3?,
+	bright: number?
+)
 	local config = D.sparks
 	local scale = k or 1
 	ImpactEffects.emit(at, {
@@ -495,7 +508,7 @@ function VfxRecipe.sparks(at: Vector3, k: number?, count: number?, palette: Colo
 		drag = config.drag,
 		acceleration = Vector3.new(0, -config.gravity, 0),
 		lightEmission = 1,
-		brightness = config.brightness,
+		brightness = config.brightness * (bright or 1),
 		stretch = true,
 	})
 end
@@ -1365,14 +1378,15 @@ function VfxRecipe.kitAuraSpike(
 	end
 end
 
--- A hit star (fx_impact_star) at `at`, `size` studs, turned at random.
-function VfxRecipe.kitHitStar(at: Vector3, size: number, color: Color3)
+-- A hit star (fx_impact_star) at `at`, `size` studs, turned at random; `bright` multiplies its
+-- brightness (default 1).
+function VfxRecipe.kitHitStar(at: Vector3, size: number, color: Color3, bright: number?)
 	VfxRecipe.kit(at, "kitHitStar", {
 		size = size,
 		color = tinted(color, 0.4),
 		rotation = { 0, 360 },
 		lightEmission = 1,
-		brightness = 2.5,
+		brightness = 2.5 * (bright or 1),
 		zOffset = 1,
 	})
 end

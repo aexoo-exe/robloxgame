@@ -20,6 +20,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local ImpactEffects = require(script.Parent.ImpactEffects)
+local ViewScale = require(script.Parent.ViewScale)
 
 local BladeTrail = {}
 
@@ -29,6 +30,10 @@ export type Options = {
 	hand: string?, -- "right" (default) or "left"
 	from: number?, -- the trail's inner edge along the blade, a share of the figure's height (0.2)
 	to: number?, -- its outer edge: the tip (0.66 for a katana: LookKit's hilt, guard and 0.5 blade)
+	-- Scale with the camera distance (ViewScale), each frame: the ribbon reaches further past the
+	-- hilt (`to` - `from` times the scale) and lives up to 50% longer at the match camera, so cuts
+	-- read from far away. Off: the blade's own size and the trails' own lifetimes.
+	viewScale: boolean?,
 }
 
 export type TrailSpec = {
@@ -60,6 +65,7 @@ export type Handle = {
 	hand: string,
 	from: number,
 	to: number,
+	viewScale: boolean,
 	add: (Handle, string, TrailSpec) -> Trail,
 	enable: (Handle, string) -> (),
 	disable: (Handle, string) -> (),
@@ -147,11 +153,17 @@ local function follow(handle: Handle)
 	end
 	local h = view.figure.height
 	handle.carrier.CFrame = anchor
+	local reach, life = 1, 1
+	if handle.viewScale then
+		reach = ViewScale.of(anchor.Position)
+		life = 1 + 0.5 * ViewScale.share(reach)
+	end
+	local to = handle.from + (handle.to - handle.from) * reach
 	handle.baseAttachment.Position = Vector3.new(0, GRIP * h, -handle.from * h)
-	handle.tipAttachment.Position = Vector3.new(0, GRIP * h, -handle.to * h)
+	handle.tipAttachment.Position = Vector3.new(0, GRIP * h, -to * h)
 	local scale = math.max(ImpactEffects.timeScale(), 0.05)
 	for _, entry in handle.trails do
-		entry.trail.Lifetime = entry.lifetime / scale
+		entry.trail.Lifetime = entry.lifetime * life / scale
 	end
 end
 
@@ -183,6 +195,7 @@ function BladeTrail.attach(view: any, opts: Options?): Handle
 		hand = o.hand or "right",
 		from = o.from or 0.2,
 		to = o.to or 0.66,
+		viewScale = o.viewScale == true,
 	}, Methods) :: any
 	follow(handle)
 	carrier.Parent = holder()
