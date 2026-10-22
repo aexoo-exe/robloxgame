@@ -16,7 +16,9 @@ desktop.ini
 # Logs
 *.log
 
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/agents/
 .mcp.json
 
 sim-latest.txt
