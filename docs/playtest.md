@@ -8,7 +8,13 @@ A small playtest: you plus 1–2 friends in a real multiplayer match, with bots 
 - For DataStores (the how-to-play "seen" flag, feedback, error log) to work in Studio:
   Home → Game Settings → Security → **Enable Studio Access to API Services**. The place must be
   published once. Without it everything still runs; entries are only printed to the Output.
-- Bots: `src/shared/MatchConfig.luau` → `botsEnabled` (on/off), `botFillTo` (default 6), `botNames`.
+- Bots: `src/shared/MatchConfig.luau` → `botsEnabled` (on/off), `botFillTo` (default 6), `botNames`,
+  `botDifficulty` (`"easy"` default, for new players; `"normal"` for the old, stronger bots).
+  Easy bots never reroll, ignore traits, level slowly, misplace some units and field one unit under
+  their cap. In `sim/difficulty.luau` a random-buying "new player" places top 4 in about half of
+  its matches against them (5% against normal bots). Re-check after tuning:
+  `lune run sim/difficulty.luau 60 both` (takes a few minutes).
+- Bots shop a few seconds into each Preparation and place their units one at a time, like a person.
 
 ## 2. Multiplayer test in Studio
 
@@ -22,7 +28,9 @@ A small playtest: you plus 1–2 friends in a real multiplayer match, with bots 
    `[Feedback]` lines.
 5. Things to try on purpose:
    - Close one player window mid-match (a leaver): their row dims; after 2 missed rounds they are
-     out. Reconnecting isn't possible in local Studio tests, so test rejoining on a live server.
+     out. Reconnecting isn't possible in local Studio tests, so test rejoining on a live server: a
+     rejoining player is put back in the match, gets their board and shop (and the fight in
+     progress), and sees a "You're back! ... ends in Xs" banner.
    - Get one player knocked out: "Back to hub" works, the others keep playing.
    - Let every human lose: the match should end right away with the bots placed by HP.
    - The **Practice** pad still starts a solo match without bots.
@@ -75,8 +83,14 @@ entries show up in the lists too (their `server` field is empty in Studio).
 
 ## 6. What to watch during the playtest
 
-- [ ] The how-to-play intro shows at each player's first match, can be skipped, and the "?" button
-      (top left) opens it again. It doesn't show again next session.
+- [ ] The how-to-play intro shows in the hub before each player's first match, can be skipped, and
+      the "?" button (top left in a match) opens it again, docked at the left edge without blocking
+      the board. It doesn't show again next session.
+- [ ] New-player help: the shop card "i" button (and hover tooltip with a mouse) shows role and
+      ultimate; "UNITS 3/4" under the shop; a hint when a fight starts with room on the board;
+      trait rows show "2/3"; the top bar says "Next: Creeps" / "vs <opponent>".
+- [ ] Phones: buttons are tappable, the shop and tooltips fit, the info button opens the unit panel.
+- [ ] Easy bots feel beatable but not empty (new players should place top 4 about half the time).
 - [ ] Every player sees only their own shop, gold and bench; boards fight the right opponents.
 - [ ] Bots buy, level and field units (their boards aren't empty after round 4 or so).
 - [ ] HP, eliminations and placements look right in the player list and the final screen.
