@@ -76,7 +76,7 @@ function MatchHud.start()
 	-- and sends the player back to the hub; it refuses in a player match.
 	local requestLeavePractice = ReplicatedStorage:WaitForChild("Remotes")
 		:WaitForChild(RemoteNames.RequestLeavePractice)
-	local practiceLeave = UI.button(root, COLORS.sell, UDim2.fromOffset(84, 32))
+	local practiceLeave = UI.button(root, COLORS.sell, UDim2.fromOffset(84, UI.touchSize(32)))
 	practiceLeave.Position = UDim2.fromOffset(SIZES.margin, 6)
 	practiceLeave.Visible = false
 	local practiceLabel = UI.text(practiceLeave, "LEAVE", SIZES.text, FONTS.display)

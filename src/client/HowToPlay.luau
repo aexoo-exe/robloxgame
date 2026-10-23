@@ -72,7 +72,8 @@ function HowToPlay.start()
 
 	-- The "?" button: next to the practice Leave button, top left.
 	local _, buttonRoot = UI.screen("HowToPlayButton", 7)
-	local help = UI.button(buttonRoot, COLORS.panelLight, UDim2.fromOffset(32, 32))
+	local helpSize = UI.touchSize(32)
+	local help = UI.button(buttonRoot, COLORS.panelLight, UDim2.fromOffset(helpSize, helpSize))
 	help.Position = UDim2.fromOffset(SIZES.margin + 92, 6)
 	local helpLabel = UI.text(help, "?", SIZES.textLarge, FONTS.display)
 	helpLabel.AnchorPoint = Vector2.new(0.5, 0.5)

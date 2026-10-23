@@ -25,6 +25,15 @@ function UI.isTouch(): boolean
 	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 end
 
+-- Small buttons grow to at least this many reference pixels on touch devices. At a phone's usual
+-- scale (about 0.7) that is roughly 34 points: as close to the 44-point guideline as the layout allows.
+UI.TOUCH_TARGET = 48
+
+-- `size` reference pixels on desktop, at least UI.TOUCH_TARGET on touch devices.
+function UI.touchSize(size: number): number
+	return if UI.isTouch() then math.max(size, UI.TOUCH_TARGET) else size
+end
+
 -- The UIScale that fits the reference layout into a screen area of `size` pixels, with the
 -- device's settings (UITheme.scale.desktop or .touch).
 function UI.scaleFor(size: Vector2): number

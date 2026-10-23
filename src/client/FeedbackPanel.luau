@@ -87,7 +87,7 @@ function FeedbackPanel.start()
 	local buttons = UI.row(content, 10)
 	buttons.LayoutOrder = 4
 	local function button(text: string, color: Color3, order: number): TextButton
-		local instance = UI.button(buttons, color, UDim2.fromOffset(120, 38))
+		local instance = UI.button(buttons, color, UDim2.fromOffset(120, UI.touchSize(38)))
 		instance.LayoutOrder = order
 		local label = UI.text(instance, text, SIZES.text + 2, FONTS.display)
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -98,7 +98,7 @@ function FeedbackPanel.start()
 	local send = button("SEND", COLORS.buy, 2)
 
 	for index = 1, 5 do
-		local starButton = UI.button(starRow, COLORS.panelLight, UDim2.fromOffset(40, 40))
+		local starButton = UI.button(starRow, COLORS.panelLight, UDim2.fromOffset(UI.touchSize(40), UI.touchSize(40)))
 		starButton.LayoutOrder = index
 		local label = UI.text(starButton, "★", SIZES.textLarge + 2, FONTS.display, COLORS.textDim)
 		label.AnchorPoint = Vector2.new(0.5, 0.5)

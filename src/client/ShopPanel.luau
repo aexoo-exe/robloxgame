@@ -171,7 +171,8 @@ local function createCard(
 
 	-- Info: opens the unit info panel for this character (the only way on touch; the mouse also
 	-- gets a hover tooltip, UnitTooltip.setCardHover). Its own button, so it never buys.
-	local info = UI.button(button, COLORS.panel, UDim2.fromOffset(26, 26))
+	local infoSize = if UI.isTouch() then 34 else 26 -- the card is only 70 tall
+	local info = UI.button(button, COLORS.panel, UDim2.fromOffset(infoSize, infoSize))
 	info.AnchorPoint = Vector2.new(1, 0)
 	info.Position = UDim2.new(1, -4, 0, 12)
 	info.ZIndex = 8
