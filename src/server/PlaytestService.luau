@@ -50,13 +50,15 @@ local function onTutorialSeen(player: Player)
 	PlaytestStore.set(PlaytestStore.PLAYER_FLAGS, flagKey(player.UserId), { tutorialSeen = true })
 end
 
--- Filtered text for logging, or "" if filtering fails (unfiltered player text is never stored).
+-- Filtered text for logging, or a marker if filtering fails (unfiltered player text is never
+-- stored). Filtering can fail in Studio tests, whose players have negative UserIds.
+local FILTER_FAILED = "(text dropped: filtering failed)"
 local function filter(text: string, userId: number): string
 	local ok, result = pcall(function()
 		local filtered = TextService:FilterStringAsync(text, userId, Enum.TextFilterContext.PublicChat)
 		return filtered:GetNonChatStringForBroadcastAsync()
 	end)
-	return if ok and type(result) == "string" then result else ""
+	return if ok and type(result) == "string" then result else FILTER_FAILED
 end
 
 local function onFeedback(player: Player, stars: any, text: any)
