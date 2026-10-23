@@ -13,6 +13,7 @@ local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 local UnitPool = require(ReplicatedStorage.Shared.UnitPool)
 
 local ErrorLog = require(script.Parent.ErrorLog)
+local PlaytestAnalytics = require(script.Parent.PlaytestAnalytics)
 local Remotes = require(script.Parent.Remotes)
 
 local PlayerService = {}
@@ -50,11 +51,22 @@ local function connectRequest(remoteName: string, action: (PlayerState.PlayerSta
 			return
 		end
 		-- An error in an action is recorded (ErrorLog) and treated as a refusal without a reason.
+		local before = PlaytestAnalytics.snapshot(state)
 		local ok, accepted, reason = ErrorLog.call("request " .. remoteName, action, state, ...)
 		if not ok then
 			return
 		end
 		if accepted then
+			local args = { ... }
+			ErrorLog.call(
+				"analytics " .. remoteName,
+				PlaytestAnalytics.action,
+				player.UserId,
+				remoteName,
+				before,
+				PlaytestAnalytics.snapshot(state),
+				args
+			)
 			sendState(player.UserId)
 		elseif reason then
 			requestRefused:FireClient(player, reason)
@@ -90,6 +102,15 @@ end
 -- Sends `userId` their board and state again (RequestMatchSync after a rejoin).
 function PlayerService.resend(userId: number)
 	sendState(userId)
+end
+
+-- Each participant's current level, by UserId (playtest analytics).
+function PlayerService.levels(): { [number]: number }
+	local levels = {}
+	for userId, state in states do
+		levels[userId] = state.level
+	end
+	return levels
 end
 
 -- Unit types `userId` fielded in the latest match, sorted (empty if none).
@@ -136,7 +157,9 @@ end
 function PlayerService.beginPreparation()
 	for userId, state in states do
 		if not eliminated[userId] then
+			local levelBefore = state.level
 			local income = PlayerState.startPreparation(state)
+			PlaytestAnalytics.levelChanged(userId, levelBefore, state.level)
 			if income then
 				print(
 					string.format(
@@ -181,8 +204,12 @@ end
 -- the next Preparation.
 function PlayerService.endCombat()
 	for userId, state in states do
-		if not eliminated[userId] and #PlayerState.endCombat(state) > 0 then
-			sendState(userId)
+		if not eliminated[userId] then
+			local merged = PlayerState.endCombat(state)
+			if #merged > 0 then
+				PlaytestAnalytics.merged(userId, merged)
+				sendState(userId)
+			end
 		end
 	end
 end

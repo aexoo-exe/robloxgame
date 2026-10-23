@@ -1,12 +1,13 @@
 -- The playtest report: what the live game logged (docs/playtest.md), read through the Open Cloud
 -- DataStore API. Run from the repository root:
 --   $env:ROBLOX_API_KEY = "<key>"   (PowerShell; never commit or paste it anywhere else)
---   lune run scripts/playtest-report <universeId> [--csv] [--count=10]
+--   lune run scripts/playtest-report <universeId> [--csv] [--count=10] [--studio]
 --
 -- Prints: matches played and their average length, the new-player funnel with its drop-off, quit
 -- points, unit pick rates and top-4 rates, trait usage, the most common final boards, and the
 -- newest feedback and errors (as scripts/playtest-logs). --csv also writes units.csv, funnel.csv and
 -- players.csv into reports/ (gitignored). --count sets how many feedback and error entries print.
+-- Matches logged from Studio test sessions are left out unless --studio is given.
 -- The key needs DataStore read access (universe-datastores.objects:read) for the experience.
 
 local fs = require("@lune/fs")
@@ -17,9 +18,11 @@ local PlaytestStore = require("./lib/playtest-store")
 
 local apiKey = process.env.ROBLOX_API_KEY
 local universeId = process.env.ROBLOX_UNIVERSE_ID
-local writeCsv, count = false, 10
+local writeCsv, count, includeStudio = false, 10, false
 for _, arg in process.args do
-	if arg == "--csv" then
+	if arg == "--studio" then
+		includeStudio = true
+	elseif arg == "--csv" then
 		writeCsv = true
 	elseif string.match(arg, "^%-%-count=%d+$") then
 		count = tonumber(string.match(arg, "%d+")) :: number
@@ -32,7 +35,7 @@ if not apiKey or apiKey == "" then
 	process.exit(1)
 end
 if not universeId then
-	print("Usage: lune run scripts/playtest-report <universeId> [--csv] [--count=10]")
+	print("Usage: lune run scripts/playtest-report <universeId> [--csv] [--count=10] [--studio]")
 	process.exit(1)
 end
 
@@ -44,14 +47,17 @@ local function read(storeName: string, key: string): any?
 	return value
 end
 
-local records = read(PlaytestStore.MATCHES, PlaytestStore.LIST_KEY) or {}
-local funnel = read(PlaytestStore.MATCHES, PlaytestStore.FUNNEL_KEY) or {}
-local unitTotals = read(PlaytestStore.MATCHES, PlaytestStore.UNITS_KEY)
-if unitTotals and next(unitTotals) == nil then
-	unitTotals = nil -- nothing saved yet: count from the records
+local records = {}
+for _, record in read(PlaytestStore.MATCHES, PlaytestStore.LIST_KEY) or {} do
+	if includeStudio or not record.studio then
+		table.insert(records, record)
+	end
 end
+local funnel = read(PlaytestStore.MATCHES, PlaytestStore.FUNNEL_KEY) or {}
 
-local summary = PlaytestData.summarize(records, funnel, unitTotals)
+-- Unit rates come from the records shown (the newest 500 matches). The all-time totals the server
+-- also keeps (PlaytestMatches/"units") include Studio sessions.
+local summary = PlaytestData.summarize(records, funnel)
 print(PlaytestData.format(summary))
 
 if writeCsv then

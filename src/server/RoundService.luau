@@ -43,6 +43,7 @@ local BotService = require(script.Parent.BotService)
 local CombatService = require(script.Parent.CombatService)
 local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
+local PlaytestAnalytics = require(script.Parent.PlaytestAnalytics)
 local Remotes = require(script.Parent.Remotes)
 
 local RoundService = {}
@@ -115,6 +116,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	local round = match.round + 1
 	matchState:SetAttribute("Round", round)
 	matchState:SetAttribute("Stage", MatchRules.stage(round))
+	PlaytestAnalytics.roundStarted(round, Match.activeIds(match))
 	for userId in match.players do
 		setPlayerAttribute(userId, "Opponent", "")
 		setPlayerAttribute(userId, "LastResult", "")
@@ -140,8 +142,9 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	-- Every fight is simulated instantly; the Combat phase lasts as long as the longest playback.
 	BotService.finishPreparation() -- bots still placing finish now, before the boards lock
 	local fights = Match.startRound(match)
-	local combatDuration, results, opponents =
-		CombatService.runRound(fights, PlayerService.lockBoards(), round, names, match.theme)
+	local lockedBoards = PlayerService.lockBoards()
+	ErrorLog.call("analytics combat", PlaytestAnalytics.combat, round, lockedBoards, PlayerService.levels())
+	local combatDuration, results, opponents = CombatService.runRound(fights, lockedBoards, round, names, match.theme)
 	for userId, opponentName in opponents do
 		setPlayerAttribute(userId, "Opponent", opponentName)
 	end
@@ -189,6 +192,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 		local placement = match.players[userId].placement
 		setPlayerAttribute(userId, "LastResult", string.format("Eliminated - #%d", placement or 0))
 		print(string.format("[RoundService] %s eliminated, placement %d", names[userId], placement or 0))
+		PlaytestAnalytics.eliminated(userId, round, placement or 0)
 	end
 	publishPlayers(match)
 	-- Item choices after the round-3 creep fight and every boss fight, won or not (ItemConfig.offers).
@@ -197,8 +201,23 @@ local function playRound(match: Match.Match, names: { [number]: string })
 		PlayerService.offerItems(offer)
 	end
 
+	PlaytestAnalytics.roundSurvived(round, Match.activeIds(match))
 	setPhase(Phase.Results, MatchConfig.resultsDuration)
 	pause(MatchConfig.resultsDuration)
+end
+
+-- Hands the match log its end (PlaytestAnalytics): placements, rounds, practice, and whether it
+-- played to its end (`finished`: not left early or stopped by an error).
+local function logMatchEnd(match: Match.Match, finished: boolean)
+	local placements = {}
+	for userId, player in match.players do
+		placements[userId] = player.placement or 0
+	end
+	ErrorLog.call("analytics match end", PlaytestAnalytics.matchEnded, placements, {
+		rounds = match.round,
+		practice = lastMatchInfo.practice,
+		finished = finished,
+	})
 end
 
 -- True while a human participant (not a bot) is still in the match, connected or not.
@@ -241,6 +260,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Stage", 1)
 	PlayerService.startMatch(participants)
+	PlaytestAnalytics.matchStarted(string.format("%d-%d", os.time(), lastMatchInfo.id), participants, BotService.isBot)
 	print(string.format("[RoundService] Match started with %d player(s)", #participants))
 
 	-- The intro: starting units are already on the boards; round 1 starts when it ends.
@@ -257,6 +277,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	end
 	PlayerService.closeRequests()
 	lastMatchInfo.endedAt = os.time()
+	logMatchEnd(match, not stopRequested)
 
 	if stopRequested then
 		-- The practice player left: no final placements, straight back to waiting.
@@ -376,6 +397,9 @@ function RoundService.startMatch(players: { Player }, isPractice: boolean?): { n
 			-- Never leave players stuck out of the hub if the match loop fails.
 			warn("[RoundService] Match ended with an error (see ErrorLog)")
 			lastMatchInfo.endedAt = os.time()
+			if lastMatch and lastMatch.round > 0 then
+				logMatchEnd(lastMatch, false)
+			end
 			currentMatch = nil
 			PlayerService.endMatch()
 			CombatService.clearRound()
@@ -405,6 +429,11 @@ local function onConnectionChanged(player: Player, connected: boolean)
 	if match and match.players[player.UserId] then
 		Match.setConnected(match, player.UserId, connected)
 		setPlayerAttribute(player.UserId, "Connected", connected)
+		-- The match log's quit point: left while still in the match (cleared on coming back).
+		if not match.finished and not match.players[player.UserId].eliminated then
+			local phase = if connected then nil else matchState:GetAttribute("Phase")
+			PlaytestAnalytics.left(player.UserId, match.round, phase)
+		end
 	end
 end
 

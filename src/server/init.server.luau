@@ -10,6 +10,7 @@ local CombatService = require(script.CombatService)
 local ErrorLog = require(script.ErrorLog)
 local HubService = require(script.HubService)
 local PlayerService = require(script.PlayerService)
+local PlaytestAnalytics = require(script.PlaytestAnalytics)
 local PlaytestService = require(script.PlaytestService)
 local RoundService = require(script.RoundService)
 local VfxMeshes = require(script.VfxMeshes)
@@ -20,5 +21,6 @@ CombatService.start()
 RoundService.start()
 HubService.start()
 PlaytestService.start() -- how-to-play flag and match feedback
+PlaytestAnalytics.start() -- funnel, progression and custom events; the match log (PlaytestMatches)
 AvatarService.start() -- catalog avatars (visual only); loads in the background
 VfxMeshes.start() -- VFX kit meshes into ReplicatedStorage.VfxMeshes (visual only); in the background

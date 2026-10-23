@@ -29,6 +29,7 @@ local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
 local ErrorLog = require(script.Parent.ErrorLog)
 local HubBuilder = require(script.Parent.HubBuilder)
+local PlaytestAnalytics = require(script.Parent.PlaytestAnalytics)
 local Remotes = require(script.Parent.Remotes)
 local RoundService = require(script.Parent.RoundService)
 
@@ -198,6 +199,9 @@ local function poll()
 		end
 		if player:GetAttribute("Queued") ~= on then
 			player:SetAttribute("Queued", on)
+			if on then
+				PlaytestAnalytics.funnel(player, "queued")
+			end
 		end
 		if on then
 			table.insert(queued, player)

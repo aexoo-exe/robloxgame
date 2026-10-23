@@ -17,6 +17,7 @@ local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
 local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
+local PlaytestAnalytics = require(script.Parent.PlaytestAnalytics)
 local PlaytestStore = require(script.Parent.PlaytestStore)
 local Remotes = require(script.Parent.Remotes)
 local RoundService = require(script.Parent.RoundService)
@@ -38,16 +39,25 @@ local function loadTutorialFlag(player: Player)
 	local seen = ok and type(flags) == "table" and flags.tutorialSeen == true
 	if player.Parent then
 		player:SetAttribute("TutorialSeen", seen)
+		if seen then
+			PlaytestAnalytics.funnel(player, "intro_finished")
+		end
 	end
 end
 
 local function onTutorialSeen(player: Player)
 	player:SetAttribute("TutorialSeen", true)
+	PlaytestAnalytics.funnel(player, "intro_finished")
 	if tutorialSaved[player.UserId] then
 		return
 	end
 	tutorialSaved[player.UserId] = true
-	PlaytestStore.set(PlaytestStore.PLAYER_FLAGS, flagKey(player.UserId), { tutorialSeen = true })
+	-- Merged into the player's flags (PlaytestAnalytics keeps its funnel steps there too).
+	PlaytestStore.update(PlaytestStore.PLAYER_FLAGS, flagKey(player.UserId), function(old)
+		local flags = if type(old) == "table" then old else {}
+		flags.tutorialSeen = true
+		return flags
+	end)
 end
 
 -- Filtered text for logging, or a marker if filtering fails (unfiltered player text is never
@@ -93,6 +103,7 @@ local function onFeedback(player: Player, stars: any, text: any)
 		server = game.JobId,
 	}
 	print("[Feedback] " .. HttpService:JSONEncode(entry))
+	PlaytestAnalytics.funnel(player, "feedback_sent")
 	PlaytestStore.append(PlaytestStore.FEEDBACK, { entry }, MAX_FEEDBACK)
 end
 
