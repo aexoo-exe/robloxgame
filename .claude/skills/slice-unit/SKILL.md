@@ -64,7 +64,7 @@ In `src/shared/SfxConfig.luau`, add one entry per new sound, named `<unit_id>_<s
 - Put a one-line comment above each: what it sounds like and how long it is (e.g. "a low rising hum, ~0.5 s, no impact in it").
 - Call them with `Sfx.play("<name>")`. Empty ids skip silently.
 
-Optionally set `SLICE_UNIT` in `src/client/DevLineup.luau` to this unit so K / G / S replay it. Mention it in the handoff.
+Optionally set `SLICE_UNIT` in `src/client/DevLineup/Config.luau` to this unit so K / G / S replay it. Mention it in the handoff.
 
 ## 5. Commit
 
@@ -87,7 +87,7 @@ Run the `playbook-reviewer` agent (Agent tool, `subagent_type: "playbook-reviewe
 
 If the Roblox Studio built-in MCP server's tools are available (`start_stop_play`, `execute_luau`, `screen_capture`, `get_console_output`), do this once. If they are not available, skip this step without mentioning it.
 
-1. Set `SLICE_UNIT` in `src/client/DevLineup.luau` to this unit (Rojo syncs it), then start play with `start_stop_play`.
+1. Set `SLICE_UNIT` in `src/client/DevLineup/Config.luau` to this unit (Rojo syncs it), then start play with `start_stop_play`.
 2. Trigger the K replay (the MCP's key input if it has one; otherwise from `execute_luau` in the client context). Use a fixed side camera: the slice camera's default framing, no orbiting between captures.
 3. Capture about 6 screenshots at the key beats from your timeline: coil, set, each strike, finisher, aftermath. **At most 8 screenshots per unit.** Check `get_console_output` once for errors from the module.
 4. Check them against the playbook: no screen-filling sprites or flashes, trails on the blade (or the ranged arc), readable poses at the coil, set and finisher.

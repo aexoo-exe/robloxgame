@@ -58,6 +58,6 @@ When the real window is short (`run.k < 1`), lay the anticipation out again with
 
 | Key | Does |
 |---|---|
-| K | Replays the slice unit (`SLICE_UNIT` in `DevLineup.luau`) on the close orbit camera. RMB drag / arrows orbit, wheel zooms, P prints and keeps the framing. |
+| K | Replays the slice unit (`SLICE_UNIT` in `src/client/DevLineup/Config.luau`) on the close orbit camera. RMB drag / arrows orbit, wheel zooms, P prints and keeps the framing. |
 | G | The same with the match camera (how players see it). |
 | S | After K or G: the same replay at 0.25x. |
