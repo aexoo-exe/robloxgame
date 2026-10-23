@@ -50,6 +50,30 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
+	name = "easy bots and the new player field valid boards (easy: one unit under the level cap)",
+	run = function()
+		for _, policy in { Bot.easyPolicies[1], Bot.easyPolicies[2], Bot.newPlayerPolicy } do
+			local state = PlayerState.new(11)
+			state.gold = 50
+			local memory = Bot.newMemory(4)
+			for _ = 1, 4 do
+				local placed = Bot.prepare(state, policy, memory)
+				local limit = if policy.fieldsFewer then math.max(1, state.level - policy.fieldsFewer) else state.level
+				assert(#placed <= limit, policy.name .. ": too many units fielded")
+				local cells = {}
+				for _, unit in placed do
+					local key = unit.row * 10 + unit.column
+					assert(not cells[key], policy.name .. ": two units on one cell")
+					cells[key] = true
+				end
+				expectEqual(Bot.applyPlacement(state, placed), #placed, policy.name .. " units on their cells")
+				state.gold += 15
+			end
+		end
+	end,
+})
+
+table.insert(tests, {
 	name = "Match.finishNow places the players still in by HP and ends the match",
 	run = function()
 		local match = Match.new({ 1, -1001, -1002, -1003 }, 5)

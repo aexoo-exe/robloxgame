@@ -47,6 +47,7 @@
 -- Rerolling bots also count what happens while they roll (memory.stats) for the sim report.
 
 local Board = if script then require(script.Parent.Board) else require("./Board")
+local SeededRandom = if script then require(script.Parent.SeededRandom) else require("./SeededRandom")
 local BondConfig = if script then require(script.Parent.BondConfig) else require("./BondConfig")
 local ItemConfig = if script then require(script.Parent.ItemConfig) else require("./ItemConfig")
 local StarConfig = if script then require(script.Parent.StarConfig) else require("./StarConfig")
@@ -72,6 +73,12 @@ export type Policy = {
 	targetsAtOnce: number?, -- rerolling strategy: targets chased at the same time (default: all)
 	rollFloor: number?, -- rerolling strategy: rolls only with gold above this
 	traitFocus: boolean?, -- trait strategy (Bot.traitPolicy): commits to traits, see the header
+	easy: boolean?, -- easy bots (Bot.easyPolicies): no rerolls, ignore traits, see "Difficulty"
+	newPlayer: boolean?, -- the new-player stand-in (Bot.newPlayerPolicy), see "Difficulty"
+	xpChance: number?, -- chance per Preparation that it buys XP at all (default: always)
+	misplaceChance: number?, -- chance per fielded unit that it goes on a random free cell
+	sellChance: number?, -- new player: chance to sell a random 1-star bench unit when the bench is full
+	fieldsFewer: number?, -- easy bots: fields this many units fewer than its level allows (at least 1)
 }
 
 -- Rerolling bots, counted while rolling (see the header), for the sim report.
@@ -98,6 +105,7 @@ export type Memory = {
 	stats: RollStats,
 	focus: { string }, -- trait strategy: committed traits, in order (at most two)
 	traitSteps: { [string]: number }, -- trait strategy: highest step fielded per committed trait
+	rng: SeededRandom.SeededRandom, -- easy bots and the new player: their random choices
 }
 
 -- Standard strategies, cycled across the standard bots in a match.
@@ -129,6 +137,63 @@ Bot.rerollPolicies = {
 -- The trait strategy (see the header). Its gold habits are the balanced bot's.
 Bot.traitPolicy = { name = "trait", keepGold = 30, seeksCopies = true, rerollsFromLevel = 7, traitFocus = true }
 
+-- Difficulty ------------------------------------------------------------------------------------
+-- Normal bots play Bot.policies (and the trait strategy). Easy bots (MatchConfig.botDifficulty
+-- "easy", for new players) play like a balanced bot that never rerolls, ignores traits and bonds,
+-- buys XP only in some Preparations (xpChance) and puts some units on a random free cell
+-- (misplaceChance). Tuned with sim/difficulty.luau against Bot.newPlayerPolicy.
+Bot.easyPolicies = {
+	{
+		name = "easy",
+		keepGold = 30,
+		seeksCopies = false,
+		easy = true,
+		xpChance = 0.15,
+		misplaceChance = 0.5,
+		fieldsFewer = 1,
+	},
+	{
+		name = "easy saver",
+		keepGold = 40,
+		seeksCopies = false,
+		easy = true,
+		xpChance = 0.1,
+		misplaceChance = 0.5,
+		fieldsFewer = 1,
+	},
+}
+
+-- A stand-in for someone's first match (sim only): buys random offers it can afford, buys XP
+-- rarely, fields its highest-star units first in random order on random cells, and sometimes sells
+-- a random 1-star bench unit when the bench is full.
+Bot.newPlayerPolicy =
+	{ name = "new player", keepGold = 0, seeksCopies = false, newPlayer = true, xpChance = 0.2, sellChance = 0.5 }
+
+-- True with probability `p` (memory.rng).
+local function chance(memory, p: number?): boolean
+	if p == nil then
+		return true
+	end
+	return SeededRandom.nextInt(memory.rng, 1000) <= p * 1000
+end
+
+-- A random cell of the player's own board (row 1 = back) not in `taken` (row * 10 + column keys).
+local function randomFreeCell(memory, taken): (number?, number?)
+	local free = {}
+	for row = 1, 4 do
+		for column = 1, 7 do
+			if not taken[row * 10 + column] then
+				table.insert(free, row * 10 + column)
+			end
+		end
+	end
+	if #free == 0 then
+		return nil, nil
+	end
+	local key = free[SeededRandom.nextInt(memory.rng, #free)]
+	return key % 10, key // 10
+end
+
 -- Trait strategy: it commits to its first trait once it holds this many different characters of it.
 local FOCUS_COMMIT_COUNT = 2
 -- Trait strategy: fielding bonus for a character that adds a member to a committed trait still below
@@ -157,8 +222,10 @@ function Bot.rollLevel(cost: number): number
 	return best
 end
 
-function Bot.newMemory(): Memory
+-- `seed` drives the random choices of easy bots and the new player (default 1).
+function Bot.newMemory(seed: number?): Memory
 	return {
+		rng = SeededRandom.new(seed or 1),
 		fielded = {},
 		completed = {},
 		targets = {},
@@ -339,7 +406,7 @@ local function sell(state, memory: Memory, unit)
 end
 
 local function prefersTraits(policy: Policy): boolean
-	return policy.rerollCost == nil
+	return policy.rerollCost == nil and not policy.easy and not policy.newPlayer
 end
 
 -- How much `unitType` would add to the traits and bonds of the board the bot fielded last round:
@@ -914,8 +981,80 @@ local function equipItems(state, policy: Policy, memory: Memory, placed)
 	end
 end
 
+-- The new player's Preparation (Bot.newPlayerPolicy).
+local function newPlayerPrepare(state, policy: Policy, memory: Memory): { any }
+	Bot.pickItem(state)
+	if not Board.hasBenchSpace(state.board) and chance(memory, policy.sellChance) then
+		local benched = {}
+		for _, unit in Board.getUnits(state.board) do
+			if unit.slot and unit.starLevel == 1 then
+				table.insert(benched, unit)
+			end
+		end
+		if #benched > 0 then
+			sell(state, memory, benched[SeededRandom.nextInt(memory.rng, #benched)])
+		end
+	end
+	local slots = {}
+	for slot, unitType in state.shop do
+		if unitType then
+			table.insert(slots, slot)
+		end
+	end
+	SeededRandom.shuffle(memory.rng, slots)
+	for _, slot in slots do
+		local unitType = state.shop[slot]
+		if unitType and state.gold >= UnitConfig[unitType].cost then
+			PlayerState.buyUnit(state, slot)
+		end
+	end
+	if chance(memory, policy.xpChance) then
+		PlayerState.buyXp(state)
+	end
+
+	-- Highest stars first (they stand out), otherwise in random order, on random cells.
+	local owned = Board.getUnits(state.board)
+	SeededRandom.shuffle(memory.rng, owned)
+	local order = {}
+	for index, unit in owned do
+		order[unit.id] = index
+	end
+	table.sort(owned, function(a, b)
+		if a.starLevel ~= b.starLevel then
+			return a.starLevel > b.starLevel
+		end
+		return order[a.id] < order[b.id]
+	end)
+	local placed, taken = {}, {}
+	table.clear(memory.fielded)
+	for index = 1, math.min(state.level, #owned) do
+		local unit = owned[index]
+		local column, row = randomFreeCell(memory, taken)
+		if column and row then
+			taken[row * 10 + column] = true
+			memory.fielded[unit.unitType] = true
+			table.insert(placed, {
+				id = unit.id,
+				unitType = unit.unitType,
+				starLevel = unit.starLevel,
+				column = column,
+				row = row,
+			})
+		end
+	end
+	equipItems(state, policy, memory, placed)
+	for _, placedUnit in placed do
+		local unit = state.board.units[placedUnit.id]
+		placedUnit.items = if unit then table.clone(unit.items or {}) else {}
+	end
+	return placed
+end
+
 -- Plays one Preparation. Returns the units to field, in the player's own board coordinates.
 function Bot.prepare(state, policy: Policy, memory: Memory): { any }
+	if policy.newPlayer then
+		return newPlayerPrepare(state, policy, memory)
+	end
 	Bot.pickItem(state)
 	if policy.rerollCost and state.level >= Bot.rollLevel(policy.rerollCost) then
 		memory.locked = true
@@ -949,7 +1088,9 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 				shopPass(state, policy, memory)
 			end
 		end
-		buyXpDownTo(state, policy.keepGold)
+		if chance(memory, policy.xpChance) then
+			buyXpDownTo(state, policy.keepGold)
+		end
 		traitPass(state, policy, memory)
 	end
 	trimBench(state, policy, memory)
@@ -974,26 +1115,34 @@ function Bot.prepare(state, policy: Policy, memory: Memory): { any }
 	local taken = {}
 	table.clear(memory.fielded)
 	memory.weakestFielded = nil
-	for index = 1, math.min(state.level, #owned) do
+	local fieldCount = math.max(1, state.level - (policy.fieldsFewer or 0))
+	for index = 1, math.min(fieldCount, #owned) do
 		local unit = owned[index]
-		local found = false
-		for _, row in rowsFor(UnitConfig[unit.unitType].range) do
-			for _, column in COLUMN_ORDER do
-				local key = row * 10 + column
-				if not found and not taken[key] then
-					taken[key] = true
-					found = true
-					memory.fielded[unit.unitType] = true
-					memory.weakestFielded = math.min(memory.weakestFielded or math.huge, strength(unit))
-					table.insert(placed, {
-						id = unit.id,
-						unitType = unit.unitType,
-						starLevel = unit.starLevel,
-						column = column,
-						row = row,
-					})
+		-- Easy bots put some units on a random free cell instead of the row their range wants.
+		local cellColumn, cellRow
+		if policy.misplaceChance and chance(memory, policy.misplaceChance) then
+			cellColumn, cellRow = randomFreeCell(memory, taken)
+		end
+		if not cellColumn then
+			for _, row in rowsFor(UnitConfig[unit.unitType].range) do
+				for _, column in COLUMN_ORDER do
+					if not cellColumn and not taken[row * 10 + column] then
+						cellColumn, cellRow = column, row
+					end
 				end
 			end
+		end
+		if cellColumn and cellRow then
+			taken[cellRow * 10 + cellColumn] = true
+			memory.fielded[unit.unitType] = true
+			memory.weakestFielded = math.min(memory.weakestFielded or math.huge, strength(unit))
+			table.insert(placed, {
+				id = unit.id,
+				unitType = unit.unitType,
+				starLevel = unit.starLevel,
+				column = cellColumn,
+				row = cellRow,
+			})
 		end
 	end
 	recordFocusSteps(memory, placed)

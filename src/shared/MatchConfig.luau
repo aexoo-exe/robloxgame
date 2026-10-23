@@ -18,6 +18,9 @@ return table.freeze({
 	-- Practice matches never get bots. Set `botsEnabled` to false to play humans only.
 	botsEnabled = true,
 	botFillTo = 6,
+	-- "easy" (Bot.easyPolicies: for new players; a new player places top 4 about half the time in
+	-- sim/difficulty.luau) or "normal" (Bot.policies, the sim's strategies).
+	botDifficulty = "easy",
 	-- Display names, one per bot seat (at least maxPlayers - 1). Generic words only.
 	botNames = { "Bot Ronin", "Bot Kaze", "Bot Tengu", "Bot Kitsune", "Bot Kumo", "Bot Tora", "Bot Hoshi" },
 	-- Seconds the final placements stay on screen before everyone returns to the hub.

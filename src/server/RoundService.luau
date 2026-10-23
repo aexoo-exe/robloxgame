@@ -130,7 +130,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	if preparation > 0 then
 		setPhase(Phase.Preparation, preparation)
 		PlayerService.beginPreparation()
-		BotService.playPreparation()
+		BotService.playPreparation(preparation)
 		pause(preparation)
 		if stopRequested then
 			return
@@ -138,6 +138,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	end
 
 	-- Every fight is simulated instantly; the Combat phase lasts as long as the longest playback.
+	BotService.finishPreparation() -- bots still placing finish now, before the boards lock
 	local fights = Match.startRound(match)
 	local combatDuration, results, opponents =
 		CombatService.runRound(fights, PlayerService.lockBoards(), round, names, match.theme)
