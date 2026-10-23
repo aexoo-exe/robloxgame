@@ -9,7 +9,8 @@
 -- unit is deselected, when you tap elsewhere, or with its close button. Presentation only.
 --
 -- There is no ability description text in the game data, so the ability shows its display name
--- (SkinConfig) and mana cost only.
+-- (SkinConfig) and mana cost, and a description generated from its data (AbilityText) with the
+-- unit's role. A shop card's info button opens it for that character (BoardController.inspectType).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -26,6 +27,7 @@ local StarLevel = require(Shared:WaitForChild("StarLevel"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
+local AbilityText = require(script.Parent.AbilityText)
 local BoardController = require(script.Parent.BoardController)
 local ItemIcon = require(script.Parent.ItemIcon)
 local ItemSelection = require(script.Parent.ItemSelection)
@@ -233,13 +235,21 @@ function UnitInfoPanel.start()
 	abilityManaLabel.LayoutOrder = 2
 	ability.Parent = content
 
+	-- What the ability does (AbilityText, generated from its data), and the unit's role.
+	local abilityText = UI.text(content, "", SIZES.textSmall, FONTS.body)
+	abilityText.LayoutOrder = 6
+	abilityText.AutomaticSize = Enum.AutomaticSize.Y
+	abilityText.Size = UDim2.fromScale(1, 0)
+	abilityText.TextWrapped = true
+	abilityText.TextXAlignment = Enum.TextXAlignment.Left
+
 	-- Recommended item tags, from its classes.
 	local tagLine = UI.text(content, "", SIZES.textSmall, FONTS.body, COLORS.textDim)
-	tagLine.LayoutOrder = 6
+	tagLine.LayoutOrder = 7
 
 	-- Item slots: an icon per equipped item (empty slots stay as outlines), each with a return arrow.
 	local items = UI.row(content, 6)
-	items.LayoutOrder = 7
+	items.LayoutOrder = 8
 	local slotFrames = {}
 	for slot = 1, ITEM_SLOTS do
 		local itemSlot = Instance.new("Frame")
@@ -262,7 +272,7 @@ function UnitInfoPanel.start()
 
 	-- Each equipped item's name and effect text.
 	local itemText = Instance.new("Frame")
-	itemText.LayoutOrder = 8
+	itemText.LayoutOrder = 9
 	itemText.BackgroundTransparency = 1
 	itemText.Size = UDim2.fromScale(1, 0)
 	itemText.AutomaticSize = Enum.AutomaticSize.Y
@@ -271,7 +281,7 @@ function UnitInfoPanel.start()
 
 	-- Sell (the player's own units).
 	local sell = UI.button(content, COLORS.sell, UDim2.new(1, 0, 0, 36))
-	sell.LayoutOrder = 9
+	sell.LayoutOrder = 10
 	local sellRow = UI.row(sell, 8)
 	sellRow.AnchorPoint = Vector2.new(0.5, 0.5)
 	sellRow.Position = UDim2.fromScale(0.5, 0.5)
@@ -311,6 +321,8 @@ function UnitInfoPanel.start()
 		end
 		abilityName.Text = SkinConfig[info.unitType].ability
 		abilityManaLabel.Text = tostring(unit.maxMana or 0)
+		local role = if unit.range <= 1 then "Front line (melee)" else string.format("Back line (range %d)", unit.range)
+		abilityText.Text = role .. ". " .. AbilityText.of(info.unitType)
 
 		-- Items: equipped on the player's own unit (latest snapshot), or carried into a fight.
 		local own = if info.unitId then BoardController.getUnit(info.unitId) else nil

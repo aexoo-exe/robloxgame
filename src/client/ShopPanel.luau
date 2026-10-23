@@ -1,6 +1,10 @@
 -- The shop along the bottom of the screen, with the player's stats above it:
 --   * stats strip: level badge with an XP progress bar, gold (a coin and a number that counts up
---     and pops when it rises), and the win or loss streak
+--     and pops when it rises), the win or loss streak, and units on the board against the level cap
+--     ("UNITS 3/4", gold while there is room and a bench unit could fill it)
+--   * when a fight starts with room on the board and units on the bench, a hint above the shop
+--   * each card's "i" button opens the unit info panel for that character (BoardController
+--     .inspectType); with a mouse, hovering a card shows its tooltip (UnitTooltip.setCardHover)
 --   * five shop cards: name, price, cost color and trait symbols (a trait's name shows on hover
 --     or when its symbol is tapped; tapping the rest of the card buys it)
 --   * a gold outline on cards of characters you own (board or bench), and a pulsing green outline
@@ -30,6 +34,7 @@ local UnitConfig = require(Shared:WaitForChild("UnitConfig"))
 
 local BoardController = require(script.Parent.BoardController)
 local TraitIcon = require(script.Parent.TraitIcon)
+local UnitTooltip = require(script.Parent.UnitTooltip)
 local UI = require(script.Parent.UI)
 
 local ShopPanel = {}
@@ -39,6 +44,7 @@ local FONTS = UITheme.fonts
 local SIZES = UITheme.sizes
 local TRAIT_ICON = 18
 local TRAIT_NAME_SECONDS = 1.5
+local BENCH_HINT_SECONDS = 4
 
 -- Phases in which the server accepts shop requests.
 local SHOP_PHASES = { [Phase.Preparation] = true, [Phase.Combat] = true, [Phase.Results] = true }
@@ -55,6 +61,8 @@ type Card = {
 	glowStroke: UIStroke,
 	glowPulse: Tween,
 	upgradeBadge: Frame,
+	info: TextButton, -- opens the unit info panel for the offered character
+	hovered: boolean, -- the mouse is over the card (its tooltip shows)
 	shown: string | false | nil,
 	highlight: string?, -- "owned", "upgrade" or nil
 }
@@ -75,7 +83,13 @@ local function traitTip(parent: Instance): TextLabel
 	return tip
 end
 
-local function createCard(parent: Instance, order: number, onBuy: () -> ()): Card
+local function createCard(
+	parent: Instance,
+	order: number,
+	onBuy: () -> (),
+	onInfo: () -> (),
+	onHover: (boolean) -> ()
+): Card
 	local button = UI.button(parent, COLORS.panelLight, UDim2.fromOffset(SIZES.shopCard.X, SIZES.shopCard.Y))
 	button.LayoutOrder = order
 	local stroke = button:FindFirstChildOfClass("UIStroke") :: UIStroke
@@ -93,7 +107,7 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 	local name = UI.text(button, "", SIZES.text, FONTS.body)
 	name.AutomaticSize = Enum.AutomaticSize.None
 	name.Position = UDim2.fromOffset(6, 12)
-	name.Size = UDim2.new(1, -12, 0, 28)
+	name.Size = UDim2.new(1, -34, 0, 28)
 	name.TextWrapped = true
 	name.TextScaled = true
 	name.TextXAlignment = Enum.TextXAlignment.Left
@@ -155,6 +169,24 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 	badgeGlyph.ZIndex = 7
 	badge.Parent = button
 
+	-- Info: opens the unit info panel for this character (the only way on touch; the mouse also
+	-- gets a hover tooltip, UnitTooltip.setCardHover). Its own button, so it never buys.
+	local info = UI.button(button, COLORS.panel, UDim2.fromOffset(26, 26))
+	info.AnchorPoint = Vector2.new(1, 0)
+	info.Position = UDim2.new(1, -4, 0, 12)
+	info.ZIndex = 8
+	local infoLabel = UI.text(info, "i", SIZES.text, FONTS.display)
+	infoLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	infoLabel.Position = UDim2.fromScale(0.5, 0.5)
+	infoLabel.ZIndex = 9
+	info.Activated:Connect(onInfo)
+	button.MouseEnter:Connect(function()
+		onHover(true)
+	end)
+	button.MouseLeave:Connect(function()
+		onHover(false)
+	end)
+
 	button.Activated:Connect(onBuy)
 	return {
 		button = button,
@@ -168,6 +200,8 @@ local function createCard(parent: Instance, order: number, onBuy: () -> ()): Car
 		glowStroke = glowStroke,
 		glowPulse = glowPulse,
 		upgradeBadge = badge,
+		info = info,
+		hovered = false,
 		shown = nil,
 		highlight = nil,
 	}
@@ -314,6 +348,29 @@ function ShopPanel.start()
 	local streakLabel = UI.text(streakRow, "", SIZES.text + 2, FONTS.number)
 	streakLabel.LayoutOrder = 2
 
+	-- Units on the board against the level cap ("UNITS 3/4"), gold while there is room.
+	local unitsLabel = UI.text(strip, "", SIZES.text, FONTS.number)
+	unitsLabel.LayoutOrder = 4
+
+	-- A hint above the shop when a fight starts with room left on the board and units on the bench.
+	local benchHint = UI.text(panel, "", SIZES.text, FONTS.body, COLORS.gold)
+	benchHint.AnchorPoint = Vector2.new(0.5, 1)
+	benchHint.Position = UDim2.new(0.5, 0, 0, -8)
+	benchHint.Visible = false
+	local hintCount = 0
+	local function showHint(text: string)
+		hintCount += 1
+		local thisHint = hintCount
+		benchHint.Text = text
+		benchHint.Visible = true
+		UI.pop(benchHint, 1.1)
+		task.delay(BENCH_HINT_SECONDS, function()
+			if hintCount == thisHint then
+				benchHint.Visible = false
+			end
+		end)
+	end
+
 	-- Buy XP, the cards, Reroll.
 	local actions = UI.row(content, 8)
 	actions.LayoutOrder = 2
@@ -329,6 +386,15 @@ function ShopPanel.start()
 			if shopOpen() and view and view.shop[slot] then
 				requestBuyUnit:FireServer(slot)
 			end
+		end, function()
+			local unitType = if view then view.shop[slot] else nil
+			if unitType then
+				BoardController.inspectType(unitType)
+			end
+		end, function(over)
+			cards[slot].hovered = over
+			local unitType = if view and over then view.shop[slot] else nil
+			UnitTooltip.setCardHover(if unitType then unitType else nil)
 		end)
 	end
 	xpButton.Activated:Connect(function()
@@ -386,11 +452,24 @@ function ShopPanel.start()
 		end
 	end
 
+	local placedCount, benchCount = 0, 0
+	local function updateUnitCount()
+		local level = if view then view.level else 0
+		unitsLabel.Text = string.format("UNITS %d/%d", placedCount, level)
+		unitsLabel.TextColor3 = if placedCount < level and benchCount > 0 then COLORS.gold else COLORS.textDim
+	end
+
 	BoardController.onUnitsChanged(function(units)
 		table.clear(unitsById)
 		table.clear(ownedCount)
 		table.clear(oneStarCount)
+		placedCount, benchCount = 0, 0
 		for _, unit in units do
+			if unit.column then
+				placedCount += 1
+			elseif unit.slot then
+				benchCount += 1
+			end
 			unitsById[unit.id] = unit
 			ownedCount[unit.unitType] = (ownedCount[unit.unitType] or 0) + 1
 			if unit.starLevel == 1 then
@@ -398,6 +477,7 @@ function ShopPanel.start()
 			end
 		end
 		updateHighlights()
+		updateUnitCount()
 	end)
 	BoardController.onDragChanged(function(unitId, overZone)
 		local unit = if unitId then unitsById[unitId] else nil
@@ -477,8 +557,14 @@ function ShopPanel.start()
 			card.button.BackgroundTransparency = if unitType then fade * 0.6 else 0.6
 			card.name.TextTransparency = fade
 			card.priceLabel.TextTransparency = fade
+			card.info.Visible = unitType ~= nil and unitType ~= false
+			if card.hovered then
+				-- A bought card stops showing its tooltip; a new offer shows its own.
+				UnitTooltip.setCardHover(if unitType then unitType else nil)
+			end
 		end
 		updateHighlights()
+		updateUnitCount()
 	end
 
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(newView)
@@ -486,6 +572,19 @@ function ShopPanel.start()
 		refresh()
 	end)
 	matchState:GetAttributeChangedSignal("Phase"):Connect(refresh)
+	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
+		local level = if view then view.level else 0
+		if matchState:GetAttribute("Phase") == Phase.Combat and placedCount < level and benchCount > 0 then
+			local room = level - placedCount
+			showHint(
+				string.format(
+					"Your board had room for %d more unit%s. Drag units from the bench onto the board!",
+					room,
+					if room == 1 then "" else "s"
+				)
+			)
+		end
+	end)
 	refresh()
 end
 

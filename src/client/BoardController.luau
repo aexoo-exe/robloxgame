@@ -161,6 +161,16 @@ local function inspect(info: Inspected?)
 	end
 end
 
+-- Inspects a character that isn't on the board (a shop card's info button): the unit info panel
+-- shows it at 1 star, without Sell. Any selected unit is deselected first.
+function BoardController.inspectType(unitType: string)
+	if selectedId and views[selectedId] then
+		UnitView.setSelected(views[selectedId], false)
+	end
+	selectedId = nil
+	inspect({ unitType = unitType, starLevel = 1 })
+end
+
 local function selectUnit(unitId: string?)
 	if selectedId and views[selectedId] then
 		UnitView.setSelected(views[selectedId], false)

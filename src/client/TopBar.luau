@@ -1,14 +1,17 @@
 -- The top bar: stage and round ("2-3"), a tracker of the current stage's rounds (an icon per round
--- for creep, player and boss fights, the current one highlighted and past ones dimmed), the phase
--- and a countdown. Presentation only: reads the server-owned MatchState attributes.
+-- for creep, player and boss fights, the current one highlighted and past ones dimmed), the phase,
+-- a countdown, and what the round is about ("Next: Creeps" while planning, "vs <opponent>" in the
+-- fight). Presentation only: reads the server-owned MatchState attributes.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MatchRules = require(Shared:WaitForChild("MatchRules"))
 local Phase = require(Shared:WaitForChild("Phase"))
 local Pve = require(Shared:WaitForChild("Pve"))
+local PveConfig = require(Shared:WaitForChild("PveConfig"))
 local StageConfig = require(Shared:WaitForChild("StageConfig"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 
@@ -78,6 +81,26 @@ function TopBar.start()
 	local timerLabel = UI.text(timerRow, "", SIZES.textLarge, FONTS.number)
 	timerLabel.LayoutOrder = 2
 
+	-- What this round is about: the next fight during Preparation ("Next: Creeps"), the opponent
+	-- during Combat and Results ("vs Bot Kaze"; MatchState.Players.<you>.Opponent).
+	local opponentLabel = UI.text(content, "", SIZES.text, FONTS.body, COLORS.text)
+	opponentLabel.LayoutOrder = 5
+	opponentLabel.Visible = false
+	local playersFolder = matchState:WaitForChild("Players")
+	local localUserId = Players.LocalPlayer.UserId
+	local function opponentText(phase: string): string
+		if phase == Phase.Preparation then
+			local kind = matchState:GetAttribute("RoundKind")
+			local upcoming = if kind == Pve.Kind.PvP then "a player" else PveConfig.opponentNames[kind] or kind
+			return "Next: " .. tostring(upcoming)
+		elseif phase == Phase.Combat or phase == Phase.Results then
+			local own = playersFolder:FindFirstChild(tostring(localUserId))
+			local opponent = if own then own:GetAttribute("Opponent") or "" else ""
+			return if opponent ~= "" then "vs " .. opponent else ""
+		end
+		return ""
+	end
+
 	local shownRound = -1
 	local shownPhase = nil
 	local shownSeconds = -1
@@ -140,6 +163,11 @@ function TopBar.start()
 			timerRow.Visible = seconds >= 0
 			timerLabel.Text = tostring(seconds)
 			timerLabel.TextColor3 = if seconds <= 5 and seconds >= 0 then COLORS.loss else COLORS.text
+		end
+		local opponent = opponentText(phase)
+		if opponent ~= opponentLabel.Text then
+			opponentLabel.Text = opponent
+			opponentLabel.Visible = opponent ~= ""
 		end
 	end)
 end

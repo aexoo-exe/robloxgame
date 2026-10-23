@@ -1,6 +1,6 @@
 -- The trait panel on the left edge: every origin (faction) and class among the units the player has
 -- placed on the board (bench units do not count), with its symbol, how many different characters
--- with it are fielded, its name and one pip per breakpoint (TraitConfig; lit when reached). Active
+-- with it are fielded and the next breakpoint ("2/3"), its name and one pip per breakpoint (TraitConfig; lit when reached). Active
 -- traits are drawn bright, partial ones dim. Below them, every active bond (BondConfig: both
 -- characters placed) shows both characters' names. Rows are sorted active first, then by count,
 -- then origins before classes, then by name. Presentation only.
@@ -65,6 +65,17 @@ local function rowFrame(name: string, order: number, height: number): Frame
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = row
 	return row
+end
+
+-- "2/3": the count and the next breakpoint above it (just the count once the top one is reached).
+local function countText(trait: string, count: number): string
+	local config = TraitConfig[trait]
+	for _, breakpoint in if config then config.breakpoints else {} do
+		if breakpoint.count > count then
+			return string.format("%d/%d", count, breakpoint.count)
+		end
+	end
+	return tostring(count)
 end
 
 -- One pip per breakpoint of `trait`, lit up to the count reached.
@@ -134,8 +145,8 @@ function TraitPanel.start()
 
 			local count = UI.text(
 				row,
-				tostring(state.count),
-				SIZES.text,
+				countText(trait, state.count),
+				SIZES.textSmall + 1,
 				FONTS.number,
 				if state.active then COLORS.gold else COLORS.textDim
 			)
@@ -145,8 +156,8 @@ function TraitPanel.start()
 			local name = UI.text(row, TraitIcon.name(trait), SIZES.textSmall, FONTS.body)
 			name.AutomaticSize = Enum.AutomaticSize.None
 			name.AnchorPoint = Vector2.new(0, 0.5)
-			name.Position = UDim2.new(0, ICON + 26, 0.5, 0)
-			name.Size = UDim2.new(1, -(ICON + 30 + BREAKPOINT_AREA), 0, SIZES.textSmall + 4)
+			name.Position = UDim2.new(0, ICON + 36, 0.5, 0)
+			name.Size = UDim2.new(1, -(ICON + 40 + BREAKPOINT_AREA), 0, SIZES.textSmall + 4)
 			name.TextXAlignment = Enum.TextXAlignment.Left
 			name.TextTruncate = Enum.TextTruncate.AtEnd
 			if not state.active then
