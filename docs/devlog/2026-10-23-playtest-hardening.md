@@ -108,3 +108,21 @@ chat commands, QA handle, close/toggle) and Config, State, Hud, Lineup, Stage, T
 Slice, Reel. Shared state lives in State; the HUD buttons reach Lineup.step through `State.step`
 to avoid a require cycle. Pure refactor: same keys and behavior. Checked by selene (no undefined
 or unused names) and the CI Rojo build; not run in Studio.
+
+## Phase 8: flashline rebuilt with /slice-unit (branch feature/slice-flashline)
+
+- Branched from feature/playtest-1. `src/client/Ultimates/flashline.luau` rebuilt to the cinder_arc
+  structure: coil 0.28, shivering set 0.25, dead stillness 0.22, load 0.12, snap 0.06 (preroll
+  0.93); the draw on the real hit (Damage, fallback +0.05) carries him through the target with
+  `lunge` (to the point mirrored across it) on top of the real 0.15 s dash slide; 3 crisp gold
+  bolts along the path, a gold BladeTrail; the delayed cut at +0.16; follow-through held to +0.40;
+  slow sheathe, click +0.85; recover +1.12; slide home +1.45 (linger 1.65).
+- **Decision:** the concept's delayed hit: the draw, bolts, trail and thunder land on the real hit
+  at t = 0, the target's reaction at +0.16. **Decision:** sounds are `flashline_thunderCrack` and
+  `flashline_sheathe` (the skill's `<unit_id>_<sound>` naming).
+- playbook-reviewer: PASS (15 PASS, 1 N/A, 1 WARN: budget peak ~9/14). Fixed by shortening the dash
+  bolts to 0.13 s (gone before the cut): peak ~6/14, estimated.
+- `SLICE_UNIT` is flashline on that branch only (K / G / S replay it). The playbook and the skill
+  now point at `src/client/DevLineup/Config.luau` for it.
+- Open: whether the carry passes visibly through the target when the real dash ends beside it
+  rather than in line (the lunge follows his facing, set toward the target at the windup).
