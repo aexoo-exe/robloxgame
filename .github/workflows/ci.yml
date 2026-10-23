@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rokit
         run: |
@@ -42,7 +42,7 @@ jobs:
       # A few matches only: proves the sim still runs end to end, not a balance report.
       - name: Sim smoke run
         timeout-minutes: 2
-        run: lune run sim/run.luau 3 8
+        run: lune run sim/run.luau 10 8
 
   # Type check with the Roblox definitions. Informational: the codebase is nonstrict and has never
   # been checked in CI, so this job reports problems without failing the run.
@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rokit
         run: |
@@ -62,7 +62,8 @@ jobs:
         run: |
           rokit authenticate github --token "${{ github.token }}"
           rokit install --no-trust-check
-          rokit add --no-trust-check JohnnyMorganz/luau-lsp
+          rokit trust JohnnyMorganz/luau-lsp
+          rokit add JohnnyMorganz/luau-lsp
 
       - name: luau-lsp analyze
         run: |
