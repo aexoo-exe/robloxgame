@@ -8,19 +8,8 @@
 
 local process = require("@lune/process")
 
-local Board = require("../src/shared/Board")
-local BoardConfig = require("../src/shared/BoardConfig")
 local Bot = require("../src/shared/Bot")
-local CombatConfig = require("../src/shared/CombatConfig")
-local CombatSim = require("../src/shared/CombatSim")
-local Items = require("../src/shared/Items")
-local Match = require("../src/shared/Match")
-local MatchConfig = require("../src/shared/MatchConfig")
-local PlayerState = require("../src/shared/PlayerState")
-local Pve = require("../src/shared/Pve")
-local Traits = require("../src/shared/Traits")
-local UnitConfig = require("../src/shared/UnitConfig")
-local UnitPool = require("../src/shared/UnitPool")
+local LeanMatch = require("./LeanMatch")
 
 local MATCHES = tonumber(process.args[1]) or 60
 local MODE = process.args[2] or "both"
@@ -38,88 +27,16 @@ local function policyFor(mode: string, seat: number)
 	return if seat == 3 then Bot.traitPolicy else Bot.policies[(seat - 1) % #Bot.policies + 1]
 end
 
-local function runFight(fight, boards, seed, match)
-	local sideB
-	if fight.pve then
-		sideB = Pve.enemyBoard(match.theme, match.round)
-	else
-		sideB = if fight.b then boards[fight.b] elseif fight.ghostOf then boards[fight.ghostOf] else {}
-	end
-	local startBonuses, traitSetups = Traits.combatParams(boards[fight.a], sideB, fight.pve ~= nil)
-	return CombatSim.run({
-		startBonuses = startBonuses,
-		traits = traitSetups,
-		boards = { boards[fight.a], sideB },
-		columns = BoardConfig.columns,
-		rows = BoardConfig.rows,
-		unitTypes = if fight.pve then Pve.unitTypes(match.theme) else UnitConfig,
-		ticksPerSecond = CombatConfig.ticksPerSecond,
-		maxTicks = MatchConfig.combatMaxDuration * CombatConfig.ticksPerSecond,
-		timeoutDrawMargin = CombatConfig.timeoutDrawMargin,
-		seed = seed,
-	})
-end
-
--- Plays one match; returns placements by seat and the number of rounds.
+-- Plays one match (LeanMatch); returns placements by seat and the number of rounds.
 local function playMatch(mode: string, matchIndex: number): ({ [number]: number }, number)
-	local ids, states, policies, memories = {}, {}, {}, {}
-	local pool = UnitPool.new()
-	for seat = 1, PLAYERS do
-		ids[seat] = seat
-		states[seat] = PlayerState.new(matchIndex * 1000 + seat, pool)
-		PlayerState.grantStartingUnits(states[seat])
-		policies[seat] = policyFor(mode, seat)
-		memories[seat] = Bot.newMemory(matchIndex * 7 + seat)
-	end
-	local match = Match.new(ids, matchIndex)
-	while not match.finished do
-		local round = match.round + 1
-		local boards = {}
-		for _, id in Match.activeIds(match) do
-			if Pve.preparationDuration(round) > 0 then
-				PlayerState.startPreparation(states[id])
-				boards[id] = Bot.prepare(states[id], policies[id], memories[id])
-			else
-				boards[id] = Board.getPlacedUnits(states[id].board)
-			end
-		end
-		local results = {}
-		for index, fight in Match.startRound(match) do
-			local result = runFight(fight, boards, matchIndex * 100000 + match.round * 100 + index, match)
-			table.insert(results, {
-				fight = fight,
-				winner = result.winner,
-				survivors = result.survivors,
-				healthPercent = result.healthPercent,
-				traitGold = { result.traitResults[1].gold, result.traitResults[2].gold },
-			})
-		end
-		local summary = Match.applyResults(match, results)
-		for id, outcome in summary.outcomes do
-			PlayerState.recordCombat(states[id], outcome)
-		end
-		for id, gold in summary.traitGold do
-			PlayerState.grantGold(states[id], gold)
-		end
-		for id, reward in summary.pve do
-			PlayerState.recordPve(states[id], reward.gold)
-		end
-		for _, id in summary.eliminated do
-			PlayerState.releaseAll(states[id])
-		end
-		local offerSize = Items.offerSize(match.round)
-		if offerSize > 0 and not match.finished then
-			for _, id in Match.activeIds(match) do
-				PlayerState.offerItems(states[id], offerSize)
-			end
-		end
-		assert(match.round < 200, "match did not end")
-	end
-	local placements = {}
-	for id, player in match.players do
-		placements[id] = player.placement or PLAYERS
-	end
-	return placements, match.round
+	local placements, rounds = LeanMatch.play({
+		players = PLAYERS,
+		matchIndex = matchIndex,
+		policyFor = function(seat)
+			return policyFor(mode, seat)
+		end,
+	})
+	return placements, rounds
 end
 
 local function report(mode: string)

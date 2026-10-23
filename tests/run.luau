@@ -31,6 +31,7 @@ local suites = {
 	{ name = "Playback", tests = require("./PlaybackTest") },
 	{ name = "Regression", tests = require("./RegressionTest") },
 	{ name = "Bot", tests = require("./BotTest") },
+	{ name = "PlaytestReport", tests = require("./PlaytestReportTest") },
 }
 
 local passed = 0
