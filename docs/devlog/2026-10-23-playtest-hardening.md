@@ -91,7 +91,8 @@ No clear wins found; nothing changed. Checked:
 
 - Baseline: 94 unique errors (938 log lines). After: **67 unique**.
 - Fixed: UnitView.new reassigned its optional `options` parameter, which the checker can't narrow
-  (~45 unique errors); now a typed local. No behavior change.
+  (26 unique errors: 94 -> 68); now a typed local. No behavior change. The split in Phase 7
+  removed one more (67).
 - The job already passed the Rojo sourcemap. Most remaining errors come from the shared modules'
   `if script then require(script.Parent.X) else require("./X")` pattern (types can't be resolved
   through the if-expression) and from incomplete type annotations (optional fields that the logic
