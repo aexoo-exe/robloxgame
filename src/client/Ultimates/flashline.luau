@@ -29,7 +29,7 @@
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the trail, the
 -- crackle, the hit star, the cut bolt and the sparks grow with it. The dash bolts span the real path
 -- (their size is the path's length), so they read at any distance as they are.
--- Layers (tier 1, within its 14; peak ~8 at +0.16, estimated): gold crackle on his body (coil and
+-- Layers (tier 1, within its 14; peak ~6 at +0.16, estimated): gold crackle on his body (coil and
 -- set only), 3 gold lightning bolts along the dash (fx_lightning; 2 when reduced), one blade trail
 -- (BladeTrail), at the cut a gold hit star, one short bolt, sparks and a light (not when reduced),
 -- the callout's ring. Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
@@ -151,7 +151,8 @@ local TRAIL = ColorSequence.new({
 	ColorSequenceKeypoint.new(1, GOLD_DEEP),
 })
 local TRAIL_LIFE = 0.22
-local DASH_BOLTS = { full = 3, reduced = 2, life = 0.26 }
+-- life 0.13 (x0.8-1.2 in kitBolts): crisp, and gone before the delayed cut (+0.16) adds its layers.
+local DASH_BOLTS = { full = 3, reduced = 2, life = 0.13 }
 local THROUGH_MAX = 7 -- studs (normal size) he may carry past his real cell
 -- The cut's light: a short, tight gold flash at the target's chest.
 local CUT_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
