@@ -81,7 +81,51 @@ Ways to read them:
 Note: Studio tests of a published place write to the same DataStores as the live game, so test
 entries show up in the lists too (their `server` field is empty in Studio).
 
-## 6. What to watch during the playtest
+## 6. What gets tracked (analytics)
+
+Server-side only (src/server/PlaytestAnalytics.luau); humans only, bots are never logged.
+
+**Roblox analytics** (Creator Hub → your experience → Analytics; live servers only, skipped in
+Studio):
+
+- Onboarding funnel, in order: 1 `joined`, 2 `intro_finished`, 3 `queued`, 4 `first_match_started`,
+  5 `round_5_reached`, 6 `match_finished`, 7 `feedback_sent`.
+- Progression path `Match`: started at round 1, completed per round survived, failed at the round
+  the player is knocked out.
+- Custom events: `unit_bought`, `unit_sold`, `star_up` (unit id, star), `trait_active` (trait, level;
+  once per player, trait and level per match), `reroll`, `level_up` (level).
+
+**Our match log** (DataStore `PlaytestMatches`, also from Studio when API access is on, marked
+`studio`):
+
+- `recent`: the newest 500 match records: duration, rounds, humans and bots, bot difficulty, and per
+  human: placement, final level, gold spent, rerolls, XP bought, units bought and sold, units
+  picked and fielded, a board snapshot every 5 rounds (`unit_id:star`), the final board, active
+  traits at the end, and a quit point (round and phase) if they left while still in the match.
+- `units`: all-time per-unit totals (picked, fielded, fielded and placed top 4).
+- `funnel`: how many players reached each funnel step for the first time (Studio test players are
+  not counted).
+
+**The report:**
+
+```powershell
+$env:ROBLOX_API_KEY = "<key>"
+lune run scripts/playtest-report <universeId>            # the report, with feedback and errors
+lune run scripts/playtest-report <universeId> --csv      # also reports/units.csv, funnel.csv, players.csv
+lune run scripts/playtest-report <universeId> --studio   # include matches logged from Studio
+```
+
+It shows matches and average length, the funnel with drop-off, quit points, unit pick and top-4
+rates, traits at the end, the most common final boards, and the newest feedback and errors.
+`reports/` is gitignored. CI runs the report on a simulated match log
+(tests/PlaytestReportTest.luau), so its shape stays in step with the server's.
+
+**Privacy:** nothing personal is stored beyond the Roblox UserId (and the player's name next to
+feedback). Feedback text is filtered with TextService before it is stored (dropped if filtering
+fails). No chat, no device data. To remove a player's data on request, delete their entries from
+`PlayerFlags` (key `u<UserId>`) and their records from the lists (Open Cloud or the command bar).
+
+## 7. What to watch during the playtest
 
 - [ ] The how-to-play intro shows in the hub before each player's first match, can be skipped, and
       the "?" button (top left in a match) opens it again, docked at the left edge without blocking
