@@ -12,6 +12,14 @@ return table.freeze({
 
 	-- Most players in one match.
 	maxPlayers = 8,
+
+	-- Bot opponents (server-side, BotService): a match from the Play pad with fewer than `botFillTo`
+	-- players gets bots in the empty seats, and one queued player is enough to start the countdown.
+	-- Practice matches never get bots. Set `botsEnabled` to false to play humans only.
+	botsEnabled = true,
+	botFillTo = 6,
+	-- Display names, one per bot seat (at least maxPlayers - 1). Generic words only.
+	botNames = { "Bot Ronin", "Bot Kaze", "Bot Tengu", "Bot Kitsune", "Bot Kumo", "Bot Tora", "Bot Hoshi" },
 	-- Seconds the final placements stay on screen before everyone returns to the hub.
 	finalPlacementsDuration = 15,
 

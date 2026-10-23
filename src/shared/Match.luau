@@ -235,4 +235,27 @@ function Match.applyResults(match: Match, results: { FightResult }): RoundSummar
 	return summary
 end
 
+-- Ends the match early (used when no human is left in a match with bots, so the bots need not play
+-- on): the players still in it are placed by HP, highest first (ties: more surviving units in their
+-- latest fight, then id), and the best of them wins. Returns them in placement order.
+function Match.finishNow(match: Match): { number }
+	local active = Match.activeIds(match)
+	table.sort(active, function(a, b)
+		local playerA, playerB = match.players[a], match.players[b]
+		if playerA.health ~= playerB.health then
+			return playerA.health > playerB.health
+		end
+		if playerA.lastSurvivors ~= playerB.lastSurvivors then
+			return playerA.lastSurvivors > playerB.lastSurvivors
+		end
+		return a < b
+	end)
+	for rank, id in active do
+		match.players[id].placement = rank
+	end
+	match.winner = active[1]
+	match.finished = true
+	return active
+end
+
 return Match

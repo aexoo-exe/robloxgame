@@ -4,6 +4,9 @@
 -- queued on the hub's Play pad, or one player from the Practice pad; everyone else stays in the
 -- hub until it ends. A single participant plays a practice match against the scripted enemy
 -- boards. RoundService.onMatchEnded callbacks run once the final placements have been shown.
+-- A Play-pad match with fewer than MatchConfig.botFillTo players gets bot opponents in the empty
+-- seats (BotService; MatchConfig.botsEnabled). Once no human is left in it (all eliminated), the
+-- match ends at once and the bots still in it are placed by HP (Match.finishNow).
 --
 -- Public match state, replicated to every client (server-to-client only):
 --   ReplicatedStorage.MatchState attributes
@@ -15,7 +18,7 @@
 --     Winner       string  winner's name once the match is over, else ""
 --     Practice     boolean the running match is a solo practice match its player may leave anytime
 --   MatchState.Players: one Folder per participant, named by UserId, with attributes
---     UserId, DisplayName, Health, Placement (0 until placed), Eliminated, Connected,
+--     UserId, DisplayName, IsBot, Health, Placement (0 until placed), Eliminated, Connected,
 --     Opponent (name during Combat, else ""), LastResult (text shown at Results),
 --     LastOutcome (Economy.Outcome of the round's fight, "" before Results; PvE fights are a Win
 --     when the side won), LastDamage (HP lost this round, 0 if none),
@@ -35,6 +38,7 @@ local MatchRules = require(ReplicatedStorage.Shared.MatchRules)
 local Phase = require(ReplicatedStorage.Shared.Phase)
 local Pve = require(ReplicatedStorage.Shared.Pve)
 
+local BotService = require(script.Parent.BotService)
 local CombatService = require(script.Parent.CombatService)
 local PlayerService = require(script.Parent.PlayerService)
 
@@ -119,6 +123,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	if preparation > 0 then
 		setPhase(Phase.Preparation, preparation)
 		PlayerService.beginPreparation()
+		BotService.playPreparation()
 		pause(preparation)
 		if stopRequested then
 			return
@@ -188,6 +193,16 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	pause(MatchConfig.resultsDuration)
 end
 
+-- True while a human participant (not a bot) is still in the match, connected or not.
+local function humanLeft(match: Match.Match): boolean
+	for userId, player in match.players do
+		if not player.eliminated and not BotService.isBot(userId) then
+			return true
+		end
+	end
+	return false
+end
+
 local function playMatch(participants: { number }, names: { [number]: string })
 	local match = Match.new(participants, seedRandom:NextInteger(1, 2 ^ 31 - 2))
 	currentMatch = match
@@ -197,6 +212,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 		folder.Name = tostring(userId)
 		folder:SetAttribute("UserId", userId)
 		folder:SetAttribute("DisplayName", names[userId])
+		folder:SetAttribute("IsBot", BotService.isBot(userId))
 		folder:SetAttribute("Opponent", "")
 		folder:SetAttribute("LastResult", "")
 		folder:SetAttribute("LastOutcome", "")
@@ -217,6 +233,11 @@ local function playMatch(participants: { number }, names: { [number]: string })
 
 	while not match.finished and not stopRequested do
 		playRound(match, names)
+		if not match.finished and not stopRequested and not humanLeft(match) then
+			Match.finishNow(match)
+			publishPlayers(match)
+			print("[RoundService] No human left in the match: the bots are placed by HP")
+		end
 	end
 	PlayerService.closeRequests()
 
@@ -274,8 +295,8 @@ end
 
 -- Starts a match with these players (at most MatchConfig.maxPlayers; extra ones are left out).
 -- `isPractice` marks a solo practice match from the Practice pad, which its player may leave at
--- any time (MatchState attribute Practice). Returns the participants' UserIds, or nil if a match
--- is already running or nobody is given.
+-- any time (MatchState attribute Practice). Returns the participants' UserIds (bots included,
+-- see BotService.isBot), or nil if a match is already running or nobody is given.
 function RoundService.startMatch(players: { Player }, isPractice: boolean?): { number }?
 	if running or #players == 0 then
 		return nil
@@ -291,6 +312,18 @@ function RoundService.startMatch(players: { Player }, isPractice: boolean?): { n
 			names[player.UserId] = player.Name
 		end
 	end
+	-- Bots fill the empty seats of a Play-pad match (never a practice match).
+	local fillTo = math.min(MatchConfig.botFillTo, MatchConfig.maxPlayers)
+	if MatchConfig.botsEnabled and not practice and #participants < fillTo then
+		local botIds, botNames = BotService.create(fillTo - #participants)
+		for _, botId in botIds do
+			table.insert(participants, botId)
+			names[botId] = botNames[botId]
+		end
+		print(string.format("[RoundService] %d bot(s) fill the empty seats", #botIds))
+	else
+		BotService.clear()
+	end
 	running = true
 	task.spawn(function()
 		local ok, err = pcall(playMatch, participants, names)
@@ -302,6 +335,7 @@ function RoundService.startMatch(players: { Player }, isPractice: boolean?): { n
 			playersFolder:ClearAllChildren()
 			setPhase(Phase.Waiting)
 		end
+		BotService.clear()
 		practice = false
 		stopRequested = false
 		matchState:SetAttribute("Practice", false)

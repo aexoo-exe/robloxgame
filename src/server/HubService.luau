@@ -1,7 +1,8 @@
 -- The hub: the area players spawn into and walk around between matches (built by HubBuilder from
 -- HubConfig), with two pads, each with one display board showing its status:
 --   * Play: standing on it queues the player; stepping off leaves the queue. A match starts
---     HubConfig.queue.countdownSeconds after the queue reaches playersToStartCountdown, or at once
+--     HubConfig.queue.countdownSeconds after the queue reaches playersToStartCountdown (1 when bots
+--     fill the empty seats, MatchConfig.botsEnabled), or at once
 --     with playersToStartAtOnce queued. The queued count and the timer show on the pad's display.
 --   * Practice: standing on it starts a solo practice match at once.
 -- One match runs per server (RoundService). While it runs both displays show "Match in progress"
@@ -23,6 +24,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HubConfig = require(ReplicatedStorage.Shared.HubConfig)
+local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
 local HubBuilder = require(script.Parent.HubBuilder)
@@ -39,6 +41,12 @@ local leaderboards: { [string]: HubBuilder.Board } = {}
 local inMatch: { [number]: boolean } = {} -- UserIds whose avatar belongs to the running match
 local queuedSince: { [number]: number } = {} -- UserId -> os.clock() when they stepped on the pad
 local countdownEndsAt: number? = nil -- server time
+
+-- Queued players needed to start the countdown: one when bots fill the empty seats
+-- (MatchConfig.botsEnabled), else HubConfig.queue.playersToStartCountdown.
+local function playersToStartCountdown(): number
+	return if MatchConfig.botsEnabled then 1 else QUEUE.playersToStartCountdown
+end
 
 local function rootOf(player: Player): BasePart?
 	local character = player.Character
@@ -202,7 +210,7 @@ local function poll()
 		startMatch(queued)
 		return
 	end
-	if #queued >= QUEUE.playersToStartCountdown then
+	if #queued >= playersToStartCountdown() then
 		countdownEndsAt = countdownEndsAt or now + QUEUE.countdownSeconds
 		if now >= countdownEndsAt :: number then
 			startMatch(queued)
@@ -222,7 +230,7 @@ local function poll()
 			string.format("%s  ·  starts in %d", count, math.max(0, math.ceil(countdownEndsAt - now)))
 		)
 	else
-		local missing = QUEUE.playersToStartCountdown - #queued
+		local missing = playersToStartCountdown() - #queued
 		setStatus(pads.play, string.format("%s  ·  need %d more", count, missing))
 	end
 	setStatus(pads.practice, "Ready  ·  starts as you enter")

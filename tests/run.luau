@@ -30,6 +30,7 @@ local suites = {
 	{ name = "TraitIcon", tests = require("./TraitIconTest") },
 	{ name = "Playback", tests = require("./PlaybackTest") },
 	{ name = "Regression", tests = require("./RegressionTest") },
+	{ name = "Bot", tests = require("./BotTest") },
 }
 
 local passed = 0

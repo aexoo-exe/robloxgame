@@ -28,6 +28,7 @@ type Entry = {
 	placement: number,
 	eliminated: boolean,
 	connected: boolean,
+	isBot: boolean,
 }
 
 type Row = {
@@ -54,6 +55,7 @@ local function sortedEntries(playersFolder: Instance): { Entry }
 			placement = folder:GetAttribute("Placement") or 0,
 			eliminated = folder:GetAttribute("Eliminated") == true,
 			connected = folder:GetAttribute("Connected") ~= false,
+			isBot = folder:GetAttribute("IsBot") == true,
 		})
 	end
 	table.sort(entries, function(a, b)
@@ -180,7 +182,13 @@ function PlayerList.start()
 				requestThumbnail(entry.userId)
 				local image = thumbnails[entry.userId]
 				row.avatar.Image = image or ""
-				row.initial.Text = if image and image ~= "" then "" else string.upper(string.sub(entry.name, 1, 1))
+				-- Bots show a "BOT" tag in place of an avatar.
+				row.initial.Text = if entry.isBot
+					then "BOT"
+					elseif image and image ~= "" then ""
+					else string.upper(string.sub(entry.name, 1, 1))
+				row.initial.TextSize = if entry.isBot then SIZES.textSmall - 3 else SIZES.text
+				row.initial.TextColor3 = if entry.isBot then COLORS.textDim else COLORS.text
 				row.name.Text = entry.name
 				local isYou = entry.userId == localUserId
 				local isOpponent = opponentName ~= ""

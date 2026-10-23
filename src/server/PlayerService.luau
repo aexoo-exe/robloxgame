@@ -69,6 +69,15 @@ function PlayerService.startMatch(userIds: { number })
 	end
 end
 
+-- The PlayerState of a participant still in the match (nil if eliminated or not a participant).
+-- Server bots (BotService) act on it directly through the same PlayerState rules.
+function PlayerService.activeState(userId: number): PlayerState.PlayerState?
+	if eliminated[userId] then
+		return nil
+	end
+	return states[userId]
+end
+
 -- Stops taking requests (the match is decided; final placements are showing).
 function PlayerService.closeRequests()
 	requestsOpen = false
