@@ -384,7 +384,11 @@ function ReelCheck.report(note: string?)
 		if (stats.dropped or 0) > 0 or #skipped > 0 then
 			table.insert(
 				findings,
-				string.format("%d emits dropped%s", stats.dropped or 0, if #skipped > 0 then " (" .. table.concat(skipped, ", ") .. ")" else "")
+				string.format(
+					"%d emits dropped%s",
+					stats.dropped or 0,
+					if #skipped > 0 then " (" .. table.concat(skipped, ", ") .. ")" else ""
+				)
 			)
 		end
 		local name = record.unit .. string.rep(" ", math.max(1, 20 - #record.unit))
@@ -397,7 +401,10 @@ function ReelCheck.report(note: string?)
 			meshRings += 1
 		end
 		if record.meshLeaks > 0 then
-			table.insert(findings, string.format("%d kit meshes still alive after %.0f s", record.meshLeaks, ReelConfig.leakSeconds))
+			table.insert(
+				findings,
+				string.format("%d kit meshes still alive after %.0f s", record.meshLeaks, ReelConfig.leakSeconds)
+			)
 		end
 		local meshText = if meshRings > 0 or record.meshLeaks > 0
 			then string.format(", mesh rings: %d, leaked: %d", meshRings, record.meshLeaks)
@@ -435,7 +442,13 @@ function ReelCheck.report(note: string?)
 			local entry = contentErrors[id]
 			table.insert(
 				lines,
-				string.format("  %s (%s, first under %s): %s", id, names[id] or "not a kit texture", entry.unit, entry.message)
+				string.format(
+					"  %s (%s, first under %s): %s",
+					id,
+					names[id] or "not a kit texture",
+					entry.unit,
+					entry.message
+				)
 			)
 		end
 	end

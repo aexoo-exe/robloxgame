@@ -35,7 +35,14 @@ local puffs: { { part: BasePart, speed: number } } = {}
 local rocks: { { pieces: { { part: BasePart, offset: CFrame } }, base: CFrame, phase: number, period: number } } = {}
 local random = Random.new(7)
 
-local function decor(parent: Instance, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?): Part
+local function decor(
+	parent: Instance,
+	size: Vector3,
+	cframe: CFrame,
+	color: Color3,
+	material: Enum.Material?,
+	shape: Enum.PartType?
+): Part
 	local part = Instance.new("Part")
 	part.Anchored = true
 	part.CanCollide = false
@@ -70,7 +77,14 @@ local function buildClouds()
 	local top = CENTER.Y + config.seaHeight
 	local upright = CFrame.Angles(0, 0, math.pi / 2)
 	local seaSize = 2048 -- the largest a part can be
-	decor(scenery, Vector3.new(4, seaSize, seaSize), CFrame.new(CENTER.X, top - 2, CENTER.Z) * upright, COLORS.cloud, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	decor(
+		scenery,
+		Vector3.new(4, seaSize, seaSize),
+		CFrame.new(CENTER.X, top - 2, CENTER.Z) * upright,
+		COLORS.cloud,
+		Enum.Material.SmoothPlastic,
+		Enum.PartType.Cylinder
+	)
 	for i = 0, 7 do
 		local angle = math.rad(i * 45)
 		local offset = Vector3.new(math.sin(angle), 0, math.cos(angle)) * 1800
@@ -120,18 +134,49 @@ local function buildRocks()
 		local function piece(part: BasePart)
 			table.insert(pieces, { part = part, offset = base:ToObjectSpace(part.CFrame) })
 		end
-		piece(decor(scenery, Vector3.new(1.2, width, width), base * CFrame.new(0, -0.6, 0) * upright, COLORS.grass, Enum.Material.Grass, Enum.PartType.Cylinder))
+		piece(
+			decor(
+				scenery,
+				Vector3.new(1.2, width, width),
+				base * CFrame.new(0, -0.6, 0) * upright,
+				COLORS.grass,
+				Enum.Material.Grass,
+				Enum.PartType.Cylinder
+			)
+		)
 		-- Rock under it: two turned, tilted chunks in two shades, then a point.
 		local layers = { { 0.68, 2.6, COLORS.rockLight }, { 0.44, 3, COLORS.rockWarm } }
 		local depth = 1.1
 		for _, layer in layers do
 			local shift = CFrame.new(random:NextNumber(-0.6, 0.6), -depth - layer[2] / 2, random:NextNumber(-0.6, 0.6))
-				* CFrame.Angles(random:NextNumber(-0.08, 0.08), random:NextNumber(0, math.pi), random:NextNumber(-0.08, 0.08))
-			piece(decor(scenery, Vector3.new(width * layer[1], layer[2], width * layer[1]), base * shift, layer[3], Enum.Material.Rock))
+				* CFrame.Angles(
+					random:NextNumber(-0.08, 0.08),
+					random:NextNumber(0, math.pi),
+					random:NextNumber(-0.08, 0.08)
+				)
+			piece(
+				decor(
+					scenery,
+					Vector3.new(width * layer[1], layer[2], width * layer[1]),
+					base * shift,
+					layer[3],
+					Enum.Material.Rock
+				)
+			)
 			depth += layer[2] * 0.85
 		end
 		local tip = width * 0.26
-		piece(decor(scenery, Vector3.one * tip, base * CFrame.new(0, -depth - tip * 0.2, 0) * CFrame.Angles(math.rad(45), random:NextNumber(0, math.pi), math.rad(35)), COLORS.rock, Enum.Material.Basalt))
+		piece(
+			decor(
+				scenery,
+				Vector3.one * tip,
+				base
+					* CFrame.new(0, -depth - tip * 0.2, 0)
+					* CFrame.Angles(math.rad(45), random:NextNumber(0, math.pi), math.rad(35)),
+				COLORS.rock,
+				Enum.Material.Basalt
+			)
+		)
 		table.insert(rocks, {
 			pieces = pieces,
 			base = base,
@@ -305,8 +350,12 @@ local function animate(dt: number)
 	local now = os.clock()
 	for _, swayer in swayers do
 		local size = swayer.part.Size
-		local angle = math.sin(now * 1.4 + swayer.phase) * math.rad(5) + math.sin(now * 2.3 + swayer.phase * 1.7) * math.rad(1.5)
-		swayer.part.CFrame = swayer.base * CFrame.new(0, size.Y / 2, 0) * CFrame.Angles(angle, 0, 0) * CFrame.new(0, -size.Y / 2, 0)
+		local angle = math.sin(now * 1.4 + swayer.phase) * math.rad(5)
+			+ math.sin(now * 2.3 + swayer.phase * 1.7) * math.rad(1.5)
+		swayer.part.CFrame = swayer.base
+			* CFrame.new(0, size.Y / 2, 0)
+			* CFrame.Angles(angle, 0, 0)
+			* CFrame.new(0, -size.Y / 2, 0)
 	end
 	for _, flame in flames do
 		local flicker = math.noise(now * 4, flame.seed)

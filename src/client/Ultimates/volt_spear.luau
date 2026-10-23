@@ -43,7 +43,12 @@ local function groundBolt(run, to: Vector3)
 	run:at(run:designTime() + 0.1, function()
 		VfxRecipe.kitBolts(from + lift, to + lift, blueWhite(run), 1, 0.25)
 	end)
-	VfxRecipe.trail(run, from, to, { theme = theme(run), steps = 4, span = 0.1, size = 0.8 * run:scale(), sparks = false })
+	VfxRecipe.trail(
+		run,
+		from,
+		to,
+		{ theme = theme(run), steps = 4, span = 0.1, size = 0.8 * run:scale(), sparks = false }
+	)
 end
 
 def.pose = {

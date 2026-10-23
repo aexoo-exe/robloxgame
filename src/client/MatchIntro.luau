@@ -51,7 +51,8 @@ function MatchIntro.start()
 			local skin = SkinConfig[unit.unitType]
 			table.insert(names, if skin then skin.name else unit.unitType)
 		end
-		title.Text = (if #names > 1 then "Your starting units: " else "Your starting unit: ") .. table.concat(names, ", ")
+		title.Text = (if #names > 1 then "Your starting units: " else "Your starting unit: ")
+			.. table.concat(names, ", ")
 		BoardController.setSpotlight(if shown then ids else {})
 	end
 

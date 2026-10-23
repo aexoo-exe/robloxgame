@@ -286,7 +286,8 @@ function FxKit.disc(
 	_duration: number,
 	_start: number?,
 	_delay: number?
-) end
+)
+end
 
 -- A ring that swells out from `position` (ground), `diameter` at the end: camera-facing and raised
 -- off the ground (ImpactEffects.ring). It used to lie on the floor as a textured plane or a neon

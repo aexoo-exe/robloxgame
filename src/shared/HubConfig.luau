@@ -109,7 +109,15 @@ return table.freeze({
 	centerpiece = v(0, 0, 0),
 	plazaBannerRadius = 15,
 	plazaBannerFactions = table.freeze({
-		"Shinobi", "Crew", "Heroes", "Corps", "Spirit", "Arcane", "Titans", "Cursed", "Hunters",
+		"Shinobi",
+		"Crew",
+		"Heroes",
+		"Corps",
+		"Spirit",
+		"Arcane",
+		"Titans",
+		"Cursed",
+		"Hunters",
 	}),
 
 	-- Roster gallery: rows of plinths along the avenue, facing it. Each row holds whole factions in
@@ -243,12 +251,31 @@ return table.freeze({
 
 	-- Decoration.
 	lanterns = table.freeze({
-		v(-13, 0, 92), v(13, 0, 92), v(-13, 0, -52), v(13, 0, -52), v(31, 0, -133), v(31, 0, -147),
-		v(-19, 10, 128), v(19, 10, 128), v(-44, 10, 162), v(18, 10, 162), v(-30, 0, 36), v(30, 0, -36),
+		v(-13, 0, 92),
+		v(13, 0, 92),
+		v(-13, 0, -52),
+		v(13, 0, -52),
+		v(31, 0, -133),
+		v(31, 0, -147),
+		v(-19, 10, 128),
+		v(19, 10, 128),
+		v(-44, 10, 162),
+		v(18, 10, 162),
+		v(-30, 0, 36),
+		v(30, 0, -36),
 	}),
 	trees = table.freeze({
-		v(22, 10, 134), v(-30, 10, 160), v(-136, -3, 18), v(-124, -3, 36), v(-140, -3, 34),
-		v(-24, 0, 24), v(24, 0, -24), v(-24, 0, -24), v(-62, 10, 164), v(8, 10, 164), v(-30, 0, -140),
+		v(22, 10, 134),
+		v(-30, 10, 160),
+		v(-136, -3, 18),
+		v(-124, -3, 36),
+		v(-140, -3, 34),
+		v(-24, 0, 24),
+		v(24, 0, -24),
+		v(-24, 0, -24),
+		v(-62, 10, 164),
+		v(8, 10, 164),
+		v(-30, 0, -140),
 	}),
 	-- Grass beds with a low hedge along their avenue side: rectangles on the main floor.
 	beds = table.freeze({
@@ -262,7 +289,14 @@ return table.freeze({
 	plazaBeds = table.freeze({ v(-24, 0, 24), v(24, 0, 24), v(24, 0, -24), v(-24, 0, -24) }),
 	plazaBedRadius = 6,
 	-- Stone planters with a hedge on the arrival terrace (centers; terrace height).
-	planters = table.freeze({ v(-50, 10, 163), v(-30, 10, 128), v(24, 10, 150), v(-12, 10, 163), v(-40, 10, 145), v(-62, 10, 128) }),
+	planters = table.freeze({
+		v(-50, 10, 163),
+		v(-30, 10, 128),
+		v(24, 10, 150),
+		v(-12, 10, 163),
+		v(-40, 10, 145),
+		v(-62, 10, 128),
+	}),
 	-- A paving band inside the terrace's edge and a tile diamond around the spawn.
 	terraceBorder = 2,
 	-- A spring pool, a stream running to the +X edge, and the falls straight down the island's side
@@ -303,7 +337,14 @@ return table.freeze({
 	}),
 	-- Small floating islets that bob, all well outside the walkable areas (centers of their grass tops).
 	floatingRocks = table.freeze({
-		v(-185, 12, -60), v(195, 18, 40), v(-70, 8, 215), v(80, 14, 205), v(-195, 22, 130), v(210, 6, -110), v(-125, 16, -215), v(40, 20, -240),
+		v(-185, 12, -60),
+		v(195, 18, 40),
+		v(-70, 8, 215),
+		v(80, 14, 205),
+		v(-195, 22, 130),
+		v(210, 6, -110),
+		v(-125, 16, -215),
+		v(40, 20, -240),
 	}),
 
 	-- Every hub color comes from this palette: a warm base (cream and honey stone, deep red-brown
@@ -446,7 +487,12 @@ return table.freeze({
 			Haze = 0.5,
 		}),
 		sky = table.freeze({ CelestialBodiesShown = true, StarCount = 3000, SunAngularSize = 14 }),
-		colorCorrection = table.freeze({ Brightness = 0, Contrast = 0.12, Saturation = 0.18, TintColor = rgb(255, 246, 236) }),
+		colorCorrection = table.freeze({
+			Brightness = 0,
+			Contrast = 0.12,
+			Saturation = 0.18,
+			TintColor = rgb(255, 246, 236),
+		}),
 		bloom = table.freeze({ Intensity = 0.2, Size = 18, Threshold = 2.3 }),
 	}),
 

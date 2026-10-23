@@ -74,7 +74,8 @@ function MatchHud.start()
 	-- Practice matches only (MatchState Practice): a small Leave button in the top-left corner, away
 	-- from the board, shop and bench, that asks before leaving. The server ends the practice match
 	-- and sends the player back to the hub; it refuses in a player match.
-	local requestLeavePractice = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(RemoteNames.RequestLeavePractice)
+	local requestLeavePractice = ReplicatedStorage:WaitForChild("Remotes")
+		:WaitForChild(RemoteNames.RequestLeavePractice)
 	local practiceLeave = UI.button(root, COLORS.sell, UDim2.fromOffset(84, 32))
 	practiceLeave.Position = UDim2.fromOffset(SIZES.margin, 6)
 	practiceLeave.Visible = false

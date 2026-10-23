@@ -109,7 +109,10 @@ function ItemBadgeTooltip.start()
 
 	-- A tap or click on an icon pins its tooltip for a moment (touch has no hover).
 	UserInputService.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+		if
+			input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch
+		then
 			return
 		end
 		local itemId, at = UnitView.itemAtScreen(Vector2.new(input.Position.X, input.Position.Y))

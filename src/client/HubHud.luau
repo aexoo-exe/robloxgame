@@ -64,7 +64,11 @@ function HubHud.start()
 				line.Text = string.format("Match starts in %d", seconds)
 			else
 				local missing = math.max(0, queue.playersToStartCountdown - queued)
-				line.Text = string.format("Waiting for %d more player%s. Step off to leave.", missing, if missing == 1 then "" else "s")
+				line.Text = string.format(
+					"Waiting for %d more player%s. Step off to leave.",
+					missing,
+					if missing == 1 then "" else "s"
+				)
 			end
 		else
 			title.Text = "HUB"

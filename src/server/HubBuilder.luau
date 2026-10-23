@@ -77,7 +77,10 @@ local function material(role: string): Enum.Material
 	if not found then
 		local fallback = HubConfig.materialFallbacks[name]
 		found = if fallback then lookupMaterial(fallback) else nil
-		table.insert(fallbacksUsed, string.format("%s: %s -> %s", role, name, if found then fallback else "SmoothPlastic"))
+		table.insert(
+			fallbacksUsed,
+			string.format("%s: %s -> %s", role, name, if found then fallback else "SmoothPlastic")
+		)
 	end
 	local result = found or Enum.Material.SmoothPlastic
 	materialCache[role] = result
@@ -148,7 +151,14 @@ end
 
 -- A flat disc (an upright cylinder) centered on hub-relative `position`, whose top is at
 -- position.Y.
-local function disc(parent: Instance, position: Vector3, diameter: number, thickness: number, color: Color3, materialRole: string?): Part
+local function disc(
+	parent: Instance,
+	position: Vector3,
+	diameter: number,
+	thickness: number,
+	color: Color3,
+	materialRole: string?
+): Part
 	return part(
 		parent,
 		Vector3.new(thickness, diameter, diameter),
@@ -160,16 +170,46 @@ local function disc(parent: Instance, position: Vector3, diameter: number, thick
 end
 
 -- A box over a hub-relative rectangle whose top is at `top`.
-local function slab(parent: Instance, x: { number }, z: { number }, top: number, thickness: number, color: Color3, materialRole: string?): Part
+local function slab(
+	parent: Instance,
+	x: { number },
+	z: { number },
+	top: number,
+	thickness: number,
+	color: Color3,
+	materialRole: string?
+): Part
 	local position = Vector3.new((x[1] + x[2]) / 2, top - thickness / 2, (z[1] + z[2]) / 2)
 	return part(parent, Vector3.new(x[2] - x[1], thickness, z[2] - z[1]), CFrame.new(at(position)), color, materialRole)
 end
 
 -- An upright round post standing on hub-relative `base`, with an optional ball cap.
-local function post(parent: Instance, base: Vector3, height: number, width: number, color: Color3, materialRole: string, cap: Color3?): Part
-	local column = part(parent, Vector3.new(height, width, width), CFrame.new(at(base, height / 2)) * UPRIGHT, color, materialRole, Enum.PartType.Cylinder)
+local function post(
+	parent: Instance,
+	base: Vector3,
+	height: number,
+	width: number,
+	color: Color3,
+	materialRole: string,
+	cap: Color3?
+): Part
+	local column = part(
+		parent,
+		Vector3.new(height, width, width),
+		CFrame.new(at(base, height / 2)) * UPRIGHT,
+		color,
+		materialRole,
+		Enum.PartType.Cylinder
+	)
 	if cap then
-		part(parent, Vector3.one * width * 1.35, CFrame.new(at(base, height + width * 0.3)), cap, "metal", Enum.PartType.Ball)
+		part(
+			parent,
+			Vector3.one * width * 1.35,
+			CFrame.new(at(base, height + width * 0.3)),
+			cap,
+			"metal",
+			Enum.PartType.Ball
+		)
 	end
 	return column
 end
@@ -185,14 +225,32 @@ end
 -- turned and tilted, off-center chunks in three rock shades, narrowing to a downward point, with
 -- a few pieces hanging under the edges. `round` starts with a rock disc that follows a round
 -- island's edge. Long footprints turn less, so no chunk sticks out past the edge above.
-local function rockMass(parent: Instance, center: Vector3, halfX: number, halfZ: number, top: number, depth: number, round: boolean?, hanging: number?)
+local function rockMass(
+	parent: Instance,
+	center: Vector3,
+	halfX: number,
+	halfZ: number,
+	top: number,
+	depth: number,
+	round: boolean?,
+	hanging: number?
+)
 	local shades = { COLORS.rockWarm, COLORS.rock, COLORS.rockDark }
 	local longest = math.max(halfX, halfZ)
 	local maxTurn = math.rad(7) * math.min(1, 18 / longest)
 	local y = top
-	local levels = if round then { { 0.7, 0.2 }, { 0.52, 0.26 }, { 0.32, 0.24 } } else { { 0.97, 0.18 }, { 0.8, 0.22 }, { 0.56, 0.26 }, { 0.32, 0.22 } }
+	local levels = if round
+		then { { 0.7, 0.2 }, { 0.52, 0.26 }, { 0.32, 0.24 } }
+		else { { 0.97, 0.18 }, { 0.8, 0.22 }, { 0.56, 0.26 }, { 0.32, 0.22 } }
 	if round then
-		local rim = disc(parent, Vector3.new(center.X, y, center.Z), longest * 2 * 0.96, depth * 0.16, vary(COLORS.rockWarm), "rock")
+		local rim = disc(
+			parent,
+			Vector3.new(center.X, y, center.Z),
+			longest * 2 * 0.96,
+			depth * 0.16,
+			vary(COLORS.rockWarm),
+			"rock"
+		)
 		rim.CastShadow = false
 		y -= depth * 0.14
 	end
@@ -200,11 +258,19 @@ local function rockMass(parent: Instance, center: Vector3, halfX: number, halfZ:
 		local height = depth * level[2]
 		local sizeX = halfX * 2 * level[1] * (1 + jitter(0.06))
 		local sizeZ = halfZ * 2 * level[1] * (1 + jitter(0.06))
-		local offset = if index == 1 and not round then Vector3.zero else Vector3.new(jitter(halfX * 0.1), 0, jitter(halfZ * 0.1))
+		local offset = if index == 1 and not round
+			then Vector3.zero
+			else Vector3.new(jitter(halfX * 0.1), 0, jitter(halfZ * 0.1))
 		local tilt = jitter(math.rad(3))
 		local cframe = CFrame.new(at(Vector3.new(center.X, y - height / 2, center.Z) + offset))
 			* CFrame.Angles(tilt, jitter(maxTurn), -tilt * 0.6)
-		part(parent, Vector3.new(sizeX, height, sizeZ), cframe, vary(shades[(index - 1) % 3 + 1]), if index % 2 == 0 then "rockDeep" else "rock")
+		part(
+			parent,
+			Vector3.new(sizeX, height, sizeZ),
+			cframe,
+			vary(shades[(index - 1) % 3 + 1]),
+			if index % 2 == 0 then "rockDeep" else "rock"
+		)
 		y -= height * 0.85 -- layers overlap a little, so no seams show
 	end
 	-- The point: a block turned onto its corner, pointing down.
@@ -212,7 +278,8 @@ local function rockMass(parent: Instance, center: Vector3, halfX: number, halfZ:
 	part(
 		parent,
 		Vector3.new(tip, tip, tip),
-		CFrame.new(at(Vector3.new(center.X, y - tip * 0.25, center.Z))) * CFrame.Angles(math.rad(45), jitter(math.pi), math.rad(35)),
+		CFrame.new(at(Vector3.new(center.X, y - tip * 0.25, center.Z)))
+			* CFrame.Angles(math.rad(45), jitter(math.pi), math.rad(35)),
 		vary(COLORS.rockDark),
 		"rockDeep"
 	)
@@ -220,7 +287,11 @@ local function rockMass(parent: Instance, center: Vector3, halfX: number, halfZ:
 	for _ = 1, hanging or 2 do
 		local angle = shapeRandom:NextNumber(0, math.pi * 2)
 		local reach = if round then 0.5 else 0.7
-		local spot = Vector3.new(center.X + math.cos(angle) * halfX * reach, top - depth * 0.3, center.Z + math.sin(angle) * halfZ * reach)
+		local spot = Vector3.new(
+			center.X + math.cos(angle) * halfX * reach,
+			top - depth * 0.3,
+			center.Z + math.sin(angle) * halfZ * reach
+		)
 		local size = math.min(halfX, halfZ) * shapeRandom:NextNumber(0.16, 0.26)
 		part(
 			parent,
@@ -261,7 +332,14 @@ local function surface(target: BasePart, face: Enum.NormalId, pixelsPerStud: num
 	return gui
 end
 
-local function label(parent: Instance, text: string, top: number, height: number, color: Color3, font: Enum.Font): TextLabel
+local function label(
+	parent: Instance,
+	text: string,
+	top: number,
+	height: number,
+	color: Color3,
+	font: Enum.Font
+): TextLabel
 	local textLabel = Instance.new("TextLabel")
 	textLabel.BackgroundTransparency = 1
 	textLabel.Position = UDim2.fromScale(0.05, top)
@@ -337,7 +415,14 @@ end
 
 -- A banner: a pole with a cloth in the faction's color showing its symbol letters and name in
 -- large letters, facing `toward`. `scale` 1 is the plaza banner; `widthScale` widens the cloth.
-local function banner(parent: Instance, base: Vector3, toward: Vector3, traitId: string, scale: number, widthScale: number?)
+local function banner(
+	parent: Instance,
+	base: Vector3,
+	toward: Vector3,
+	traitId: string,
+	scale: number,
+	widthScale: number?
+)
 	local trait = TraitIconConfig[traitId]
 	if not trait then
 		return
@@ -388,14 +473,27 @@ local function lantern(parent: Instance, base: Vector3)
 	local lamp = part(parent, Vector3.new(1.7, 1.5, 1.7), CFrame.new(at(base, 4.25)), COLORS.lanternLight, "glow")
 	light(lamp, COLORS.lanternLight, 16, 1.2)
 	lamp:SetAttribute("Flame", true) -- HubScenery flickers its glow and light
-	part(parent, Vector3.new(2.9, 0.6, 2.9), CFrame.new(at(base, 5.3)) * CFrame.Angles(0, math.rad(45), 0), COLORS.dark, "metal")
+	part(
+		parent,
+		Vector3.new(2.9, 0.6, 2.9),
+		CFrame.new(at(base, 5.3)) * CFrame.Angles(0, math.rad(45), 0),
+		COLORS.dark,
+		"metal"
+	)
 	lightPool(parent, base, HubConfig.lightPools.lantern, COLORS.lanternLight)
 end
 
 -- A cherry tree: a dark trunk with a branch, under a cluster of overlapping blossom balls in three
 -- pinks, dropping petals.
 local function tree(parent: Instance, base: Vector3)
-	part(parent, Vector3.new(8.5, 1.3, 1.3), CFrame.new(at(base, 4.1)) * CFrame.Angles(math.rad(5), 0, 0) * UPRIGHT, vary(COLORS.trunk), "wood", Enum.PartType.Cylinder)
+	part(
+		parent,
+		Vector3.new(8.5, 1.3, 1.3),
+		CFrame.new(at(base, 4.1)) * CFrame.Angles(math.rad(5), 0, 0) * UPRIGHT,
+		vary(COLORS.trunk),
+		"wood",
+		Enum.PartType.Cylinder
+	)
 	local turn = shapeRandom:NextNumber(0, math.pi * 2)
 	part(
 		parent,
@@ -412,7 +510,14 @@ local function tree(parent: Instance, base: Vector3)
 		{ Vector3.new(0.6, 11, -0.4), 5, COLORS.blossomLight },
 	}
 	for index, ball in canopy do
-		local leaves = part(parent, Vector3.one * ball[2], CFrame.new(at(base + ball[1])), vary(ball[3]), "foliage", Enum.PartType.Ball)
+		local leaves = part(
+			parent,
+			Vector3.one * ball[2],
+			CFrame.new(at(base + ball[1])),
+			vary(ball[3]),
+			"foliage",
+			Enum.PartType.Ball
+		)
 		leaves.CastShadow = index == 1
 		if index == 1 then
 			emitter(leaves, {
@@ -435,14 +540,34 @@ end
 -- A display board on two round posts with a glowing cap, facing `toward`: title, live status and
 -- one line of instructions, each in its own band, so their text never overlaps. Returns the status
 -- label.
-local function display(parent: Instance, base: Vector3, toward: Vector3, color: Color3, title: string, hint: string): TextLabel
+local function display(
+	parent: Instance,
+	base: Vector3,
+	toward: Vector3,
+	color: Color3,
+	title: string,
+	hint: string
+): TextLabel
 	local size = HubConfig.displaySize
 	local frame = facing(base, toward)
 	local lift = 2.6
-	local board = part(parent, Vector3.new(size.X, size.Y, 0.8), frame * CFrame.new(0, lift + size.Y / 2, 0), COLORS.displayBoard, "wood")
+	local board = part(
+		parent,
+		Vector3.new(size.X, size.Y, 0.8),
+		frame * CFrame.new(0, lift + size.Y / 2, 0),
+		COLORS.displayBoard,
+		"wood"
+	)
 	for _, side in { -1, 1 } do
 		local height = lift + size.Y + 0.4
-		part(parent, Vector3.new(height, 0.9, 0.9), frame * CFrame.new(side * (size.X / 2 + 0.45), height / 2, 0) * UPRIGHT, COLORS.displayFrame, "wood", Enum.PartType.Cylinder)
+		part(
+			parent,
+			Vector3.new(height, 0.9, 0.9),
+			frame * CFrame.new(side * (size.X / 2 + 0.45), height / 2, 0) * UPRIGHT,
+			COLORS.displayFrame,
+			"wood",
+			Enum.PartType.Cylinder
+		)
 	end
 	part(parent, Vector3.new(size.X + 1.8, 0.5, 1.1), frame * CFrame.new(0, lift + size.Y + 0.45, 0), color, "glow")
 	local gui = surface(board, Enum.NormalId.Front, 40)
@@ -471,7 +596,14 @@ local function bridge(parent: Instance, from: Vector3, to: Vector3)
 	part(parent, Vector3.new(5, 0.6, length + 2), cframe * CFrame.new(0, -0.3, 0), vary(COLORS.woodLight), "planks")
 	for _, side in { -1, 1 } do
 		part(parent, Vector3.new(0.4, 0.4, length + 2), cframe * CFrame.new(side * 2.6, 2.6, 0), COLORS.rail, "wood")
-		part(parent, Vector3.new(2.6, 0.5, 0.5), cframe * CFrame.new(side * 2.6, 1.3, 0) * UPRIGHT, COLORS.wood, "wood", Enum.PartType.Cylinder)
+		part(
+			parent,
+			Vector3.new(2.6, 0.5, 0.5),
+			cframe * CFrame.new(side * 2.6, 1.3, 0) * UPRIGHT,
+			COLORS.wood,
+			"wood",
+			Enum.PartType.Cylinder
+		)
 	end
 end
 
@@ -501,7 +633,15 @@ local function mainIsland(folder: Instance)
 	local half = HubConfig.avenueHalfWidth
 	slab(folder, { -half, half }, { spine.z[1] + 8, spine.z[2] }, 0.06, 0.3, vary(COLORS.avenue), "avenue")
 	for _, side in { -1, 1 } do
-		slab(folder, { side * half - 0.6, side * half + 0.6 }, { spine.z[1] + 8, spine.z[2] }, 0.07, 0.3, vary(COLORS.border), "border")
+		slab(
+			folder,
+			{ side * half - 0.6, side * half + 0.6 },
+			{ spine.z[1] + 8, spine.z[2] },
+			0.07,
+			0.3,
+			vary(COLORS.border),
+			"border"
+		)
 	end
 	disc(folder, plaza.center + Vector3.new(0, 0.08, 0), 40, 0.3, COLORS.inlay, "inlay")
 	disc(folder, plaza.center + Vector3.new(0, 0.1, 0), 37, 0.3, vary(COLORS.inlayInner), "border")
@@ -511,8 +651,24 @@ local function mainIsland(folder: Instance)
 	local terrace = HubConfig.terrace
 	local h = terrace.height
 	slab(folder, terrace.x, terrace.z, h, 2, vary(COLORS.terraceFloor), "terrace")
-	slab(folder, { terrace.x[1] - 1.5, terrace.x[2] + 1.5 }, { terrace.z[1], terrace.z[2] + 1.5 }, h - 0.1, 2.5, vary(COLORS.grass), "grass")
-	slab(folder, { terrace.x[1] + 0.5, terrace.x[2] - 0.5 }, { terrace.z[1], terrace.z[1] + 6 }, h - 2, h - 2, vary(COLORS.rock), "rock")
+	slab(
+		folder,
+		{ terrace.x[1] - 1.5, terrace.x[2] + 1.5 },
+		{ terrace.z[1], terrace.z[2] + 1.5 },
+		h - 0.1,
+		2.5,
+		vary(COLORS.grass),
+		"grass"
+	)
+	slab(
+		folder,
+		{ terrace.x[1] + 0.5, terrace.x[2] - 0.5 },
+		{ terrace.z[1], terrace.z[1] + 6 },
+		h - 2,
+		h - 2,
+		vary(COLORS.rock),
+		"rock"
+	)
 	rockMass(
 		folder,
 		Vector3.new((terrace.x[1] + terrace.x[2]) / 2, 0, (terrace.z[1] + terrace.z[2]) / 2),
@@ -527,13 +683,27 @@ local function mainIsland(folder: Instance)
 	local front = terrace.z[1]
 	for step = 1, stairs.steps do
 		local near = front - (step - 1) * stairs.depth
-		slab(folder, { -stairs.halfWidth, stairs.halfWidth }, { near - stairs.depth, near }, terrace.height - step, terrace.height - step, vary(COLORS.avenue), "avenue")
+		slab(
+			folder,
+			{ -stairs.halfWidth, stairs.halfWidth },
+			{ near - stairs.depth, near },
+			terrace.height - step,
+			terrace.height - step,
+			vary(COLORS.avenue),
+			"avenue"
+		)
 	end
 	local bottom = front - stairs.steps * stairs.depth
 	for _, side in { -1, 1 } do
 		local x = side * (stairs.halfWidth + 0.6)
 		local top, low = Vector3.new(x, terrace.height + 1.2, front), Vector3.new(x, 1.2, bottom)
-		part(folder, Vector3.new(1.2, 1.4, (top - low).Magnitude + 1), CFrame.lookAt(at((top + low) / 2), at(low)), vary(COLORS.curb), "curb")
+		part(
+			folder,
+			Vector3.new(1.2, 1.4, (top - low).Magnitude + 1),
+			CFrame.lookAt(at((top + low) / 2), at(low)),
+			vary(COLORS.curb),
+			"curb"
+		)
 	end
 end
 
@@ -580,16 +750,35 @@ local function arrival(folder: Instance)
 	disc(folder, position + Vector3.new(0, 0.2, 0), 9.4, 0.3, COLORS.spawnStone, "pedestal")
 	disc(folder, position + Vector3.new(0, 0.26, 0), 3.4, 0.2, COLORS.gold, "metal")
 	for i = 0, 3 do
-		part(folder, Vector3.new(1, 0.12, 1), CFrame.new(at(around(position, i * 90, 3.2), 0.24)) * CFrame.Angles(0, math.rad(45), 0), COLORS.gold, "metal")
+		part(
+			folder,
+			Vector3.new(1, 0.12, 1),
+			CFrame.new(at(around(position, i * 90, 3.2), 0.24)) * CFrame.Angles(0, math.rad(45), 0),
+			COLORS.gold,
+			"metal"
+		)
 	end
 
 	local gate = HubConfig.torii
 	for _, side in { -1, 1 } do
 		local pillar = gate + Vector3.new(side * 7, 0, 0)
-		part(folder, Vector3.new(13.6, 1.4, 1.4), CFrame.new(at(pillar, 6.8)) * UPRIGHT, COLORS.torii, "wood", Enum.PartType.Cylinder)
+		part(
+			folder,
+			Vector3.new(13.6, 1.4, 1.4),
+			CFrame.new(at(pillar, 6.8)) * UPRIGHT,
+			COLORS.torii,
+			"wood",
+			Enum.PartType.Cylinder
+		)
 		part(folder, Vector3.new(2.2, 0.8, 2.2), CFrame.new(at(pillar, 0.4)), COLORS.dark, "stone")
 		-- The kasagi's upturned tips.
-		part(folder, Vector3.new(2.4, 1, 2), CFrame.new(at(gate + Vector3.new(side * 10.6, 0, 0), 14.4)) * CFrame.Angles(0, 0, math.rad(side * 16)), COLORS.dark, "wood")
+		part(
+			folder,
+			Vector3.new(2.4, 1, 2),
+			CFrame.new(at(gate + Vector3.new(side * 10.6, 0, 0), 14.4)) * CFrame.Angles(0, 0, math.rad(side * 16)),
+			COLORS.dark,
+			"wood"
+		)
 	end
 	part(folder, Vector3.new(20, 1, 2), CFrame.new(at(gate, 14.1)), COLORS.dark, "wood")
 	part(folder, Vector3.new(18, 0.8, 1.5), CFrame.new(at(gate, 13.2)), COLORS.torii, "wood")
@@ -610,7 +799,14 @@ local function plaza(folder: Instance)
 	local blade = part(folder, Vector3.new(0.35, 11, 1.4), pivot * CFrame.new(0, 4.7, 0), COLORS.blade, "metal")
 	light(blade, COLORS.glow, 18, 1)
 	part(folder, Vector3.new(0.15, 10.4, 0.25), pivot * CFrame.new(0, 4.6, 0.62), COLORS.gold, "glow")
-	part(folder, Vector3.new(0.4, 3.4, 3.4), pivot * CFrame.new(0, 10.4, 0) * UPRIGHT, COLORS.gold, "metal", Enum.PartType.Cylinder)
+	part(
+		folder,
+		Vector3.new(0.4, 3.4, 3.4),
+		pivot * CFrame.new(0, 10.4, 0) * UPRIGHT,
+		COLORS.gold,
+		"metal",
+		Enum.PartType.Cylinder
+	)
 	part(folder, Vector3.new(0.85, 3.6, 0.85), pivot * CFrame.new(0, 12.4, 0), COLORS.hilt, "fabric")
 	part(folder, Vector3.new(1, 1, 1), pivot * CFrame.new(0, 14.5, 0), COLORS.gold, "metal", Enum.PartType.Ball)
 
@@ -665,7 +861,13 @@ local function gallery(folder: Instance)
 				plinth.Name = unitType
 				plinth:SetAttribute("UnitType", unitType)
 				-- The lighter cap, flush with the top, overhanging a little.
-				part(folder, Vector3.new(3.4, 0.3, 3.4), frame * CFrame.new(0, config.plinthHeight - 0.15, 0), COLORS.stoneCap, "pedestal")
+				part(
+					folder,
+					Vector3.new(3.4, 0.3, 3.4),
+					frame * CFrame.new(0, config.plinthHeight - 0.15, 0),
+					COLORS.stoneCap,
+					"pedestal"
+				)
 				-- A small uplight on the statue, so each one stands out along the avenue.
 				local uplight = Instance.new("SpotLight")
 				uplight.Face = Enum.NormalId.Top
@@ -682,7 +884,8 @@ local function gallery(folder: Instance)
 				band.BackgroundColor3 = traitColor(faction)
 				band.BorderSizePixel = 0
 				band.Parent = gui
-				label(gui, SkinConfig[unitType].name, 0.3, 0.32, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
+				label(gui, SkinConfig[unitType].name, 0.3, 0.32, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency =
+					1
 			end
 		end
 		-- The row's darker base course, under all its plinths.
@@ -706,11 +909,25 @@ local function arenaGate(folder: Instance): Pad
 	light(surfacePart, config.color, 24, 2)
 	local spots = {}
 	for i = 1, config.spots do
-		local spot = disc(folder, around(origin, (i - 1) * 360 / config.spots, config.spotRadius) + Vector3.new(0, top + 0.06, 0), 3.2, 0.1, COLORS.spotOff, "metal")
+		local spot = disc(
+			folder,
+			around(origin, (i - 1) * 360 / config.spots, config.spotRadius) + Vector3.new(0, top + 0.06, 0),
+			3.2,
+			0.1,
+			COLORS.spotOff,
+			"metal"
+		)
 		spot.Name = "Spot" .. i
 		table.insert(spots, spot)
 	end
-	local beam = disc(folder, origin + Vector3.new(0, top + HubConfig.beamHeight, 0), 5, HubConfig.beamHeight, config.color, "glow")
+	local beam = disc(
+		folder,
+		origin + Vector3.new(0, top + HubConfig.beamHeight, 0),
+		5,
+		HubConfig.beamHeight,
+		config.color,
+		"glow"
+	)
 	beam.Transparency = 0.85
 	ghost(beam)
 
@@ -721,24 +938,87 @@ local function arenaGate(folder: Instance): Pad
 	local c = gate.center
 	local half = gate.width / 2
 	for _, side in { -1, 1 } do
-		part(folder, Vector3.new(gate.height, 4, 4), CFrame.new(at(c + Vector3.new(side * half, gate.height / 2, 0))) * UPRIGHT, accent.main, "wood", Enum.PartType.Cylinder)
-		part(folder, Vector3.new(5.5, 2, 5.5), CFrame.new(at(c + Vector3.new(side * half, 1, 0))), vary(COLORS.border), "border")
+		part(
+			folder,
+			Vector3.new(gate.height, 4, 4),
+			CFrame.new(at(c + Vector3.new(side * half, gate.height / 2, 0))) * UPRIGHT,
+			accent.main,
+			"wood",
+			Enum.PartType.Cylinder
+		)
+		part(
+			folder,
+			Vector3.new(5.5, 2, 5.5),
+			CFrame.new(at(c + Vector3.new(side * half, 1, 0))),
+			vary(COLORS.border),
+			"border"
+		)
 		part(
 			folder,
 			Vector3.new(8, 1.4, 10),
-			CFrame.new(at(c + Vector3.new(side * (half + 6), gate.height + 3.6, 0))) * CFrame.Angles(0, 0, math.rad(side * 18)),
+			CFrame.new(at(c + Vector3.new(side * (half + 6), gate.height + 3.6, 0)))
+				* CFrame.Angles(0, 0, math.rad(side * 18)),
 			accent.main,
 			"roof"
 		)
-		part(folder, Vector3.one * 1.2, CFrame.new(at(c + Vector3.new(side * (half - 2), gate.height + 5.2, 0))), accent.trim, "metal", Enum.PartType.Ball)
+		part(
+			folder,
+			Vector3.one * 1.2,
+			CFrame.new(at(c + Vector3.new(side * (half - 2), gate.height + 5.2, 0))),
+			accent.trim,
+			"metal",
+			Enum.PartType.Ball
+		)
 	end
-	part(folder, Vector3.new(gate.width + 8, 3, 5), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 0))), COLORS.dark, "wood")
-	part(folder, Vector3.new(gate.width + 8.2, 0.4, 5.2), CFrame.new(at(c + Vector3.new(0, gate.height, 0))), accent.trim, "metal")
-	part(folder, Vector3.new(gate.width + 4, 2, 3.6), CFrame.new(at(c + Vector3.new(0, gate.height - 3, 0))), accent.main, "wood")
-	part(folder, Vector3.new(gate.width + 6, 1.4, 10), CFrame.new(at(c + Vector3.new(0, gate.height + 3.7, 0))), accent.main, "roof")
-	part(folder, Vector3.new(gate.width - 2, 0.6, 0.8), CFrame.new(at(c + Vector3.new(0, gate.height + 4.7, 0))), accent.trim, "metal")
-	part(folder, Vector3.new(gate.width - 4, gate.height - 5, 1), CFrame.new(at(c + Vector3.new(0, (gate.height - 5) / 2, -1.5))), COLORS.trunk, "planks")
-	local portal = part(folder, Vector3.new(gate.width - 8, gate.height - 9, 0.3), CFrame.new(at(c + Vector3.new(0, (gate.height - 9) / 2 + 1, 2.6))), COLORS.portal, "glow")
+	part(
+		folder,
+		Vector3.new(gate.width + 8, 3, 5),
+		CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 0))),
+		COLORS.dark,
+		"wood"
+	)
+	part(
+		folder,
+		Vector3.new(gate.width + 8.2, 0.4, 5.2),
+		CFrame.new(at(c + Vector3.new(0, gate.height, 0))),
+		accent.trim,
+		"metal"
+	)
+	part(
+		folder,
+		Vector3.new(gate.width + 4, 2, 3.6),
+		CFrame.new(at(c + Vector3.new(0, gate.height - 3, 0))),
+		accent.main,
+		"wood"
+	)
+	part(
+		folder,
+		Vector3.new(gate.width + 6, 1.4, 10),
+		CFrame.new(at(c + Vector3.new(0, gate.height + 3.7, 0))),
+		accent.main,
+		"roof"
+	)
+	part(
+		folder,
+		Vector3.new(gate.width - 2, 0.6, 0.8),
+		CFrame.new(at(c + Vector3.new(0, gate.height + 4.7, 0))),
+		accent.trim,
+		"metal"
+	)
+	part(
+		folder,
+		Vector3.new(gate.width - 4, gate.height - 5, 1),
+		CFrame.new(at(c + Vector3.new(0, (gate.height - 5) / 2, -1.5))),
+		COLORS.trunk,
+		"planks"
+	)
+	local portal = part(
+		folder,
+		Vector3.new(gate.width - 8, gate.height - 9, 0.3),
+		CFrame.new(at(c + Vector3.new(0, (gate.height - 9) / 2 + 1, 2.6))),
+		COLORS.portal,
+		"glow"
+	)
 	portal.Transparency = 0.55
 	ghost(portal)
 	light(portal, COLORS.portal, 26, 1.5)
@@ -748,8 +1028,15 @@ local function arenaGate(folder: Instance): Pad
 	local pools = HubConfig.lightPools
 	lightPool(folder, origin, pools.pad, config.color)
 	lightPool(folder, Vector3.new(c.X, 0, c.Z + 4), pools.gate, COLORS.portal)
-	local plaque = part(folder, Vector3.new(8, 2.6, 0.4), CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 2.7))), accent.trim, "metal")
-	label(surface(plaque, Enum.NormalId.Back, 40), "闘技場  ARENA", 0.12, 0.76, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
+	local plaque = part(
+		folder,
+		Vector3.new(8, 2.6, 0.4),
+		CFrame.new(at(c + Vector3.new(0, gate.height + 1.5, 2.7))),
+		accent.trim,
+		"metal"
+	)
+	label(surface(plaque, Enum.NormalId.Back, 40), "闘技場  ARENA", 0.12, 0.76, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency =
+		1
 
 	local status = display(folder, config.display, config.displayFacing, config.color, config.title, config.hint)
 	return {
@@ -775,8 +1062,25 @@ local function trainingYard(folder: Instance): Pad
 	local x, z = { config.x[1] - 1, config.x[2] + 1 }, { config.z[1] - 1, config.z[2] + 1 }
 	slab(folder, x, z, config.height, 3, vary(COLORS.woodLight), "planks")
 	-- A grass lip on the three outer sides (the fourth meets the plaza).
-	slab(folder, { x[1], x[2] + 1.5 }, { z[1] - 1.5, z[2] + 1.5 }, config.height - 0.1, 2.5, vary(COLORS.grass), "grass")
-	rockMass(folder, Vector3.new((x[1] + x[2]) / 2, 0, (z[1] + z[2]) / 2), (x[2] - x[1]) / 2, (z[2] - z[1]) / 2, config.height - 3, 30, false, 3)
+	slab(
+		folder,
+		{ x[1], x[2] + 1.5 },
+		{ z[1] - 1.5, z[2] + 1.5 },
+		config.height - 0.1,
+		2.5,
+		vary(COLORS.grass),
+		"grass"
+	)
+	rockMass(
+		folder,
+		Vector3.new((x[1] + x[2]) / 2, 0, (z[1] + z[2]) / 2),
+		(x[2] - x[1]) / 2,
+		(z[2] - z[1]) / 2,
+		config.height - 3,
+		30,
+		false,
+		3
+	)
 	local height = yard.wallHeight
 	-- A plaster wall on a terracotta base course, under an indigo tiled cap.
 	local walls = {}
@@ -784,8 +1088,20 @@ local function trainingYard(folder: Instance): Pad
 		local length = (to - from).Magnitude
 		local frame = CFrame.lookAt(at((from + to) / 2, height / 2), at(to, height / 2))
 		part(folder, Vector3.new(1.2, height, length + 1.2), frame, vary(COLORS.stoneCap, 0.5), "wall")
-		part(folder, Vector3.new(1.6, 1.2, length + 1.6), frame * CFrame.new(0, -height / 2 + 0.6, 0), vary(accent.trim, 0.5), "ringEdge")
-		part(folder, Vector3.new(2.2, 0.8, length + 2.2), frame * CFrame.new(0, height / 2 + 0.3, 0), accent.main, "roof")
+		part(
+			folder,
+			Vector3.new(1.6, 1.2, length + 1.6),
+			frame * CFrame.new(0, -height / 2 + 0.6, 0),
+			vary(accent.trim, 0.5),
+			"ringEdge"
+		)
+		part(
+			folder,
+			Vector3.new(2.2, 0.8, length + 2.2),
+			frame * CFrame.new(0, height / 2 + 0.3, 0),
+			accent.main,
+			"roof"
+		)
 		table.insert(walls, { frame = frame, length = length })
 	end
 	local y = config.height
@@ -800,12 +1116,18 @@ local function trainingYard(folder: Instance): Pad
 		for _, side in { -1, 1 } do
 			local entry = walls[index]
 			local along = (shapeRandom:NextNumber() - 0.5) * entry.length * 0.8
-			local stone = Vector3.new(shapeRandom:NextNumber(1.2, 2.2), shapeRandom:NextNumber(0.7, 1.2), shapeRandom:NextNumber(1.6, 2.6))
+			local stone = Vector3.new(
+				shapeRandom:NextNumber(1.2, 2.2),
+				shapeRandom:NextNumber(0.7, 1.2),
+				shapeRandom:NextNumber(1.6, 2.6)
+			)
 			if index == 1 or side == 1 then
 				part(
 					folder,
 					stone,
-					entry.frame * CFrame.new(side * 0.5, shapeRandom:NextNumber(-1.5, 2), along) * CFrame.Angles(0, 0, jitter(0.1)),
+					entry.frame
+						* CFrame.new(side * 0.5, shapeRandom:NextNumber(-1.5, 2), along)
+						* CFrame.Angles(0, 0, jitter(0.1)),
 					vary(COLORS.curb),
 					"curb"
 				)
@@ -813,18 +1135,51 @@ local function trainingYard(folder: Instance): Pad
 		end
 	end
 	-- A beam over the opening, with the yard's name.
-	local beam = part(folder, Vector3.new(1.6, 1.6, open * 2 + 3), CFrame.new(at(Vector3.new(x[1], y + height + 0.2, 0))), accent.main, "wood")
-	label(surface(beam, Enum.NormalId.Left, 40), "修行場  TRAINING YARD", 0.05, 0.9, COLORS.gold, Enum.Font.GothamBlack)
+	local beam = part(
+		folder,
+		Vector3.new(1.6, 1.6, open * 2 + 3),
+		CFrame.new(at(Vector3.new(x[1], y + height + 0.2, 0))),
+		accent.main,
+		"wood"
+	)
+	label(
+		surface(beam, Enum.NormalId.Left, 40),
+		"修行場  TRAINING YARD",
+		0.05,
+		0.9,
+		COLORS.gold,
+		Enum.Font.GothamBlack
+	)
 
 	-- Training dummies (some larger), facing the opening.
 	for _, dummy in yard.dummies do
 		local s = dummy.scale
 		local base = dummy.position + Vector3.new(0, y, 0)
 		local frame = facing(base, Vector3.new(x[1], base.Y, base.Z))
-		part(folder, Vector3.new(5 * s, 0.5 * s, 0.5 * s), CFrame.new(at(base, 2.5 * s)) * UPRIGHT, vary(COLORS.wood), "wood", Enum.PartType.Cylinder)
-		part(folder, Vector3.new(1.6, 2.6, 1.2) * s, frame * CFrame.new(0, 4.4 * s, 0), vary(COLORS.woodLight), "fabric")
+		part(
+			folder,
+			Vector3.new(5 * s, 0.5 * s, 0.5 * s),
+			CFrame.new(at(base, 2.5 * s)) * UPRIGHT,
+			vary(COLORS.wood),
+			"wood",
+			Enum.PartType.Cylinder
+		)
+		part(
+			folder,
+			Vector3.new(1.6, 2.6, 1.2) * s,
+			frame * CFrame.new(0, 4.4 * s, 0),
+			vary(COLORS.woodLight),
+			"fabric"
+		)
 		part(folder, Vector3.new(4, 0.4, 0.4) * s, frame * CFrame.new(0, 5 * s, 0), vary(COLORS.wood), "wood")
-		part(folder, Vector3.one * 1.4 * s, frame * CFrame.new(0, 6.5 * s, 0), COLORS.stoneCap, "fabric", Enum.PartType.Ball)
+		part(
+			folder,
+			Vector3.one * 1.4 * s,
+			frame * CFrame.new(0, 6.5 * s, 0),
+			COLORS.stoneCap,
+			"fabric",
+			Enum.PartType.Ball
+		)
 	end
 
 	-- The sparring ring (HubScenery puts two sparring figures in it) and practice mats.
@@ -843,7 +1198,13 @@ local function trainingYard(folder: Instance): Pad
 		part(folder, Vector3.new(4, 3.4, 0.3), frame * CFrame.new(0, 1.9, 0.3), vary(COLORS.wood), "planks")
 		part(folder, Vector3.new(4.2, 0.4, 0.9), frame * CFrame.new(0, 0.2, 0), COLORS.dark, "wood")
 		for _, side in { -1, 1 } do
-			part(folder, Vector3.new(0.22, 3.8, 0.22), frame * CFrame.new(side * 1.1, 2.1, -0.1) * CFrame.Angles(math.rad(-6), 0, 0), if side < 0 then COLORS.blade else COLORS.trunk, "metal")
+			part(
+				folder,
+				Vector3.new(0.22, 3.8, 0.22),
+				frame * CFrame.new(side * 1.1, 2.1, -0.1) * CFrame.Angles(math.rad(-6), 0, 0),
+				if side < 0 then COLORS.blade else COLORS.trunk,
+				"metal"
+			)
 		end
 	end
 
@@ -898,11 +1259,24 @@ local function shrine(folder: Instance)
 	local roofHeight = 9.5
 	for i = 0, 7 do
 		local pillar = around(origin, i * 45 + 22.5, config.daisRadius - 1.2)
-		part(folder, Vector3.new(roofHeight - 0.9, 1, 1), CFrame.new(at(pillar, 0.9 + (roofHeight - 0.9) / 2)) * UPRIGHT, COLORS.wood, "wood", Enum.PartType.Cylinder)
+		part(
+			folder,
+			Vector3.new(roofHeight - 0.9, 1, 1),
+			CFrame.new(at(pillar, 0.9 + (roofHeight - 0.9) / 2)) * UPRIGHT,
+			COLORS.wood,
+			"wood",
+			Enum.PartType.Cylinder
+		)
 	end
 	for tier, size in { { 32, roofHeight + 0.5 }, { 20, roofHeight + 2.5 } } do
 		for _, turn in { 0, 45 } do
-			part(folder, Vector3.new(size[1], 1.2, size[1]), CFrame.new(at(origin, size[2])) * CFrame.Angles(0, math.rad(turn), 0), if tier == 1 then accent.main else accent.main:Lerp(Color3.new(1, 1, 1), 0.25), "roof")
+			part(
+				folder,
+				Vector3.new(size[1], 1.2, size[1]),
+				CFrame.new(at(origin, size[2])) * CFrame.Angles(0, math.rad(turn), 0),
+				if tier == 1 then accent.main else accent.main:Lerp(Color3.new(1, 1, 1), 0.25),
+				"roof"
+			)
 		end
 	end
 	-- Upturned gold tips on the lower roof's four corners.
@@ -912,13 +1286,22 @@ local function shrine(folder: Instance)
 		part(
 			folder,
 			Vector3.new(1.6, 0.6, 3),
-			CFrame.lookAt(at(tip, roofHeight + 0.9), at(tip + outward, roofHeight + 0.9)) * CFrame.Angles(math.rad(25), 0, 0),
+			CFrame.lookAt(at(tip, roofHeight + 0.9), at(tip + outward, roofHeight + 0.9))
+				* CFrame.Angles(math.rad(25), 0, 0),
 			accent.trim,
 			"metal"
 		)
 	end
-	part(folder, Vector3.new(1.6, 1.6, 1.6), CFrame.new(at(origin, roofHeight + 4)), accent.trim, "metal", Enum.PartType.Ball)
-	local hanging = part(folder, Vector3.new(1.4, 1.8, 1.4), CFrame.new(at(origin, roofHeight - 2)), COLORS.lanternLight, "glow")
+	part(
+		folder,
+		Vector3.new(1.6, 1.6, 1.6),
+		CFrame.new(at(origin, roofHeight + 4)),
+		accent.trim,
+		"metal",
+		Enum.PartType.Ball
+	)
+	local hanging =
+		part(folder, Vector3.new(1.4, 1.8, 1.4), CFrame.new(at(origin, roofHeight - 2)), COLORS.lanternLight, "glow")
 	ghost(hanging)
 	light(hanging, COLORS.lanternLight, 20, 1.2)
 
@@ -926,7 +1309,8 @@ local function shrine(folder: Instance)
 	for itemId in ItemConfig.items do
 		table.insert(ids, itemId)
 	end
-	local order = { [ItemConfig.Category.Offensive] = 1, [ItemConfig.Category.Ability] = 2, [ItemConfig.Category.Defensive] = 3 }
+	local order =
+		{ [ItemConfig.Category.Offensive] = 1, [ItemConfig.Category.Ability] = 2, [ItemConfig.Category.Defensive] = 3 }
 	table.sort(ids, function(a, b)
 		local categoryA, categoryB = order[ItemConfig.items[a].category], order[ItemConfig.items[b].category]
 		if categoryA ~= categoryB then
@@ -941,7 +1325,13 @@ local function shrine(folder: Instance)
 		local angle = first + (last - first) * (index - 1) / math.max(#ids - 1, 1)
 		local position = around(origin, angle, config.pedestalRadius) + Vector3.new(0, 0.9, 0)
 		local frame = facing(position, origin)
-		local pedestal = part(pedestals, Vector3.new(1.8, 2.6, 1.8), frame * CFrame.new(0, 1.3, 0), vary(COLORS.plinth, 0.5), "pedestal")
+		local pedestal = part(
+			pedestals,
+			Vector3.new(1.8, 2.6, 1.8),
+			frame * CFrame.new(0, 1.3, 0),
+			vary(COLORS.plinth, 0.5),
+			"pedestal"
+		)
 		pedestal.Name = itemId
 		pedestal:SetAttribute("ItemId", itemId)
 		-- A thin gold cap, flush with the top.
@@ -963,7 +1353,14 @@ local function hallOfFame(folder: Instance): { [string]: Board }
 		local board = part(folder, Vector3.new(10, 11, 0.8), frame * CFrame.new(0, 6.5, 0), accent.main, "wood")
 		part(folder, Vector3.new(10.6, 11.6, 0.4), frame * CFrame.new(0, 6.5, 0.6), vary(COLORS.wood), "planks")
 		for _, side in { -1, 1 } do
-			part(folder, Vector3.new(13, 0.8, 0.8), frame * CFrame.new(side * 5.5, 6.5, 0.2) * UPRIGHT, accent.trim, "metal", Enum.PartType.Cylinder)
+			part(
+				folder,
+				Vector3.new(13, 0.8, 0.8),
+				frame * CFrame.new(side * 5.5, 6.5, 0.2) * UPRIGHT,
+				accent.trim,
+				"metal",
+				Enum.PartType.Cylinder
+			)
 		end
 		part(folder, Vector3.new(11.4, 0.6, 1.2), frame * CFrame.new(0, 12.3, 0), accent.trim, "metal")
 		part(folder, Vector3.new(13, 0.7, 3.2), frame * CFrame.new(0, 13.3, 0.2), accent.main, "roof")
@@ -979,7 +1376,8 @@ local function hallOfFame(folder: Instance): { [string]: Board }
 		layout.Padding = UDim.new(0.01, 0)
 		layout.Parent = list
 		list.Parent = gui
-		local placeholder = label(gui, config.placeholder, 0.45, 0.12, Color3.fromRGB(210, 214, 230), Enum.Font.GothamMedium)
+		local placeholder =
+			label(gui, config.placeholder, 0.45, 0.12, Color3.fromRGB(210, 214, 230), Enum.Font.GothamMedium)
 		boards[entry.id] = { list = list, placeholder = placeholder }
 	end
 	-- A podium in front of the boards, facing the same way: a base, then 2nd, 1st and 3rd, with a
@@ -989,10 +1387,24 @@ local function hallOfFame(folder: Instance): { [string]: Board }
 	part(folder, Vector3.new(14, 0.4, 5.6), frame * CFrame.new(0, 0.2, 0), vary(COLORS.border), "border")
 	-- Local +X is the viewer's left here, so 2nd stands on the left as seen from the terrace.
 	for index, step in { { 4.2, 2, "2" }, { 0, 3, "1" }, { -4.2, 1.4, "3" } } do
-		local block = part(folder, Vector3.new(4, step[2], 4), frame * CFrame.new(step[1], 0.4 + step[2] / 2, 0), if index == 2 then COLORS.gold else accent.trim, if index == 2 then "metal" else "pedestal")
-		label(surface(block, Enum.NormalId.Front, 30), step[3], 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency = 1
+		local block = part(
+			folder,
+			Vector3.new(4, step[2], 4),
+			frame * CFrame.new(step[1], 0.4 + step[2] / 2, 0),
+			if index == 2 then COLORS.gold else accent.trim,
+			if index == 2 then "metal" else "pedestal"
+		)
+		label(surface(block, Enum.NormalId.Front, 30), step[3], 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack).TextStrokeTransparency =
+			1
 	end
-	part(folder, Vector3.new(0.4, 1.2, 1.2), frame * CFrame.new(0, 3.6, 0) * UPRIGHT, COLORS.gold, "metal", Enum.PartType.Cylinder)
+	part(
+		folder,
+		Vector3.new(0.4, 1.2, 1.2),
+		frame * CFrame.new(0, 3.6, 0) * UPRIGHT,
+		COLORS.gold,
+		"metal",
+		Enum.PartType.Cylinder
+	)
 	part(folder, Vector3.new(1.4, 1.4, 1.4), frame * CFrame.new(0, 4.4, 0), COLORS.gold, "metal", Enum.PartType.Ball)
 	return boards
 end
@@ -1015,9 +1427,29 @@ local function outerIslands(folder: Instance)
 	ringCurb(folder, lookout.center, lookout.radius, { 270, 73 })
 	-- A telescope on a stand and a bench, looking out over the clouds.
 	local scope = lookout.center + Vector3.new(6, 0, -6)
-	part(folder, Vector3.new(3, 0.5, 0.5), CFrame.new(at(scope, 1.5)) * UPRIGHT, COLORS.dark, "metal", Enum.PartType.Cylinder)
-	part(folder, Vector3.new(3.2, 0.6, 0.6), CFrame.new(at(scope, 3.2)) * CFrame.Angles(0, math.rad(-45), math.rad(20)), COLORS.gold, "metal", Enum.PartType.Cylinder)
-	part(folder, Vector3.new(5, 0.6, 1.6), CFrame.new(at(lookout.center + Vector3.new(-4, 0, 6), 1)) * CFrame.Angles(0, math.rad(30), 0), vary(COLORS.woodLight), "planks")
+	part(
+		folder,
+		Vector3.new(3, 0.5, 0.5),
+		CFrame.new(at(scope, 1.5)) * UPRIGHT,
+		COLORS.dark,
+		"metal",
+		Enum.PartType.Cylinder
+	)
+	part(
+		folder,
+		Vector3.new(3.2, 0.6, 0.6),
+		CFrame.new(at(scope, 3.2)) * CFrame.Angles(0, math.rad(-45), math.rad(20)),
+		COLORS.gold,
+		"metal",
+		Enum.PartType.Cylinder
+	)
+	part(
+		folder,
+		Vector3.new(5, 0.6, 1.6),
+		CFrame.new(at(lookout.center + Vector3.new(-4, 0, 6), 1)) * CFrame.Angles(0, math.rad(30), 0),
+		vary(COLORS.woodLight),
+		"planks"
+	)
 	steppingStones(folder, Vector3.new(76, lookout.center.Y, -140), scope, 3)
 
 	disc(folder, garden.center, garden.radius * 2, 3, vary(COLORS.grass), "grass")
@@ -1031,7 +1463,8 @@ local function outerIslands(folder: Instance)
 	-- The hidden spot's reward: a small glowing shrine with a note.
 	local chest = part(folder, Vector3.new(2.4, 1.6, 1.6), CFrame.new(at(hidden.center, 0.8)), COLORS.torii, "wood")
 	part(folder, Vector3.new(2.6, 0.4, 1.8), CFrame.new(at(hidden.center, 1.8)), COLORS.gold, "metal")
-	local orb = part(folder, Vector3.one * 1.2, CFrame.new(at(hidden.center, 3)), COLORS.spawnGlow, "glow", Enum.PartType.Ball)
+	local orb =
+		part(folder, Vector3.one * 1.2, CFrame.new(at(hidden.center, 3)), COLORS.spawnGlow, "glow", Enum.PartType.Ball)
 	ghost(orb)
 	light(orb, COLORS.spawnGlow, 14, 2)
 	local note = surface(chest, Enum.NormalId.Back, 60) -- +Z: toward the last stepping stone
@@ -1059,13 +1492,31 @@ local function waterfall(folder: Instance)
 	local pool = disc(folder, pond + Vector3.new(0, 0.14, 0), 10, 0.3, COLORS.water, "water")
 	pool.Transparency = 0.2
 	local streamLength = lipX + 0.4 - pond.X
-	local stream = part(folder, Vector3.new(streamLength, 0.3, width), CFrame.new(at(Vector3.new(pond.X + streamLength / 2, -0.02, pond.Z))), COLORS.water, "water")
+	local stream = part(
+		folder,
+		Vector3.new(streamLength, 0.3, width),
+		CFrame.new(at(Vector3.new(pond.X + streamLength / 2, -0.02, pond.Z))),
+		COLORS.water,
+		"water"
+	)
 	stream.Transparency = 0.2
 	for _, side in { -1, 1 } do
 		local bankStart = pond.X + 4.5
-		part(folder, Vector3.new(edgeX - bankStart, 0.6, 0.8), CFrame.new(at(Vector3.new((bankStart + edgeX) / 2, 0.3, pond.Z + side * (width / 2 + 0.4)))), vary(COLORS.curb), "curb")
+		part(
+			folder,
+			Vector3.new(edgeX - bankStart, 0.6, 0.8),
+			CFrame.new(at(Vector3.new((bankStart + edgeX) / 2, 0.3, pond.Z + side * (width / 2 + 0.4)))),
+			vary(COLORS.curb),
+			"curb"
+		)
 	end
-	local foam = part(folder, Vector3.new(1.4, 0.7, width + 0.4), CFrame.new(at(Vector3.new(lipX + 0.4, 0, pond.Z))), COLORS.foam, "glow")
+	local foam = part(
+		folder,
+		Vector3.new(1.4, 0.7, width + 0.4),
+		CFrame.new(at(Vector3.new(lipX + 0.4, 0, pond.Z))),
+		COLORS.foam,
+		"glow"
+	)
 	foam.Transparency = 0.35
 	ghost(foam)
 	emitter(foam, {
@@ -1116,7 +1567,14 @@ local function waterfall(folder: Instance)
 			})
 		end
 	end
-	local mist = ghost(part(folder, Vector3.new(12, 1, 12), CFrame.new(at(Vector3.new(lipX + 2, HubConfig.clouds.seaHeight + 1, pond.Z))), COLORS.cloud))
+	local mist = ghost(
+		part(
+			folder,
+			Vector3.new(12, 1, 12),
+			CFrame.new(at(Vector3.new(lipX + 2, HubConfig.clouds.seaHeight + 1, pond.Z))),
+			COLORS.cloud
+		)
+	)
 	mist.Transparency = 1
 	emitter(mist, {
 		Color = ColorSequence.new(Color3.new(1, 1, 1)),
@@ -1140,10 +1598,30 @@ local function signpost(folder: Instance)
 		local flat = Vector3.new(sign.toward.X - position.X, 0, sign.toward.Z - position.Z)
 		local direction = if flat.Magnitude > 0 then flat.Unit else Vector3.xAxis
 		local center = at(position + direction * 2.7, 7.2 - index * 1.15)
-		local board = part(folder, Vector3.new(5, 0.95, 0.25), CFrame.fromMatrix(center, direction, Vector3.yAxis), COLORS.avenue, "wood")
+		local board = part(
+			folder,
+			Vector3.new(5, 0.95, 0.25),
+			CFrame.fromMatrix(center, direction, Vector3.yAxis),
+			COLORS.avenue,
+			"wood"
+		)
 		-- The board's +X points the way: on its front face that is the reader's left.
-		local front = label(surface(board, Enum.NormalId.Front, 40), "◀  " .. sign.text, 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack)
-		local back = label(surface(board, Enum.NormalId.Back, 40), sign.text .. "  ▶", 0.1, 0.8, COLORS.dark, Enum.Font.GothamBlack)
+		local front = label(
+			surface(board, Enum.NormalId.Front, 40),
+			"◀  " .. sign.text,
+			0.1,
+			0.8,
+			COLORS.dark,
+			Enum.Font.GothamBlack
+		)
+		local back = label(
+			surface(board, Enum.NormalId.Back, 40),
+			sign.text .. "  ▶",
+			0.1,
+			0.8,
+			COLORS.dark,
+			Enum.Font.GothamBlack
+		)
 		front.TextStrokeTransparency = 1
 		back.TextStrokeTransparency = 1
 	end
@@ -1174,14 +1652,34 @@ local function gardens(folder: Instance)
 		local away = if bed.hedge < midX then 1 else -1
 		if index <= 3 then
 			local spot = Vector3.new(midX + away * 1.5, 0.25, z1 + (z2 - z1) * 0.35)
-			part(folder, Vector3.one * 3.6, CFrame.new(at(spot, 1.2)), vary(COLORS.hedge), "foliage", Enum.PartType.Ball)
+			part(
+				folder,
+				Vector3.one * 3.6,
+				CFrame.new(at(spot, 1.2)),
+				vary(COLORS.hedge),
+				"foliage",
+				Enum.PartType.Ball
+			)
 			if z2 - z1 > 20 then
 				local second = Vector3.new(midX + away * 2, 0.25, z1 + (z2 - z1) * 0.75)
-				part(folder, Vector3.one * 3.4, CFrame.new(at(second, 1.2)), vary(COLORS.grassLight), "foliage", Enum.PartType.Ball)
+				part(
+					folder,
+					Vector3.one * 3.4,
+					CFrame.new(at(second, 1.2)),
+					vary(COLORS.grassLight),
+					"foliage",
+					Enum.PartType.Ball
+				)
 			end
 		else
 			local spot = Vector3.new(midX + away * 2, 0.25, (z1 + z2) / 2)
-			part(folder, Vector3.new(2.6, 1.6, 2), CFrame.new(at(spot, 0.6)) * CFrame.Angles(jitter(0.4), jitter(math.pi), jitter(0.4)), vary(COLORS.rockLight), "rock")
+			part(
+				folder,
+				Vector3.new(2.6, 1.6, 2),
+				CFrame.new(at(spot, 0.6)) * CFrame.Angles(jitter(0.4), jitter(math.pi), jitter(0.4)),
+				vary(COLORS.rockLight),
+				"rock"
+			)
 		end
 	end
 	for index, center in HubConfig.plazaBeds do
@@ -1190,7 +1688,14 @@ local function gardens(folder: Instance)
 		disc(folder, center + Vector3.new(0, 0.16, 0), radius * 2, 0.3, vary(COLORS.grass), "grass")
 		-- A clump of flowers beside the bed's tree.
 		local flower = if index % 2 == 0 then COLORS.flowerYellow else COLORS.flowerWhite
-		part(folder, Vector3.one * 1.6, CFrame.new(at(center + Vector3.new(3, 0.16, 2), 0.4)), flower, "foliage", Enum.PartType.Ball)
+		part(
+			folder,
+			Vector3.one * 1.6,
+			CFrame.new(at(center + Vector3.new(3, 0.16, 2), 0.4)),
+			flower,
+			"foliage",
+			Enum.PartType.Ball
+		)
 	end
 	for _, position in HubConfig.planters do
 		part(folder, Vector3.new(6, 1.2, 2.5), CFrame.new(at(position, 0.6)), vary(COLORS.curb), "curb")

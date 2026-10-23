@@ -217,7 +217,10 @@ local function poll()
 	lightSpots(pads.play, #queued)
 	local count = string.format("%d/%d queued", #queued, QUEUE.playersToStartAtOnce)
 	if countdownEndsAt then
-		setStatus(pads.play, string.format("%s  ·  starts in %d", count, math.max(0, math.ceil(countdownEndsAt - now))))
+		setStatus(
+			pads.play,
+			string.format("%s  ·  starts in %d", count, math.max(0, math.ceil(countdownEndsAt - now)))
+		)
 	else
 		local missing = QUEUE.playersToStartCountdown - #queued
 		setStatus(pads.play, string.format("%s  ·  need %d more", count, missing))

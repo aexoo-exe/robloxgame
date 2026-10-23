@@ -52,23 +52,50 @@ local function describe(effect): string?
 	elseif kind == "HEAL" then
 		return string.format("Heals %s for %s", words(effect.target), amount(effect.amount))
 	elseif kind == "SHIELD" then
-		return string.format("Shields %s for %s%s", words(effect.target), amount(effect.amount), seconds(effect.duration))
+		return string.format(
+			"Shields %s for %s%s",
+			words(effect.target),
+			amount(effect.amount),
+			seconds(effect.duration)
+		)
 	elseif kind == "STUN" then
 		return string.format("Stuns %s%s", words(effect.target), seconds(effect.duration))
 	elseif kind == "AREA_STUN" then
 		return string.format("Stuns enemies within %s hexes%s", amount(effect.radius or 1), seconds(effect.duration))
 	elseif kind == "BUFF" then
 		local size = if effect.percent then "+" .. amount(effect.percent) .. "%" else "+" .. amount(effect.flat)
-		return string.format("Gives %s %s %s%s", words(effect.target), size, words(effect.stat), seconds(effect.duration))
+		return string.format(
+			"Gives %s %s %s%s",
+			words(effect.target),
+			size,
+			words(effect.stat),
+			seconds(effect.duration)
+		)
 	elseif kind == "DEBUFF" then
 		local size = if effect.percent then " (" .. amount(effect.percent) .. "%)" else ""
-		return string.format("Applies %s to %s%s%s", words(effect.status), words(effect.target), size, seconds(effect.duration))
+		return string.format(
+			"Applies %s to %s%s%s",
+			words(effect.status),
+			words(effect.target),
+			size,
+			seconds(effect.duration)
+		)
 	elseif kind == "DASH" then
 		return string.format("Dashes toward %s", words(effect.target))
 	elseif kind == "BOUNCE" then
-		return string.format("Bounces %s times for %s %sdamage", amount(effect.count), amount(effect.amount), damageType(effect))
+		return string.format(
+			"Bounces %s times for %s %sdamage",
+			amount(effect.count),
+			amount(effect.amount),
+			damageType(effect)
+		)
 	elseif kind == "DAMAGE_OVER_TIME" then
-		return string.format("Deals %s %sdamage every second%s", amount(effect.amount), damageType(effect), seconds(effect.duration))
+		return string.format(
+			"Deals %s %sdamage every second%s",
+			amount(effect.amount),
+			damageType(effect),
+			seconds(effect.duration)
+		)
 	elseif kind == "SUMMON" then
 		return string.format("Summons %s helper%s", amount(effect.count or 1), if effect.count == 1 then "" else "s")
 	elseif kind == "KNOCKBACK" then

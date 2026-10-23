@@ -31,7 +31,10 @@ function VfxMeshes.start()
 				mesh.Parent = folder
 				loaded += 1
 			else
-				table.insert(failed, string.format("%s (%d): %s", name, id, if ok then "no mesh part" else tostring(result)))
+				table.insert(
+					failed,
+					string.format("%s (%d): %s", name, id, if ok then "no mesh part" else tostring(result))
+				)
 			end
 			if ok and result then
 				result:Destroy()

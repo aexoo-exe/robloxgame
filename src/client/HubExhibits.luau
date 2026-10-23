@@ -100,7 +100,8 @@ function HubExhibits.start()
 		for _, class in unit.classes do
 			table.insert(classes, traitName(class))
 		end
-		subtitle.Text = string.format("%d-cost  ·  %s  ·  %s", unit.cost, traitName(unit.origin), table.concat(classes, ", "))
+		subtitle.Text =
+			string.format("%d-cost  ·  %s  ·  %s", unit.cost, traitName(unit.origin), table.concat(classes, ", "))
 		subtitle.TextColor3 = RenderConfig.costColors[unit.cost] or COLORS.textDim
 		heading.Text = string.format("%s  (%d mana)", skin.ability, unit.maxMana or 0)
 		heading.Visible = true
@@ -148,8 +149,10 @@ function HubExhibits.start()
 		local key: string? = nil
 		if shown and rootPart and hub then
 			local position = rootPart.Position
-			local unitType, unitDistance = nearest(hub:FindFirstChild("Gallery"), "UnitType", position, HubConfig.gallery.infoDistance)
-			local itemId, itemDistance = nearest(hub:FindFirstChild("Shrine"), "ItemId", position, HubConfig.shrine.infoDistance)
+			local unitType, unitDistance =
+				nearest(hub:FindFirstChild("Gallery"), "UnitType", position, HubConfig.gallery.infoDistance)
+			local itemId, itemDistance =
+				nearest(hub:FindFirstChild("Shrine"), "ItemId", position, HubConfig.shrine.infoDistance)
 			if unitType and unitDistance <= itemDistance then
 				key = "unit:" .. unitType
 			elseif itemId then

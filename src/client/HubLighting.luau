@@ -47,8 +47,8 @@ local function setBaseplateHidden(hidden: boolean)
 			end
 			for _, instance in { baseplate, unpack(baseplate:GetDescendants()) } do
 				if instance:IsA("BasePart") or instance:IsA("Decal") then
-					hiddenBaseplate[instance] = (instance :: any).Transparency
-					;(instance :: any).Transparency = 1
+					hiddenBaseplate[instance] = (instance :: any).Transparency;
+					(instance :: any).Transparency = 1
 				end
 			end
 		end
@@ -71,8 +71,8 @@ function HubLighting.setActive(value: boolean)
 	if value then
 		table.clear(savedProperties)
 		for property, setting in config.properties do
-			savedProperties[property] = (Lighting :: any)[property]
-			;(Lighting :: any)[property] = setting
+			savedProperties[property] = (Lighting :: any)[property];
+			(Lighting :: any)[property] = setting
 		end
 		table.clear(savedChildren)
 		for _, child in Lighting:GetChildren() do
