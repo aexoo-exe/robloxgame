@@ -1,6 +1,7 @@
 -- How to play: a short intro of a few pages (shop, board and level cap, stars, traits, gold) shown
--- the first time a player is in a match, and a "?" button in the top-left corner of the match HUD to
--- open it again. Skippable at any page. The server remembers that it was seen (TutorialSeen player
+-- in the hub before a new player's first match, and a "?" button in the top-left corner of the
+-- match HUD to open it again. In a match it docks at the left edge without a backdrop, so it never
+-- blocks the board, bench or shop. Skippable at any page. The server remembers that it was seen (TutorialSeen player
 -- attribute, RequestTutorialSeen; PlaytestService). Numbers come from the configs, so the text stays
 -- right when they are tuned. Presentation only.
 
@@ -77,20 +78,21 @@ function HowToPlay.start()
 	helpLabel.AnchorPoint = Vector2.new(0.5, 0.5)
 	helpLabel.Position = UDim2.fromScale(0.5, 0.5)
 
-	-- The pages, on their own screen above the HUD. The backdrop takes every press while open.
-	local _, root = UI.screen("HowToPlay", 16)
-	local backdrop = Instance.new("TextButton")
-	backdrop.Text = ""
-	backdrop.AutoButtonColor = false
+	-- The pages, on their own screen (shown in the hub and in a match). In the hub the panel sits in
+	-- the middle over a dim backdrop; in a match it docks at the left edge with no backdrop, so the
+	-- board, bench and shop stay usable. Neither takes presses outside the panel's own buttons.
+	local _, root = UI.screen("HowToPlay", 16, true)
+	local backdrop = Instance.new("Frame")
+	backdrop.Active = false
 	backdrop.Size = UDim2.fromScale(1, 1)
 	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
 	backdrop.BackgroundTransparency = 0.5
+	backdrop.BorderSizePixel = 0
 	backdrop.Visible = false
 	backdrop.Parent = root
-	local panel = UI.panel(backdrop, UDim2.fromOffset(WIDTH, 0))
+	local panel = UI.panel(root, UDim2.fromOffset(WIDTH, 0))
 	panel.AutomaticSize = Enum.AutomaticSize.Y
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Visible = false
 	local content = Instance.new("Frame")
 	content.BackgroundTransparency = 1
 	content.Size = UDim2.fromScale(1, 0)
@@ -112,7 +114,7 @@ function HowToPlay.start()
 	local buttons = UI.row(content, 10)
 	buttons.LayoutOrder = 4
 	local function button(text: string, color: Color3, order: number): (TextButton, TextLabel)
-		local instance = UI.button(buttons, color, UDim2.fromOffset(110, 40))
+		local instance = UI.button(buttons, color, UDim2.fromOffset(110, 44))
 		instance.LayoutOrder = order
 		local label = UI.text(instance, text, SIZES.text + 2, FONTS.display)
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -124,27 +126,49 @@ function HowToPlay.start()
 	local nextButton, nextLabel = button("NEXT", COLORS.buy, 3)
 
 	local page = 1
+	local isOpen = false
 	local function show(index: number)
 		page = index
 		title.Text = PAGES[page].title
 		body.Text = PAGES[page].body
 		pageLabel.Text = string.format("%d / %d", page, #PAGES)
 		back.Visible = page > 1
-		nextLabel.Text = if page == #PAGES then "PLAY!" else "NEXT"
+		nextLabel.Text = if page == #PAGES then "GOT IT" else "NEXT"
+	end
+	-- Middle of the screen with the backdrop in the hub; docked left (over the trait list) in a match.
+	local function place()
+		local inMatch = localPlayer:GetAttribute("InMatch") == true
+		backdrop.Visible = isOpen and not inMatch
+		panel.Visible = isOpen
+		if inMatch then
+			panel.AnchorPoint = Vector2.new(0, 0.5)
+			panel.Position = UDim2.new(0, SIZES.margin, 0.5, 0)
+		else
+			panel.AnchorPoint = Vector2.new(0.5, 0.5)
+			panel.Position = UDim2.fromScale(0.5, 0.5)
+		end
 	end
 	local function open()
 		show(1)
-		backdrop.Visible = true
+		isOpen = true
+		place()
 		UI.pop(panel, 1.06)
 	end
 	local function close()
-		backdrop.Visible = false
+		isOpen = false
+		place()
 		if localPlayer:GetAttribute("TutorialSeen") ~= true then
 			requestSeen:FireServer()
 		end
 	end
 
-	help.Activated:Connect(open)
+	help.Activated:Connect(function()
+		if isOpen then
+			close()
+		else
+			open()
+		end
+	end)
 	skip.Activated:Connect(close)
 	back.Activated:Connect(function()
 		show(math.max(1, page - 1))
@@ -157,25 +181,30 @@ function HowToPlay.start()
 		end
 	end)
 
-	-- First match of a player who never closed it: open it once this session.
-	local shownThisSession = false
-	local function onInMatch()
-		if shownThisSession or localPlayer:GetAttribute("InMatch") ~= true then
-			return
+	-- A player who never closed it gets it in the hub, before their first match: once the server has
+	-- loaded TutorialSeen (or after FLAG_WAIT_SECONDS), while they are in the hub. Once a session.
+	local autoShown = false
+	task.spawn(function()
+		local waitUntil = os.clock() + FLAG_WAIT_SECONDS
+		while localPlayer:GetAttribute("TutorialSeen") == nil and os.clock() < waitUntil do
+			task.wait(0.2)
 		end
-		shownThisSession = true
-		task.spawn(function()
-			local waitUntil = os.clock() + FLAG_WAIT_SECONDS
-			while localPlayer:GetAttribute("TutorialSeen") == nil and os.clock() < waitUntil do
-				task.wait(0.2)
-			end
-			if localPlayer:GetAttribute("TutorialSeen") ~= true and localPlayer:GetAttribute("InMatch") == true then
+		if localPlayer:GetAttribute("TutorialSeen") ~= true and localPlayer:GetAttribute("InMatch") ~= true then
+			autoShown = true
+			open()
+		end
+	end)
+	localPlayer:GetAttributeChangedSignal("InMatch"):Connect(function()
+		-- Still open when a match starts: it moves aside (docked, no backdrop) rather than blocking.
+		place()
+		-- Back in the hub without having closed it once: show it again there.
+		if not autoShown and not isOpen and localPlayer:GetAttribute("InMatch") ~= true then
+			if localPlayer:GetAttribute("TutorialSeen") == false then
+				autoShown = true
 				open()
 			end
-		end)
-	end
-	localPlayer:GetAttributeChangedSignal("InMatch"):Connect(onInMatch)
-	onInMatch()
+		end
+	end)
 end
 
 return HowToPlay

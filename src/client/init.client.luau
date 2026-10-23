@@ -24,6 +24,7 @@ local MatchHud = require(script.MatchHud)
 local MatchIntro = require(script.MatchIntro)
 local PlayerList = require(script.PlayerList)
 local RefusalNotice = require(script.RefusalNotice)
+local RejoinNotice = require(script.RejoinNotice)
 local RewardScreen = require(script.RewardScreen)
 local RoundResult = require(script.RoundResult)
 local ShopPanel = require(script.ShopPanel)
@@ -58,6 +59,7 @@ HubExhibits.start()
 HubAudio.start()
 HowToPlay.start() -- playtest: first-match intro and the "?" button
 FeedbackPanel.start() -- playtest: stars and a line of text after each match
+RejoinNotice.start() -- after the match screens: asks the server for the match state once they listen
 DevLineup.start() -- Studio only
 
 -- In a match (the server's InMatch attribute, HubService): the board camera and the match HUD.

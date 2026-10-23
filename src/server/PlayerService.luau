@@ -87,6 +87,11 @@ function PlayerService.activeState(userId: number): PlayerState.PlayerState?
 	return states[userId]
 end
 
+-- Sends `userId` their board and state again (RequestMatchSync after a rejoin).
+function PlayerService.resend(userId: number)
+	sendState(userId)
+end
+
 -- Unit types `userId` fielded in the latest match, sorted (empty if none).
 function PlayerService.unitsUsed(userId: number): { string }
 	local list = {}

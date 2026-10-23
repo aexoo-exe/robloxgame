@@ -45,11 +45,31 @@ local function practiceEnemyBoard(round: number): { any }
 	return units
 end
 
+-- This round's fight payload per player (bots included), kept so a player who rejoins mid-fight
+-- can get theirs again (CombatService.resend). Replaced every round, cleared at the match end.
+local roundPayloads: { [number]: any } = {}
+
 local function send(userId: number, payload)
+	roundPayloads[userId] = payload
 	local player = Players:GetPlayerByUserId(userId)
 	if player then
 		combatStarted:FireClient(player, payload)
 	end
+end
+
+-- Sends `userId` this round's fight again (a rejoin during Combat). The client plays it from the
+-- current moment on (CombatPlayback). Does nothing if they have no fight this round.
+function CombatService.resend(userId: number)
+	local payload = roundPayloads[userId]
+	local player = Players:GetPlayerByUserId(userId)
+	if payload and player then
+		combatStarted:FireClient(player, payload)
+	end
+end
+
+-- Forgets the fights (the match is over, or the round's Combat ended).
+function CombatService.clearRound()
+	table.clear(roundPayloads)
 end
 
 -- Runs the round's fights (from Match.startRound) between the boards from PlayerService.lockBoards.
@@ -67,6 +87,7 @@ function CombatService.runRound(
 	local results = {}
 	local opponents = {}
 	local longestTicks = 0
+	table.clear(roundPayloads)
 
 	for _, fight in fights do
 		local sideB, sideBUserId, opponentName

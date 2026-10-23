@@ -29,6 +29,10 @@ return table.freeze({
 	-- Client -> server: (): end a solo practice match now and go back to the hub. Refused in a player
 	-- match (HubService, RoundService.leavePractice).
 	RequestLeavePractice = "RequestLeavePractice",
+	-- Client -> server: (): send me my match state again (RoundService). Fired once by a client after
+	-- it has started; a participant who rejoined mid-match gets their board, shop and, during
+	-- Combat, this round's fight. Ignored for non-participants.
+	RequestMatchSync = "RequestMatchSync",
 	-- Playtest (PlaytestService). Client -> server: (): the player closed the how-to-play intro; the
 	-- server sets their TutorialSeen attribute and saves it.
 	RequestTutorialSeen = "RequestTutorialSeen",

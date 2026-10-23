@@ -37,11 +37,13 @@ local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local MatchRules = require(ReplicatedStorage.Shared.MatchRules)
 local Phase = require(ReplicatedStorage.Shared.Phase)
 local Pve = require(ReplicatedStorage.Shared.Pve)
+local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
 local BotService = require(script.Parent.BotService)
 local CombatService = require(script.Parent.CombatService)
 local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
+local Remotes = require(script.Parent.Remotes)
 
 local RoundService = {}
 
@@ -55,6 +57,7 @@ local started = false
 local seedRandom = Random.new()
 local endedCallbacks: { ({ number }) -> () } = {}
 -- The running or latest match, kept after it ends for the playtest feedback (RoundService.summaryOf).
+local lastSync: { [number]: number } = {} -- UserId -> os.clock() of their last RequestMatchSync
 local lastMatch: Match.Match? = nil
 local lastMatchInfo = { id = 0, startedAt = 0, endedAt = 0, practice = false, bots = 0 }
 
@@ -267,6 +270,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 
 	currentMatch = nil
 	PlayerService.endMatch()
+	CombatService.clearRound()
 	playersFolder:ClearAllChildren()
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Winner", "")
@@ -373,6 +377,7 @@ function RoundService.startMatch(players: { Player }, isPractice: boolean?): { n
 			lastMatchInfo.endedAt = os.time()
 			currentMatch = nil
 			PlayerService.endMatch()
+			CombatService.clearRound()
 			playersFolder:ClearAllChildren()
 			setPhase(Phase.Waiting)
 		end
@@ -425,6 +430,22 @@ function RoundService.start()
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		onConnectionChanged(player, false)
+		lastSync[player.UserId] = nil
+	end)
+
+	-- A client asks for its match state once it has started (RemoteNames.RequestMatchSync): a
+	-- participant who rejoined gets their board and shop, and during Combat this round's fight.
+	Remotes.create(RemoteNames.RequestMatchSync).OnServerEvent:Connect(function(player: Player)
+		local match = currentMatch
+		local now = os.clock()
+		if not match or not match.players[player.UserId] or now - (lastSync[player.UserId] or -math.huge) < 2 then
+			return
+		end
+		lastSync[player.UserId] = now
+		PlayerService.resend(player.UserId)
+		if matchState:GetAttribute("Phase") == Phase.Combat then
+			CombatService.resend(player.UserId)
+		end
 	end)
 end
 
