@@ -1,5 +1,7 @@
 # robloxgame
 
+[![CI](https://github.com/aexoo-exe/robloxgame/actions/workflows/ci.yml/badge.svg)](https://github.com/aexoo-exe/robloxgame/actions/workflows/ci.yml)
+
 tft clone
 
 ## Current stage

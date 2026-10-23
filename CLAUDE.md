@@ -35,7 +35,7 @@ robloxgame is an anime-inspired Roblox auto-battler (in the style of Teamfight T
 
 ## Standing Rules (every task)
 
-1. **Do not run tests, the audit, the sim, Studio MCP or Blender MCP** unless the user explicitly asks in that task. They cost usage.
+1. **Do not run tests, the audit, the sim, Studio MCP or Blender MCP** unless the user explicitly asks in that task. They cost usage. CI (`.github/workflows/ci.yml`) runs StyLua, Selene, the Rojo build, the Lune tests and a short sim smoke run on every push; Claude does not run them locally unless asked, and reads the CI result instead.
 2. **Unit ids only.** Never put real character or anime names in code, comments, file names, assets or commit messages. Real names belong only in gitignored `docs/references/`.
 3. **Presentation never changes gameplay.** Client effects, poses and ultimates must never change server results, event timing or real unit positions.
 4. **Stay within the tier VFX budgets** (`ReelConfig.budget`, the same as the audit's PEAK_LIMIT). Aim for half the tier budget at peak.
