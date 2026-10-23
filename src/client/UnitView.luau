@@ -287,8 +287,8 @@ function UnitView.new(
 	parent: Instance,
 	options: Options?
 ): UnitView
-	options = options or {}
-	local yaw = options.yaw or 0
+	local opts: Options = options or {}
+	local yaw = opts.yaw or 0
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Anchored = true
@@ -298,14 +298,14 @@ function UnitView.new(
 	part.Transparency = 1
 	part.Size = RenderConfig.unitSize
 		* RenderConfig.starSizeScale[starLevel]
-		* (if options.summon then RenderConfig.summonScale else 1)
-		* (options.sizeScale or 1)
+		* (if opts.summon then RenderConfig.summonScale else 1)
+		* (opts.sizeScale or 1)
 	local base = partPosition(groundPosition, part)
 	part.CFrame = CFrame.new(base) * CFrame.Angles(0, yaw, 0)
 
 	local size = part.Size
-	local baseTransparency = if options.summon then RenderConfig.summonTransparency else 0
-	local look = options.look or { style = "summon" }
+	local baseTransparency = if opts.summon then RenderConfig.summonTransparency else 0
+	local look = opts.look or { style = "summon" }
 	local figure = Figure.new(look, color, size.Y, part, baseTransparency)
 	local hand = if look.classLook then look.classLook.hand else "right"
 
@@ -327,15 +327,15 @@ function UnitView.new(
 
 	-- The overhead display, sized in studs so it scales with the view and stays narrower than a
 	-- tile. Rows from the top (heights in studs): star pips, the horse bar (riders), health, mana.
-	local pips = options.starPips ~= false
+	local pips = opts.starPips ~= false
 	local rows = {}
 	if pips then
 		table.insert(rows, { kind = "pips", height = OVERHEAD.pipHeight })
 	end
-	if options.maxFormHealth then
+	if opts.maxFormHealth then
 		table.insert(rows, { kind = "form", height = OVERHEAD.formBarHeight })
 	end
-	if options.items and #options.items > 0 then
+	if opts.items and #opts.items > 0 then
 		table.insert(rows, { kind = "items", height = OVERHEAD.itemIconHeight })
 	end
 	table.insert(rows, { kind = "health", height = OVERHEAD.healthBarHeight })
@@ -359,13 +359,13 @@ function UnitView.new(
 		if row.kind == "pips" then
 			starPips(infoBoard, starLevel, height)
 		elseif row.kind == "items" then
-			itemSlots = itemIcons(infoBoard, options.items :: { string }, top * boardHeight, boardHeight)
+			itemSlots = itemIcons(infoBoard, opts.items :: { string }, top * boardHeight, boardHeight)
 		elseif row.kind == "form" then
 			formBar = bar(infoBoard, top, height)
 			formFill = fill(formBar :: Frame, RenderConfig.formHealthColor)
 		elseif row.kind == "health" then
 			local healthBar = bar(infoBoard, top, height)
-			healthFill = fill(healthBar, options.healthColor or RenderConfig.healthBarColor)
+			healthFill = fill(healthBar, opts.healthColor or RenderConfig.healthBarColor)
 			shieldFill = fill(healthBar, RenderConfig.shieldColor)
 			shieldFill.Size = UDim2.fromScale(0, 1)
 		else
@@ -402,9 +402,9 @@ function UnitView.new(
 		infoBoard = infoBoard,
 		floatBoard = floatBoard,
 		color = color,
-		maxHealth = options.maxHealth or 1,
-		maxMana = options.maxMana,
-		health = options.maxHealth or 1,
+		maxHealth = opts.maxHealth or 1,
+		maxMana = opts.maxMana,
+		health = opts.maxHealth or 1,
 		shield = 0,
 		healthFill = healthFill :: Frame,
 		shieldFill = shieldFill :: Frame,
@@ -413,8 +413,8 @@ function UnitView.new(
 		stunHalo = nil,
 		formBar = formBar,
 		formFill = formFill,
-		maxFormHealth = options.maxFormHealth,
-		clock = options.clock or os.clock,
+		maxFormHealth = opts.maxFormHealth,
+		clock = opts.clock or os.clock,
 
 		base = base,
 		moveFrom = base,
@@ -466,7 +466,7 @@ function UnitView.new(
 		landDash = false,
 		landSide = if math.random() < 0.5 then 1 else -1,
 		hitSide = 1,
-		benched = options.benched == true,
+		benched = opts.benched == true,
 		mustPlace = true,
 		placedAt = nil,
 		floaters = {},
@@ -488,9 +488,9 @@ function UnitView.new(
 	if #itemSlots > 0 then
 		withItems[view] = true
 	end
-	UnitView.setMana(view, options.mana or 0)
-	if options.formLook or options.maxFormHealth or options.formName then
-		UnitView.setForm(view, options.formLook, options.formHealth, options.maxFormHealth, options.formName)
+	UnitView.setMana(view, opts.mana or 0)
+	if opts.formLook or opts.maxFormHealth or opts.formName then
+		UnitView.setForm(view, opts.formLook, opts.formHealth, opts.maxFormHealth, opts.formName)
 	end
 	UnitView.update(view, view.clock(), 0)
 	return view
