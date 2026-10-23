@@ -12,7 +12,7 @@ Rebuild `src/client/Ultimates/<unit_id>.luau` to the playbook's standard, using 
 
 ## Standing rules (from CLAUDE.md)
 
-- Do **not** run tests, the audit, the sim, Studio MCP or Blender MCP. Budget numbers are estimates you work out by hand.
+- Do **not** run tests, the audit, the sim or Blender MCP. Budget numbers are estimates you work out by hand. Studio MCP is used only for the short check in step 6b, and only if it is already connected.
 - Unit ids only. No real character or anime names anywhere: code, comments, file names, asset names, commit messages.
 - Never change gameplay: no edits to `src/server`, `CombatSim`, `Abilities`, `AbilityConfig`, `UnitConfig` or any event timing. Real unit positions are never moved (visual travel is `lunge` / `rise` only).
 - Touch only this unit's files and entries, plus the two shared config tables listed in step 4.
@@ -82,6 +82,16 @@ Run the `playbook-reviewer` agent (Agent tool, `subagent_type: "playbook-reviewe
 - Fix every **FAIL** it reports. Fix a **WARN** when the fix is cheap; otherwise list it under Unsure.
 - If the fixes were more than trivial, run the reviewer once more. Two rounds at most.
 - Commit the fixes: `<unit_id> slice: playbook review fixes`.
+
+## 6b. Studio check (only if the Studio MCP is connected)
+
+If the Roblox Studio built-in MCP server's tools are available (`start_stop_play`, `execute_luau`, `screen_capture`, `get_console_output`), do this once. If they are not available, skip this step without mentioning it.
+
+1. Set `SLICE_UNIT` in `src/client/DevLineup.luau` to this unit (Rojo syncs it), then start play with `start_stop_play`.
+2. Trigger the K replay (the MCP's key input if it has one; otherwise from `execute_luau` in the client context). Use a fixed side camera: the slice camera's default framing, no orbiting between captures.
+3. Capture about 6 screenshots at the key beats from your timeline: coil, set, each strike, finisher, aftermath. **At most 8 screenshots per unit.** Check `get_console_output` once for errors from the module.
+4. Check them against the playbook: no screen-filling sprites or flashes, trails on the blade (or the ranged arc), readable poses at the coil, set and finisher.
+5. Fix obvious problems **once**, commit (`<unit_id> slice: studio check fixes`), stop play with `start_stop_play`. Don't loop. List what you saw, and anything left, under Unsure in the handoff.
 
 ## 7. Push and hand off
 
