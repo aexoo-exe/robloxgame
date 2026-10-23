@@ -27,6 +27,7 @@ local HubConfig = require(ReplicatedStorage.Shared.HubConfig)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
+local ErrorLog = require(script.Parent.ErrorLog)
 local HubBuilder = require(script.Parent.HubBuilder)
 local Remotes = require(script.Parent.Remotes)
 local RoundService = require(script.Parent.RoundService)
@@ -302,10 +303,7 @@ function HubService.start()
 
 	task.spawn(function()
 		while true do
-			local ok, err = pcall(poll)
-			if not ok then
-				warn("[HubService] " .. tostring(err))
-			end
+			ErrorLog.call("hub poll", poll)
 			task.wait(HubConfig.pollInterval)
 		end
 	end)

@@ -29,6 +29,12 @@ return table.freeze({
 	-- Client -> server: (): end a solo practice match now and go back to the hub. Refused in a player
 	-- match (HubService, RoundService.leavePractice).
 	RequestLeavePractice = "RequestLeavePractice",
+	-- Playtest (PlaytestService). Client -> server: (): the player closed the how-to-play intro; the
+	-- server sets their TutorialSeen attribute and saves it.
+	RequestTutorialSeen = "RequestTutorialSeen",
+	-- Client -> server: (stars: number 1-5, text: string): feedback on the latest match. One per
+	-- match; the text is filtered and capped on the server.
+	RequestSendFeedback = "RequestSendFeedback",
 
 	-- Server -> owning client: the player's units (Board.getUnits).
 	BoardUpdated = "BoardUpdated",

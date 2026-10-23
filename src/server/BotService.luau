@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Bot = require(ReplicatedStorage.Shared.Bot)
 local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 
+local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
 
 local BotService = {}
@@ -47,18 +48,15 @@ end
 
 -- Every bot still in the match plays its Preparation. Called right after
 -- PlayerService.beginPreparation (income paid, shop rolled, board unlocked). A bot that errors skips
--- this Preparation; the match goes on.
+-- the rest of this Preparation (the error goes to ErrorLog); the match goes on.
 function BotService.playPreparation()
 	for id, entry in bots do
 		local state = PlayerService.activeState(id)
 		if state then
-			local ok, err = xpcall(function()
+			ErrorLog.call("bot " .. entry.name, function()
 				local placed = Bot.prepare(state, entry.policy, entry.memory)
 				Bot.applyPlacement(state, placed)
-			end, debug.traceback)
-			if not ok then
-				warn(string.format("[BotService] %s failed its Preparation: %s", entry.name, tostring(err)))
-			end
+			end)
 		end
 	end
 end

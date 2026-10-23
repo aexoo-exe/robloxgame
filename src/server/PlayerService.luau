@@ -12,12 +12,16 @@ local PlayerState = require(ReplicatedStorage.Shared.PlayerState)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 local UnitPool = require(ReplicatedStorage.Shared.UnitPool)
 
+local ErrorLog = require(script.Parent.ErrorLog)
 local Remotes = require(script.Parent.Remotes)
 
 local PlayerService = {}
 
 local states: { [number]: PlayerState.PlayerState } = {} -- current match participants
 local eliminated: { [number]: boolean } = {}
+-- Unit types each participant fielded in the latest match (for the playtest feedback summary);
+-- kept after the match ends, until the next one starts.
+local fielded: { [number]: { [string]: boolean } } = {}
 -- Requests are taken in every round phase (Preparation, Combat, Results); during Combat and Results
 -- PlayerState itself locks the board (see PlayerState: shop during combat).
 local requestsOpen = false
@@ -45,7 +49,11 @@ local function connectRequest(remoteName: string, action: (PlayerState.PlayerSta
 		if not requestsOpen or not state or eliminated[player.UserId] then
 			return
 		end
-		local accepted, reason = action(state, ...)
+		-- An error in an action is recorded (ErrorLog) and treated as a refusal without a reason.
+		local ok, accepted, reason = ErrorLog.call("request " .. remoteName, action, state, ...)
+		if not ok then
+			return
+		end
 		if accepted then
 			sendState(player.UserId)
 		elseif reason then
@@ -59,6 +67,7 @@ end
 function PlayerService.startMatch(userIds: { number })
 	table.clear(states)
 	table.clear(eliminated)
+	table.clear(fielded)
 	local pool = UnitPool.new()
 	for _, userId in userIds do
 		local state = PlayerState.new(seedRandom:NextInteger(1, 2 ^ 31 - 2), pool)
@@ -76,6 +85,16 @@ function PlayerService.activeState(userId: number): PlayerState.PlayerState?
 		return nil
 	end
 	return states[userId]
+end
+
+-- Unit types `userId` fielded in the latest match, sorted (empty if none).
+function PlayerService.unitsUsed(userId: number): { string }
+	local list = {}
+	for unitType in fielded[userId] or {} do
+		table.insert(list, unitType)
+	end
+	table.sort(list)
+	return list
 end
 
 -- Stops taking requests (the match is decided; final placements are showing).
@@ -144,6 +163,10 @@ function PlayerService.lockBoards(): { [number]: { Board.BoardUnit } }
 		if not eliminated[userId] then
 			PlayerState.startCombat(state)
 			boards[userId] = Board.getPlacedUnits(state.board)
+			fielded[userId] = fielded[userId] or {}
+			for _, unit in boards[userId] do
+				fielded[userId][unit.unitType] = true
+			end
 		end
 	end
 	return boards

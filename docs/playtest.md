@@ -1,0 +1,87 @@
+# Playtest guide (v0.1)
+
+A small playtest: you plus 1–2 friends in a real multiplayer match, with bots filling the empty seats.
+
+## 1. Before you start
+
+- Sync the latest `feature/playtest-1` into Studio (`scripts/start.ps1`, then connect the Rojo plugin).
+- For DataStores (the how-to-play "seen" flag, feedback, error log) to work in Studio:
+  Home → Game Settings → Security → **Enable Studio Access to API Services**. The place must be
+  published once. Without it everything still runs; entries are only printed to the Output.
+- Bots: `src/shared/MatchConfig.luau` → `botsEnabled` (on/off), `botFillTo` (default 6), `botNames`.
+
+## 2. Multiplayer test in Studio
+
+1. Test tab → **Clients and Servers** → Local Server, **2 or 3 players** → Start.
+   Studio opens a server window and one window per player (Player1, Player2, ...).
+2. In one player window, walk onto the **Play** pad. With bots on, one queued player starts the
+   15 s countdown; step the other players onto the pad before it ends.
+3. The match starts with your players plus bots up to 6 seats ("Bot Ronin", ... with a BOT tag in
+   the player list on the right).
+4. Watch the **server window's Output** for `[RoundService]`, `[BotService]`, `[ErrorLog]` and
+   `[Feedback]` lines.
+5. Things to try on purpose:
+   - Close one player window mid-match (a leaver): their row dims; after 2 missed rounds they are
+     out. Reconnecting isn't possible in local Studio tests, so test rejoining on a live server.
+   - Get one player knocked out: "Back to hub" works, the others keep playing.
+   - Let every human lose: the match should end right away with the bots placed by HP.
+   - The **Practice** pad still starts a solo match without bots.
+
+## 3. Publish
+
+1. With Rojo synced, File → **Publish to Roblox** (Alt+P) to the existing experience.
+2. Creator Hub → Creations → your experience: check it shows the new version (Places → version history).
+
+## 4. Give friends access
+
+Roblox changes these menus often; look in Creator Hub → your experience → **Configure**
+(Audience / Access / Privacy):
+
+- Simplest: set the experience to **Public** for the playtest, share the link, and set it back to
+  Private afterwards. Public needs the maturity questionnaire filled in once.
+- Don't add friends as Collaborators just to play: that gives them edit access in Studio.
+
+## 5. Reading feedback and errors
+
+What gets saved:
+
+- **Feedback** (DataStore `PlaytestFeedback`, key `recent`, newest 500): stars 1–5, the filtered
+  text, placement, participants and bots, rounds, duration, units fielded, server id.
+- **Errors** (DataStore `PlaytestErrors`, key `recent`, newest 200): source (`match loop`,
+  `request RequestBuyUnit`, `bot Bot Kaze`, `hub poll`, `uncaught ...`), message, stack, phase,
+  round, count in that batch. Errors are saved in batches every 30 s and on shutdown.
+
+Ways to read them:
+
+- **Live server, while it runs:** press F9 (Developer Console) → Server tab; you see the
+  `[Feedback]` and `[ErrorLog]` lines (owner only).
+- **Studio command bar** (View → Command Bar, API access enabled; works without playing):
+
+  ```lua
+  local ds, http = game:GetService("DataStoreService"), game:GetService("HttpService") for _, name in { "PlaytestErrors", "PlaytestFeedback" } do local list = ds:GetDataStore(name):GetAsync("recent") or {} print(name, #list .. " saved") for i = math.max(1, #list - 19), #list do print(http:JSONEncode(list[i])) end end
+  ```
+
+- **From the terminal** (Open Cloud key with DataStore read/list access for the experience):
+
+  ```powershell
+  $env:ROBLOX_API_KEY = "<key>"
+  lune run scripts/playtest-logs <universeId> both 20
+  ```
+
+  `errors` or `feedback` in place of `both` shows one list. Never commit the key.
+
+Note: Studio tests of a published place write to the same DataStores as the live game, so test
+entries show up in the lists too (their `server` field is empty in Studio).
+
+## 6. What to watch during the playtest
+
+- [ ] The how-to-play intro shows at each player's first match, can be skipped, and the "?" button
+      (top left) opens it again. It doesn't show again next session.
+- [ ] Every player sees only their own shop, gold and bench; boards fight the right opponents.
+- [ ] Bots buy, level and field units (their boards aren't empty after round 4 or so).
+- [ ] HP, eliminations and placements look right in the player list and the final screen.
+- [ ] Nobody gets stuck: after the match (or "Back to hub") everyone is back in the hub.
+- [ ] The feedback panel appears in the hub after each match and sending it says "Thanks!".
+- [ ] No `[ErrorLog]` lines in the server output (or note when they appeared).
+- [ ] Frame rate during big fights and ultimates on the slowest friend's machine.
+- [ ] Ask friends what confused them in the first 3 rounds.

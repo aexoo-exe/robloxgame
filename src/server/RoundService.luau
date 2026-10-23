@@ -40,6 +40,7 @@ local Pve = require(ReplicatedStorage.Shared.Pve)
 
 local BotService = require(script.Parent.BotService)
 local CombatService = require(script.Parent.CombatService)
+local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
 
 local RoundService = {}
@@ -53,6 +54,9 @@ local stopRequested = false -- the practice player asked to leave: the match end
 local started = false
 local seedRandom = Random.new()
 local endedCallbacks: { ({ number }) -> () } = {}
+-- The running or latest match, kept after it ends for the playtest feedback (RoundService.summaryOf).
+local lastMatch: Match.Match? = nil
+local lastMatchInfo = { id = 0, startedAt = 0, endedAt = 0, practice = false, bots = 0 }
 
 local function setPhase(phase: string, duration: number?)
 	local endsAt = if duration then workspace:GetServerTimeNow() + duration else 0
@@ -206,6 +210,14 @@ end
 local function playMatch(participants: { number }, names: { [number]: string })
 	local match = Match.new(participants, seedRandom:NextInteger(1, 2 ^ 31 - 2))
 	currentMatch = match
+	lastMatch = match
+	local bots = 0
+	for _, userId in participants do
+		if BotService.isBot(userId) then
+			bots += 1
+		end
+	end
+	lastMatchInfo = { id = lastMatchInfo.id + 1, startedAt = os.time(), endedAt = 0, practice = practice, bots = bots }
 	playersFolder:ClearAllChildren()
 	for _, userId in participants do
 		local folder = Instance.new("Folder")
@@ -240,6 +252,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 		end
 	end
 	PlayerService.closeRequests()
+	lastMatchInfo.endedAt = os.time()
 
 	if stopRequested then
 		-- The practice player left: no final placements, straight back to waiting.
@@ -258,6 +271,33 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Winner", "")
 	setPhase(Phase.Waiting)
+end
+
+-- The playtest summary of `userId`'s running or latest match, or nil if they were not in it:
+-- match id, placement (0 while still playing), rounds played, duration in seconds so far, whether
+-- it was a practice match, how many bots and participants it had, and whether it is over.
+function RoundService.summaryOf(userId: number): { [string]: any }?
+	local match = lastMatch
+	local player = match and match.players[userId]
+	if not match or not player then
+		return nil
+	end
+	local participants = 0
+	for _ in match.players do
+		participants += 1
+	end
+	local info = lastMatchInfo
+	local endedAt = if info.endedAt > 0 then info.endedAt else os.time()
+	return {
+		matchId = info.id,
+		placement = player.placement or 0,
+		rounds = match.round,
+		durationSeconds = endedAt - info.startedAt,
+		practice = info.practice,
+		bots = info.bots,
+		participants = participants,
+		over = match.finished,
+	}
 end
 
 -- True from RoundService.startMatch until the match's onMatchEnded callbacks have run.
@@ -326,10 +366,11 @@ function RoundService.startMatch(players: { Player }, isPractice: boolean?): { n
 	end
 	running = true
 	task.spawn(function()
-		local ok, err = pcall(playMatch, participants, names)
+		local ok = ErrorLog.call("match loop", playMatch, participants, names)
 		if not ok then
 			-- Never leave players stuck out of the hub if the match loop fails.
-			warn("[RoundService] Match ended with an error: " .. tostring(err))
+			warn("[RoundService] Match ended with an error (see ErrorLog)")
+			lastMatchInfo.endedAt = os.time()
 			currentMatch = nil
 			PlayerService.endMatch()
 			playersFolder:ClearAllChildren()

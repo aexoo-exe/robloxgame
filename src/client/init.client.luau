@@ -10,6 +10,8 @@ local BoardController = require(script.BoardController)
 local Celebrate = require(script.Celebrate)
 local CombatPlayback = require(script.CombatPlayback)
 local DevLineup = require(script.DevLineup)
+local FeedbackPanel = require(script.FeedbackPanel)
+local HowToPlay = require(script.HowToPlay)
 local HubAudio = require(script.HubAudio)
 local HubExhibits = require(script.HubExhibits)
 local HubHud = require(script.HubHud)
@@ -54,6 +56,8 @@ HubHud.start()
 HubScenery.start()
 HubExhibits.start()
 HubAudio.start()
+HowToPlay.start() -- playtest: first-match intro and the "?" button
+FeedbackPanel.start() -- playtest: stars and a line of text after each match
 DevLineup.start() -- Studio only
 
 -- In a match (the server's InMatch attribute, HubService): the board camera and the match HUD.
