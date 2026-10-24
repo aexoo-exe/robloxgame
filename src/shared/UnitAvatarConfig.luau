@@ -12,7 +12,8 @@
 --   `tuning` below   hand-tuned fields, kept across applies (a field here wins over a pick):
 --     skin         body color for every limb (default `defaultSkin`); `colors` { head, torso,
 --                  leftArm, rightArm, leftLeg, rightLeg } overrides single limbs
---     scale        size multiplier (as FigureConfig.characters `scale`; presentation only)
+--     scale        size multiplier (as FigureConfig.characters `scale`; presentation only). An avatar
+--                  unit is sized by this, never by its hand-built look's `scale` (CharacterLook)
 --     prop         true: also hold the class prop (FigureConfig.classes) in the hands. Off by
 --                  default: avatars carry their own weapons instead of the placeholder props.
 --     weapons      LookKit weapons (UnitLookConfig `weapons` format) worn with the avatar. Default:
@@ -42,6 +43,9 @@ end
 local STEEL = rgb(205, 210, 220)
 
 local tuning = {
+	thunder_nest = {
+		scale = 0.94, -- its size before the avatar scale rule (it came from its hand-built look)
+	},
 	threefold_crash = {
 		skin = rgb(234, 184, 146),
 		-- Three katanas: one in each hand and one held across the mouth, blade to his left and edge
@@ -117,6 +121,7 @@ local tuning = {
 		arms = { 25, 25 },
 	},
 	cyclone_edge = {
+		scale = 0.92, -- its size before the avatar scale rule (it came from its hand-built look)
 		outfit = { gearBoxes = { color = rgb(92, 106, 86) } },
 		weapons = { { kind = "thinBlade", hand = "both", reverse = true, blade = STEEL, handle = rgb(60, 62, 66) } },
 		hand = "both",

@@ -101,12 +101,14 @@ function CharacterLook.of(unitType: string): CharacterLook
 		local unitLook = UnitLookConfig[unitType]
 		local avatar = UnitAvatarConfig.units[unitType]
 		local modelConfig = UnitModelConfig[unitType]
+		-- One size rule: FigureConfig's override x the unit's own tuning: UnitAvatarConfig `scale` for
+		-- an avatar unit (also used for its fallback figure, so both are the same size), else its
+		-- UnitLookConfig `scale`. A hand-built look's scale never stacks on an avatar's.
 		local scale = if override and override.scale then override.scale else 1
-		if unitLook and unitLook.scale then
+		if avatar then
+			scale *= avatar.scale or 1
+		elseif unitLook and unitLook.scale then
 			scale *= unitLook.scale
-		end
-		if avatar and avatar.scale then
-			scale *= avatar.scale
 		end
 		local bulk = if override then override.bulk else nil
 		if not bulk and unitLook then
