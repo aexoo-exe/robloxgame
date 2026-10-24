@@ -28,6 +28,7 @@ local Traits = require(ReplicatedStorage.Shared.Traits)
 local UnitConfig = require(ReplicatedStorage.Shared.UnitConfig)
 
 local ErrorLog = require(script.Parent.ErrorLog)
+local MatchEvents = require(script.Parent.MatchEvents)
 local PlaytestStore = require(script.Parent.PlaytestStore)
 
 local PlaytestAnalytics = {}
@@ -83,6 +84,12 @@ end
 
 local function custom(userId: number, name: string, value: number?, field1: string?)
 	analytics(userId, "LogCustomEvent", name, value or 1, customFields(field1))
+end
+
+-- A custom event for another system (RetentionService: quest_completed, level_up_account,
+-- mastery_level, return_day). Live servers only, like every AnalyticsService call here.
+function PlaytestAnalytics.event(userId: number, name: string, value: number?, field1: string?)
+	custom(userId, name, value, field1)
 end
 
 -- A funnel step for `player`, counted once per player ever (PlayerFlags "funnel").
@@ -145,6 +152,7 @@ local function starUps(userId: number, before: Snapshot, after: Snapshot)
 		local was = before.units[id]
 		if unit.starLevel >= 2 and (not was or was.starLevel < unit.starLevel) then
 			custom(userId, "star_up", unit.starLevel, unit.unitType)
+			MatchEvents.fire("starUp", userId, unit.starLevel)
 		end
 	end
 end
@@ -177,6 +185,7 @@ function PlaytestAnalytics.action(userId: number, remoteName: string, before: Sn
 			MatchLog.spent(current, userId, "reroll", spent)
 		end
 		custom(userId, "reroll")
+		MatchEvents.fire("reroll", userId)
 	elseif remoteName == RemoteNames.RequestBuyXp then
 		if current then
 			MatchLog.spent(current, userId, "xp", spent)
@@ -193,6 +202,7 @@ function PlaytestAnalytics.merged(userId: number, units: { any })
 	end
 	for _, unit in units do
 		custom(userId, "star_up", unit.starLevel, unit.unitType)
+		MatchEvents.fire("starUp", userId, unit.starLevel)
 	end
 end
 

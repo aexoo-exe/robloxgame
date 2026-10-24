@@ -12,7 +12,8 @@
 --   equipped     { title = "" }
 --   quests       Quests.State
 --   mastery      { [unit id] = { xp, level } }
---   days         { first, last, played, streak, best }: UTC days (first seen, last played) and
+--   days         { first, last, seen, played, streak, best }: UTC days (first seen, last played,
+--                last logged in) and
 --                counts; a missed day only restarts `streak`, nothing is lost
 --   stats        { matches, top4, wins }
 
@@ -38,7 +39,7 @@ function ProfileSchema.default(now: number): Profile
 		equipped = { title = "" },
 		quests = Quests.newState(),
 		mastery = {},
-		days = { first = day, last = -1, played = 0, streak = 0, best = 0 },
+		days = { first = day, last = -1, seen = -1, played = 0, streak = 0, best = 0 },
 		stats = { matches = 0, top4 = 0, wins = 0 },
 	}
 end

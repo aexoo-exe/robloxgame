@@ -9,9 +9,11 @@ local AvatarService = require(script.AvatarService)
 local CombatService = require(script.CombatService)
 local ErrorLog = require(script.ErrorLog)
 local HubService = require(script.HubService)
+local PlayerData = require(script.PlayerData)
 local PlayerService = require(script.PlayerService)
 local PlaytestAnalytics = require(script.PlaytestAnalytics)
 local PlaytestService = require(script.PlaytestService)
+local RetentionService = require(script.RetentionService)
 local RoundService = require(script.RoundService)
 local VfxMeshes = require(script.VfxMeshes)
 
@@ -22,5 +24,7 @@ RoundService.start()
 HubService.start()
 PlaytestService.start() -- how-to-play flag and match feedback
 PlaytestAnalytics.start() -- funnel, progression and custom events; the match log (PlaytestMatches)
+PlayerData.start() -- player profiles: session-locked, autosaved, never overwritten with empty
+RetentionService.start() -- account XP, quests, mastery, coins (docs/design/retention.md)
 AvatarService.start() -- catalog avatars (visual only); loads in the background
 VfxMeshes.start() -- VFX kit meshes into ReplicatedStorage.VfxMeshes (visual only); in the background

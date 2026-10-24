@@ -33,6 +33,20 @@ return table.freeze({
 	-- it has started; a participant who rejoined mid-match gets their board, shop and, during
 	-- Combat, this round's fight. Ignored for non-participants.
 	RequestMatchSync = "RequestMatchSync",
+	-- Retention (RetentionService). Server -> owning client: (view) the player's profile view
+	-- (level, XP, coins, title, quests, mastery); sent on join and after every change.
+	ProfileUpdated = "ProfileUpdated",
+	-- Server -> owning client: (summary) what a finished match earned (XP, levels, quest progress,
+	-- mastery, coins), shown back in the hub (PostMatchSummary).
+	MatchRewards = "MatchRewards",
+	-- Client -> server: (): send my profile view again.
+	RequestProfile = "RequestProfile",
+	-- Client -> server: (kind: "daily" | "weekly", index: number): claim a completed quest.
+	RequestClaimQuest = "RequestClaimQuest",
+	-- Client -> server: (index: number): swap one daily quest (once per UTC day).
+	RequestRerollQuest = "RequestRerollQuest",
+	-- Client -> server: (titleId: string): show an owned title ("" for none).
+	RequestEquipTitle = "RequestEquipTitle",
 	-- Playtest (PlaytestService). Client -> server: (): the player closed the how-to-play intro; the
 	-- server sets their TutorialSeen attribute and saves it.
 	RequestTutorialSeen = "RequestTutorialSeen",

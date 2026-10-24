@@ -46,6 +46,7 @@ local CombatService = require(script.Parent.CombatService)
 local ErrorLog = require(script.Parent.ErrorLog)
 local PlayerService = require(script.Parent.PlayerService)
 local PlaytestAnalytics = require(script.Parent.PlaytestAnalytics)
+local RetentionService = require(script.Parent.RetentionService)
 local Remotes = require(script.Parent.Remotes)
 
 local RoundService = {}
@@ -146,6 +147,7 @@ local function playRound(match: Match.Match, names: { [number]: string })
 	local fights = Match.startRound(match)
 	local lockedBoards = PlayerService.lockBoards()
 	ErrorLog.call("analytics combat", PlaytestAnalytics.combat, round, lockedBoards, PlayerService.levels())
+	ErrorLog.call("retention combat", RetentionService.combat, round, lockedBoards)
 	local combatDuration, results, opponents = CombatService.runRound(fights, lockedBoards, round, names, match.theme)
 	for userId, opponentName in opponents do
 		setPlayerAttribute(userId, "Opponent", opponentName)
@@ -189,12 +191,21 @@ local function playRound(match: Match.Match, names: { [number]: string })
 		)
 		setPlayerAttribute(userId, "LastDamage", damage or 0)
 	end
+	-- The round's winners (PvP and PvE) for retention quests.
+	local winners = table.clone(pveWinners)
+	for userId, outcome in summary.outcomes do
+		if outcome == Economy.Outcome.Win then
+			winners[userId] = true
+		end
+	end
+	ErrorLog.call("retention round", RetentionService.roundResults, winners)
 	for _, userId in summary.eliminated do
 		PlayerService.eliminate(userId)
 		local placement = match.players[userId].placement
 		setPlayerAttribute(userId, "LastResult", string.format("Eliminated - #%d", placement or 0))
 		print(string.format("[RoundService] %s eliminated, placement %d", names[userId], placement or 0))
 		PlaytestAnalytics.eliminated(userId, round, placement or 0)
+		ErrorLog.call("retention eliminated", RetentionService.eliminated, userId, round, placement or 0)
 	end
 	publishPlayers(match)
 	-- Item choices after the round-3 creep fight and every boss fight, won or not (ItemConfig.offers).
@@ -215,6 +226,9 @@ local function logMatchEnd(match: Match.Match, finished: boolean)
 	for userId, player in match.players do
 		placements[userId] = player.placement or 0
 	end
+	-- Retention: everyone not rewarded yet; a practice match its player left counts as leaving early.
+	local stoppedEarly = not finished and lastMatchInfo.practice
+	ErrorLog.call("retention match end", RetentionService.matchEnded, placements, match.round, stoppedEarly)
 	ErrorLog.call("analytics match end", PlaytestAnalytics.matchEnded, placements, {
 		rounds = match.round,
 		practice = lastMatchInfo.practice,
@@ -269,6 +283,7 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	setPhase(Phase.Intro, MatchConfig.introDuration)
 	PlayerService.startMatch(participants)
 	PlaytestAnalytics.matchStarted(string.format("%d-%d", os.time(), lastMatchInfo.id), participants, BotService.isBot)
+	RetentionService.matchStarted(participants, BotService.isBot, practice)
 	print(string.format("[RoundService] Match started with %d player(s)", #participants))
 
 	-- The intro: starting units are already on the boards; round 1 starts when it ends.
