@@ -242,6 +242,15 @@ return deepFreeze({
 	loadTimeout = 20,
 	-- How many avatars the server builds at once (the rest wait their turn), to avoid throttling.
 	buildAtOnce = 4,
+	-- A failed avatar is built once more after this many seconds before the unit keeps its figure.
+	retryDelay = 4,
+	-- How long a match waits, before its intro, for the avatars still loading (seconds). A unit whose
+	-- avatar is not ready by then is drawn as its figure for the whole match (UnitAvatars lock).
+	matchWait = 8,
+	-- No accessory may stretch a unit's bounds past this many times the R6 body's height (a
+	-- normal unit) on any axis, measured from the torso: a bigger one is scaled down about its
+	-- attachment point and the server log names it ("[UnitAvatars] <unit> clamped ...").
+	maxBounds = 1.6,
 	-- Body color of an avatar with no `skin` tuning.
 	defaultSkin = Color3.fromRGB(234, 190, 150),
 	units = units,

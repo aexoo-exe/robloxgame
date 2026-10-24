@@ -37,8 +37,10 @@ local MatchConfig = require(ReplicatedStorage.Shared.MatchConfig)
 local MatchRules = require(ReplicatedStorage.Shared.MatchRules)
 local Phase = require(ReplicatedStorage.Shared.Phase)
 local Pve = require(ReplicatedStorage.Shared.Pve)
+local UnitAvatarConfig = require(ReplicatedStorage.Shared.UnitAvatarConfig)
 local RemoteNames = require(ReplicatedStorage.Shared.RemoteNames)
 
+local AvatarService = require(script.Parent.AvatarService)
 local BotService = require(script.Parent.BotService)
 local CombatService = require(script.Parent.CombatService)
 local ErrorLog = require(script.Parent.ErrorLog)
@@ -259,12 +261,17 @@ local function playMatch(participants: { number }, names: { [number]: string })
 	matchState:SetAttribute("Winner", "")
 	matchState:SetAttribute("Round", 0)
 	matchState:SetAttribute("Stage", 1)
+	-- Avatars still loading get a moment (capped) before anything is drawn: clients lock the set of
+	-- ready avatars as the match leaves Waiting and keep it for the whole match (UnitAvatars), so a
+	-- unit never swaps looks mid-match.
+	AvatarService.waitSettled(UnitAvatarConfig.matchWait)
+	-- The intro starts as the starting boards go out (the lock is taken as the phase leaves Waiting).
+	setPhase(Phase.Intro, MatchConfig.introDuration)
 	PlayerService.startMatch(participants)
 	PlaytestAnalytics.matchStarted(string.format("%d-%d", os.time(), lastMatchInfo.id), participants, BotService.isBot)
 	print(string.format("[RoundService] Match started with %d player(s)", #participants))
 
 	-- The intro: starting units are already on the boards; round 1 starts when it ends.
-	setPhase(Phase.Intro, MatchConfig.introDuration)
 	pause(MatchConfig.introDuration)
 
 	while not match.finished and not stopRequested do

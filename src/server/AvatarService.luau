@@ -11,13 +11,18 @@
 -- Public state, replicated to every client (server-to-client only):
 --   ReplicatedStorage.UnitAvatars              Folder of templates, one Model per unit id
 --   ReplicatedStorage.UnitAvatars attributes   <unit id> = "loading" | "ready" | "failed"
--- A unit whose avatar failed or timed out keeps its usual figure; the server warns once, naming the
--- unit and the asset.
+-- A failed avatar is built once more after UnitAvatarConfig.retryDelay. A unit whose avatar still
+-- fails keeps its usual figure; the server warns, naming the unit and the asset, and records it in
+-- ErrorLog. No accessory may stretch a unit past UnitAvatarConfig.maxBounds (clampAccessories).
+-- RoundService waits for the avatars to settle before a match's intro (waitSettled), and clients
+-- lock the set of ready avatars for the whole match (UnitAvatars): no look swaps mid-match.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local UnitAvatarConfig = require(ReplicatedStorage.Shared.UnitAvatarConfig)
+
+local ErrorLog = require(script.Parent.ErrorLog)
 
 local AvatarService = {}
 
@@ -209,23 +214,124 @@ local function toTemplate(model: Model)
 	model.PrimaryPart = model:FindFirstChild("Torso") :: BasePart
 end
 
-local function build(unitType: string, entry: any)
-	local started = os.clock()
+-- The world-axis box around `parts`: its min and max corners.
+local function boxOf(parts: { BasePart }): (Vector3, Vector3)
+	local low, high = Vector3.one * math.huge, -Vector3.one * math.huge
+	for _, part in parts do
+		local half = part.Size / 2
+		for x = -1, 1, 2 do
+			for y = -1, 1, 2 do
+				for z = -1, 1, 2 do
+					local corner = part.CFrame:PointToWorldSpace(half * Vector3.new(x, y, z))
+					low, high = low:Min(corner), high:Max(corner)
+				end
+			end
+		end
+	end
+	return low, high
+end
+
+-- Scales an accessory's handle by `factor` about the point where it attaches to the body.
+local function scaleHandle(handle: BasePart, attachment: Attachment, factor: number)
+	local hold = handle.CFrame * attachment.CFrame
+	handle.Size *= factor
+	local mesh = handle:FindFirstChildOfClass("SpecialMesh")
+	if mesh then
+		mesh.Scale *= factor
+	end
+	for _, child in handle:GetChildren() do
+		if child:IsA("Attachment") then
+			child.Position *= factor
+		end
+	end
+	handle.CFrame = hold * attachment.CFrame:Inverse()
+end
+
+-- No accessory may make the unit's bounds bigger than UnitAvatarConfig.maxBounds x the body's
+-- height on any axis (a normal unit is the body alone): a bigger one is scaled down about its
+-- attachment point. Returns what was clamped ("<accessory> x<factor>").
+local function clampAccessories(model: Model): { string }
+	local body = {}
+	for _, name in BODY_PARTS do
+		table.insert(body, model:FindFirstChild(name) :: BasePart)
+	end
+	local bodyLow, bodyHigh = boxOf(body)
+	local limit = (bodyHigh.Y - bodyLow.Y) * UnitAvatarConfig.maxBounds
+	local function fits(handle: BasePart): boolean
+		local low, high = boxOf({ handle })
+		local size = high:Max(bodyHigh) - low:Min(bodyLow)
+		return size.X <= limit and size.Y <= limit and size.Z <= limit
+	end
+	local clamped = {}
+	for _, accessory in model:GetChildren() do
+		local handle = accessory:IsA("Accessory") and accessory:FindFirstChild("Handle")
+		local attachment = handle and handle:IsA("BasePart") and handle:FindFirstChildOfClass("Attachment")
+		if handle and attachment and not fits(handle) then
+			local total = 1
+			while not fits(handle) and total > 0.3 do
+				scaleHandle(handle, attachment, 0.9)
+				total *= 0.9
+			end
+			table.insert(clamped, string.format("%s x%.2f", accessory.Name, total))
+		end
+	end
+	return clamped
+end
+
+-- Every settled: no unit's avatar still loading.
+function AvatarService.settled(): boolean
+	if not folder then
+		return false
+	end
+	for unitType in UnitAvatarConfig.units do
+		if folder:GetAttribute(unitType) == "loading" then
+			return false
+		end
+	end
+	return true
+end
+
+-- Waits until every avatar has settled (ready or failed), at most `seconds`. Called before a
+-- match's intro, so the clients' lock (UnitAvatars) sees every avatar that could make it.
+function AvatarService.waitSettled(seconds: number)
+	local deadline = os.clock() + seconds
+	while not AvatarService.settled() and os.clock() < deadline do
+		task.wait(0.25)
+	end
+end
+
+-- One attempt: the avatar model with every item, or nil and what failed.
+local function attempt(entry: any): (Model?, string?)
 	local model, problem = create(describe(entry))
 	local missing = if model then missingItem(entry, model) else nil
-	if not model or missing then
-		if model then
-			model:Destroy()
-		end
-		folder:SetAttribute(unitType, "failed")
-		warn(
-			string.format(
-				"[UnitAvatars] %s: %s failed to load (%s); it keeps its usual figure.",
-				unitType,
-				missing or "the avatar",
-				if missing then "missing from the avatar" else problem or "unknown error"
-			)
+	if model and not missing then
+		return model, nil
+	end
+	if model then
+		model:Destroy()
+	end
+	return nil,
+		string.format(
+			"%s failed to load (%s)",
+			missing or "the avatar",
+			if missing then "missing from the avatar" else problem or "unknown error"
 		)
+end
+
+local function build(unitType: string, entry: any)
+	local started = os.clock()
+	local model, failure = attempt(entry)
+	if not model then
+		-- Once more after a short wait (a catalog hiccup or throttling often passes).
+		warn(string.format("[UnitAvatars] %s: %s; retrying in %d s", unitType, failure, UnitAvatarConfig.retryDelay))
+		task.wait(UnitAvatarConfig.retryDelay)
+		model, failure = attempt(entry)
+	end
+	if not model then
+		folder:SetAttribute(unitType, "failed")
+		local message = string.format("%s: %s after a retry; it keeps its usual figure.", unitType, tostring(failure))
+		warn("[UnitAvatars] " .. message)
+		ErrorLog.record("avatar " .. unitType, message)
 		return
 	end
 	-- A unit may go without a shirt or pants (its bare limbs take its tuned colors, and a
@@ -245,6 +351,16 @@ local function build(unitType: string, entry: any)
 		end
 	end
 	toTemplate(model)
+	for _, clamp in clampAccessories(model) do
+		warn(
+			string.format(
+				"[UnitAvatars] %s clamped %s (over %.1fx a normal unit)",
+				unitType,
+				clamp,
+				UnitAvatarConfig.maxBounds
+			)
+		)
+	end
 	model.Name = unitType
 	model.Parent = folder
 	folder:SetAttribute(unitType, "ready")
