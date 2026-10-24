@@ -23,6 +23,8 @@ local ItemPickPanel = require(script.ItemPickPanel)
 local MatchHud = require(script.MatchHud)
 local MatchIntro = require(script.MatchIntro)
 local PlayerList = require(script.PlayerList)
+local PostMatchSummary = require(script.PostMatchSummary)
+local ProfilePanel = require(script.ProfilePanel)
 local RefusalNotice = require(script.RefusalNotice)
 local RejoinNotice = require(script.RejoinNotice)
 local RewardScreen = require(script.RewardScreen)
@@ -63,6 +65,8 @@ HubExhibits.start()
 HubAudio.start()
 HowToPlay.start() -- playtest: first-match intro and the "?" button
 FeedbackPanel.start() -- playtest: stars and a line of text after each match
+PostMatchSummary.start() -- retention: XP, level-ups, quests and mastery after each match (hub)
+ProfilePanel.start() -- retention: level, coins, title, quests, mastery (hub)
 RejoinNotice.start() -- after the match screens: asks the server for the match state once they listen
 DevLineup.start() -- Studio only
 
