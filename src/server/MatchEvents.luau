@@ -15,7 +15,11 @@ function MatchEvents.on(name: string, callback: (...any) -> ())
 end
 
 function MatchEvents.fire(name: string, ...: any)
-	for _, callback in listeners[name] or {} do
+	local list = listeners[name]
+	if not list then
+		return
+	end
+	for _, callback in list do
 		ErrorLog.call("match event " .. name, callback, ...)
 	end
 end
