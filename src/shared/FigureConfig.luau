@@ -89,6 +89,18 @@ return table.freeze({
 	}),
 	-- An avatar's textured clothing cannot be recolored, so flashes, glows and selection are a
 	-- Highlight: flashes fill in their color; selection is a soft white fill with an outline.
+	-- The shared outline on unit figures in a match (UnitOutlines): a thin dark rim, no fill, so
+	-- avatars, hand-built figures and models read as one cast. Only the `max` units nearest the
+	-- camera on the field get one (Roblox draws at most 31 Highlights at once; the rest are left
+	-- for hit flashes, selection and ultimate callouts). `enabled = false` turns it off.
+	outline = table.freeze({
+		enabled = true,
+		max = 18,
+		color = Color3.fromRGB(22, 22, 30),
+		transparency = 0.4, -- of the outline (0 opaque, 1 invisible)
+		maxDistance = 160, -- studs from the camera
+		refresh = 0.25, -- seconds between picks
+	}),
 	avatarHighlight = table.freeze({
 		flashFill = 0.3,
 		selectColor = Color3.fromRGB(255, 255, 255),

@@ -24,6 +24,7 @@
 -- low effect quality bench units idle plainly and units off screen are not posed
 -- (AnimationConfig.motionQuality).
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -40,6 +41,10 @@ local UnitMotion = require(script.Parent.UnitMotion)
 local Vfx = require(script.Parent.Vfx)
 
 local UnitView = {}
+
+-- Units that may get the shared outline (UnitOutlines picks which do): every view until it dies.
+local OUTLINE_TAG = "UnitFigure"
+UnitView.OUTLINE_TAG = OUTLINE_TAG
 
 -- An equipped item's icon over a unit: its center in studs from the overhead display's center.
 type ItemSlot = { itemId: string, x: number, y: number }
@@ -307,6 +312,7 @@ function UnitView.new(
 	local baseTransparency = if opts.summon then RenderConfig.summonTransparency else 0
 	local look = opts.look or { style = "summon" }
 	local figure = Figure.new(look, color, size.Y, part, baseTransparency)
+	CollectionService:AddTag(part, OUTLINE_TAG) -- the shared outline (UnitOutlines)
 	local hand = if look.classLook then look.classLook.hand else "right"
 
 	local trailTop = Instance.new("Attachment")
@@ -1049,6 +1055,7 @@ function UnitView.kill(view: UnitView, direction: Vector3?)
 		return
 	end
 	view.dyingSince = view.clock()
+	CollectionService:RemoveTag(view.part, OUTLINE_TAG) -- no outline on a fading body
 	view.infoBoard.Enabled = false
 	view.trail.Enabled = false
 	view.faceTarget = nil
