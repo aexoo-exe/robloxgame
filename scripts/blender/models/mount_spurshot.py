@@ -1,9 +1,11 @@
-"""mount_spurshot: the pilot creature model (docs/design/creature-models.md).
+"""mount_spurshot: the pilot creature model (docs/design/creature-models.md), v2.
 
-A chunky stylized low-poly horse built from primitives, one mesh with one palette material
-(a 256x256 texture: flat color swatches + a star tile for the bedroll), a simple skeleton with rigid
-per-part skinning, three animations (idle, gallop loop, rear-up), an optional inverted-hull outline
-mesh, FBX export and review renders.
+A stylized low-poly horse made of lofted cross-sections (one continuous barrel, an arched neck, a
+shaped head, legs with knee / hock bulges, a flowing tail, mane tufts), one mesh with one palette
+material (a 512x512 texture: flat color swatches, a star tile for the bedroll, and painted coat
+tiles with round leopard spots for the barrel, neck and legs), a simple skeleton with per-ring
+skinning (blended at the joints), three animations (idle, gallop loop, rear-up), an optional
+inverted-hull outline mesh, FBX export and review renders.
 
 Run headless from the repository root:
   tools/blender-4.2.3-windows-x64/blender.exe -b --factory-startup --python scripts/blender/models/mount_spurshot.py
@@ -11,7 +13,7 @@ Run headless from the repository root:
 Writes:
   assets/models/mount_spurshot.fbx            mesh + outline mesh + armature + 3 animations (tracked)
   assets/models/mount_spurshot_palette.png    the palette texture (tracked)
-  docs/references/models/review/mount_spurshot_*.png   review renders (gitignored)
+  docs/references/models/review/mount_spurshot_*_v2.png   review renders (gitignored)
 """
 
 import math
@@ -27,12 +29,19 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 ASSETS = os.path.join(ROOT, "assets", "models")
 REVIEW = os.path.join(ROOT, "docs", "references", "models", "review")
 NAME = "mount_spurshot"
+SUFFIX = "_v2"
 FPS = 30
-OUTLINE = 0.035  # inverted-hull thickness (studs)
-random.seed(7)
+OUTLINE = 0.03  # inverted-hull thickness (studs)
+SIZE = 512
+random.seed(11)
+
+# In game the mount is scaled to its rider (FigureConfig.horse.backHeight x a 4.6-stud unit).
+GAME_UNIT_HEIGHT = 4.6
+GAME_BACK_HEIGHT = 0.42
 
 # -------------------------------------------------------------------------------------------------
-# Palette: 8x4 swatches of 32 px in the top half, a star tile in the bottom half.
+# Palette (512x512): swatches top-left (8x8 of 32 px), star tile top-right, coat tiles at the
+# bottom: barrel (x 0-384), legs (x 384-448), neck (x 448-512). Blender image rows start at the bottom.
 # -------------------------------------------------------------------------------------------------
 
 def srgb(r, g, b):
@@ -40,18 +49,21 @@ def srgb(r, g, b):
 
 SWATCHES = {
     "coat": srgb(236, 237, 240),
-    "spot": srgb(78, 82, 92),
+    "spot": srgb(74, 78, 88),
     "legshade": srgb(150, 153, 160),
     "mane": srgb(240, 224, 172),
+    "maneshade": srgb(214, 194, 140),
     "hoof": srgb(58, 58, 64),
-    "muzzle": srgb(128, 130, 138),
+    "muzzle": srgb(122, 124, 132),
+    "nostril": srgb(40, 40, 46),
     "eye": srgb(20, 20, 26),
     "earinner": srgb(205, 160, 160),
     "tack": srgb(176, 124, 72),
     "tackdark": srgb(112, 74, 42),
     "medallion": srgb(36, 64, 150),
     "blanket": srgb(138, 196, 232),
-    "saddle": srgb(150, 102, 60),
+    "blankettrim": srgb(96, 150, 196),
+    "saddle": srgb(118, 76, 44),
     "outline": srgb(22, 22, 30),
     "metal": srgb(200, 204, 214),
 }
@@ -59,65 +71,178 @@ SWATCH_INDEX = {name: index for index, name in enumerate(SWATCHES)}
 STAR_BG = srgb(150, 204, 236)
 STAR_PINK = srgb(236, 120, 170)
 STAR_WHITE = srgb(250, 250, 255)
-SIZE = 256
+
+TILE_BODY = (0, 0, 384, 256)  # x, y, w, h in pixels
+TILE_LEG = (384, 0, 64, 256)
+TILE_NECK = (448, 0, 64, 256)
+TILE_STAR = (256, 256, 256, 256)
 
 
 def swatch_uv(name):
     index = SWATCH_INDEX[name]
     col, row = index % 8, index // 8
-    return ((col + 0.5) / 8, 1 - (row + 0.5) / 8)
+    return ((col + 0.5) * 32 / SIZE, (SIZE - (row + 0.5) * 32) / SIZE)
+
+
+def tile_uv(tile, u, v):
+    """(u, v) in 0-1 inside a tile -> texture UV (inset a little)."""
+    x, y, w, h = tile
+    u = min(max(u, 0.002), 0.998)
+    v = min(max(v, 0.002), 0.998)
+    return ((x + u * w) / SIZE, (y + v * h) / SIZE)
 
 
 def star_inside(px, py, cx, cy, radius):
-    """Point inside a 5-point star centered at (cx, cy)."""
     dx, dy = px - cx, py - cy
     r = math.hypot(dx, dy)
     if r > radius:
         return False
     angle = math.atan2(dy, dx) + math.pi / 2
     sector = (angle % (2 * math.pi / 5)) / (2 * math.pi / 5)
-    edge = radius * (0.45 + 0.55 * abs(sector - 0.5) * 2)
-    return r <= edge
+    return r <= radius * (0.45 + 0.55 * abs(sector - 0.5) * 2)
+
+
+def paint_spots(pixels, tile, spots, px_per_u, px_per_v, wrap_u=False):
+    """Irregular round blobs: (u, v, radius in studs, seed) in tile space; px_per_* converts studs to
+    pixels along each axis so spots stay round on the body."""
+    x0, y0, w, h = tile
+    ys, xs = np.mgrid[0:h, 0:w]
+    region = pixels[y0 : y0 + h, x0 : x0 + w]
+    for u, v, radius, seed in spots:
+        cx, cy = u * w, v * h
+        dx = (xs - cx) / px_per_u
+        if wrap_u:
+            dx = np.minimum(np.abs(xs - cx), w - np.abs(xs - cx)) / px_per_u
+        dy = (ys - cy) / px_per_v
+        r = np.hypot(dx, dy)
+        phi = np.arctan2(dy, dx)
+        edge = radius * (1 + 0.22 * np.sin(3 * phi + seed) + 0.12 * np.sin(5 * phi + 2 * seed))
+        region[r <= edge] = SWATCHES["spot"]
 
 
 def make_palette():
     pixels = np.zeros((SIZE, SIZE, 4), dtype=np.float32)
+    pixels[:, :] = SWATCHES["coat"]
     for name, color in SWATCHES.items():
         index = SWATCH_INDEX[name]
         col, row = index % 8, index // 8
         y0 = SIZE - (row + 1) * 32
         pixels[y0 : y0 + 32, col * 32 : (col + 1) * 32] = color
-    # Unused swatch cells stay coat white.
-    for index in range(len(SWATCHES), 32):
-        col, row = index % 8, index // 8
-        y0 = SIZE - (row + 1) * 32
-        pixels[y0 : y0 + 32, col * 32 : (col + 1) * 32] = SWATCHES["coat"]
-    # The star tile (bottom half): light blue with pink and white stars.
-    pixels[0:128, :] = STAR_BG
-    stars = [(28, 30, 13, STAR_PINK), (92, 92, 12, STAR_WHITE), (150, 34, 13, STAR_PINK), (214, 88, 12, STAR_WHITE),
-             (60, 100, 9, STAR_WHITE), (186, 20, 9, STAR_PINK), (122, 60, 9, STAR_WHITE), (240, 30, 9, STAR_PINK)]
-    for y in range(128):
-        for x in range(SIZE):
+    # Star tile.
+    x0, y0, w, h = TILE_STAR
+    pixels[y0 : y0 + h, x0 : x0 + w] = STAR_BG
+    stars = [(30, 40, 20, STAR_PINK), (110, 150, 18, STAR_WHITE), (190, 60, 20, STAR_PINK), (60, 210, 16, STAR_WHITE),
+             (220, 200, 17, STAR_PINK), (150, 100, 13, STAR_WHITE), (20, 130, 13, STAR_WHITE), (240, 120, 13, STAR_PINK)]
+    for y in range(h):
+        for x in range(w):
             for cx, cy, radius, color in stars:
                 if star_inside(x, y, cx, cy, radius):
-                    pixels[y, x] = color
+                    pixels[y0 + y, x0 + x] = color
+    # Barrel: u along the body (front 0 -> rump 1), v around (0 belly, 0.5 top, 1 belly).
+    # About 3.9 studs long over 384 px and 4.4 studs around over 256 px.
+    spots = []
+    for _ in range(7):  # hindquarters, most of them
+        spots.append((random.uniform(0.6, 0.95), random.choice([random.uniform(0.2, 0.36), random.uniform(0.64, 0.8)]),
+                      random.uniform(0.2, 0.34), random.uniform(0, 6)))
+    for _ in range(2):  # over the rump top
+        spots.append((random.uniform(0.72, 0.92), random.uniform(0.45, 0.55), random.uniform(0.16, 0.24),
+                      random.uniform(0, 6)))
+    for v in (0.28, 0.72):  # mid barrel, one each side
+        spots.append((random.uniform(0.4, 0.55), v, random.uniform(0.14, 0.22), random.uniform(0, 6)))
+    spots.append((0.12, random.choice([0.3, 0.7]), 0.15, 2.0))  # shoulder
+    paint_spots(pixels, TILE_BODY, spots, 384 / 3.9, 256 / 4.4)
+    # Legs: u around, v up the leg (0 hoof -> 1 top). Darker toward the feet.
+    x0, y0, w, h = TILE_LEG
+    for y in range(h):
+        v = y / h
+        color = SWATCHES["spot"] if v < 0.2 else SWATCHES["legshade"] if v < 0.46 else SWATCHES["coat"]
+        pixels[y0 + y, x0 : x0 + w] = color
+    paint_spots(pixels, TILE_LEG, [(0.3, 0.72, 0.12, 1.0), (0.78, 0.6, 0.1, 3.0), (0.55, 0.38, 0.1, 4.0)],
+                64 / 1.3, 256 / 2.9, wrap_u=True)
+    # Neck: u around, v along (0 base -> 1 head). Two spots.
+    paint_spots(pixels, TILE_NECK, [(0.25, 0.3, 0.13, 2.0), (0.7, 0.55, 0.11, 5.0)], 64 / 2.6, 256 / 1.6, wrap_u=True)
+
     image = bpy.data.images.new(NAME + "_palette", SIZE, SIZE, alpha=False)
     image.pixels = pixels.flatten()
     image.filepath_raw = os.path.join(ASSETS, NAME + "_palette.png")
     image.file_format = "PNG"
     image.save()
-    return image
+    return image, len(spots) + 2 + 3
 
 
 # -------------------------------------------------------------------------------------------------
-# Geometry
+# Building blocks
 # -------------------------------------------------------------------------------------------------
 
-PARTS = []  # (object, bone name)
+PARTS = []  # (object, bone name or weights(world point) -> {bone: weight})
 
 
-def finish(obj, bone, color):
-    """Flat-colors every face of a part (its UVs on one swatch) and records its bone."""
+def new_object(name, bm):
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj
+
+
+def loft(name, rings, uv_of, cap_uv, cap_start=True, cap_end=True):
+    """A closed tube through `rings` (lists of points, same count). uv_of(i, j) gives the UV of ring i,
+    point j (j == len(ring) on the seam). Caps take `cap_uv`."""
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
+    count = len(rings[0])
+    verts = [[bm.verts.new(p) for p in ring] for ring in rings]
+    index_of = {}
+    for i, ring in enumerate(verts):
+        for j, vert in enumerate(ring):
+            index_of[vert] = (i, j)
+    for i in range(len(rings) - 1):
+        for j in range(count):
+            bm.faces.new((verts[i][j], verts[i][(j + 1) % count], verts[i + 1][(j + 1) % count], verts[i + 1][j]))
+    caps = []
+    if cap_start:
+        caps.append(bm.faces.new(list(reversed(verts[0]))))
+    if cap_end:
+        caps.append(bm.faces.new(verts[-1]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    cap_set = set(caps)
+    for face in bm.faces:
+        if face in cap_set:
+            for loop in face.loops:
+                loop[uv].uv = cap_uv
+            continue
+        js = [index_of[loop.vert][1] for loop in face.loops]
+        wraps = (0 in js) and (count - 1 in js)
+        for loop in face.loops:
+            i, j = index_of[loop.vert]
+            if wraps and j == 0:
+                j = count
+            loop[uv].uv = uv_of(i, j)
+    return new_object(name, bm)
+
+
+def ring_points(center, side, up, rx, r_top, r_bot, count):
+    """A ring around `center` in the plane of `side` / `up`, starting at the bottom; top and bottom radii
+    may differ."""
+    points = []
+    for j in range(count):
+        theta = 2 * math.pi * j / count
+        vertical = -math.cos(theta)
+        r_v = r_top if vertical > 0 else r_bot
+        points.append(center + side * (rx * math.sin(theta)) + up * (r_v * vertical))
+    return points
+
+
+def frame_at(tangent):
+    tangent = tangent.normalized()
+    side = Vector((1, 0, 0))
+    up = tangent.cross(side).normalized()
+    return side, up
+
+
+def flat_part(obj, bone, color):
+    """Flat-colors every face of a primitive part and records its bone."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     uv = bm.loops.layers.uv.verify()
@@ -138,168 +263,360 @@ def between(a, b):
     return (a + b) / 2, direction.length, rotation
 
 
-def limb(a, b, r1, r2, bone, color, sides=8):
-    location, length, rotation = between(b, a)  # radius1 at `a`'s end
+def rod(a, b, r1, r2, bone, color, sides=6):
+    location, length, rotation = between(b, a)
     bpy.ops.mesh.primitive_cone_add(vertices=sides, radius1=r2, radius2=r1, depth=length, location=location,
                                     rotation=rotation)
-    return finish(bpy.context.active_object, bone, color)
+    return flat_part(bpy.context.active_object, bone, color)
 
 
-def blob(location, scale, bone, color, segments=14, rings=9):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=segments, ring_count=rings, radius=1, location=location)
-    obj = bpy.context.active_object
-    obj.scale = scale
-    bpy.ops.object.transform_apply(scale=True)
-    return finish(obj, bone, color)
+def chain_weights(points, bones, blend=0.12):
+    """Weights for a vertex near a polyline whose segments belong to `bones` (one per segment): the
+    nearest segment's bone, blended toward 50/50 within `blend` of a joint."""
+    def weights(p):
+        best, best_d, best_t = 0, math.inf, 0
+        for k in range(len(points) - 1):
+            a, b = points[k], points[k + 1]
+            ab = b - a
+            t = max(0.0, min(1.0, (p - a).dot(ab) / ab.length_squared))
+            d = (a + ab * t - p).length
+            if d < best_d:
+                best, best_d, best_t = k, d, t
+        length = (points[best + 1] - points[best]).length
+        near_end = (1 - best_t) * length
+        near_start = best_t * length
+        if near_end < blend and best + 1 < len(bones):
+            share = 0.5 + 0.5 * (near_end / blend)
+            return {bones[best]: share, bones[best + 1]: 1 - share}
+        if near_start < blend and best > 0:
+            share = 0.5 + 0.5 * (near_start / blend)
+            return {bones[best]: share, bones[best - 1]: 1 - share}
+        return {bones[best]: 1.0}
+    return weights
 
 
-def box(location, scale, bone, color, rotation=(0, 0, 0)):
-    bpy.ops.mesh.primitive_cube_add(size=2, location=location, rotation=rotation)
-    obj = bpy.context.active_object
-    obj.scale = scale
-    bpy.ops.object.transform_apply(scale=True, rotation=True)
-    return finish(obj, bone, color)
+# -------------------------------------------------------------------------------------------------
+# The horse (faces -Y, Z up; 1 unit = 1 stud)
+# -------------------------------------------------------------------------------------------------
+
+# Barrel sections: (y, half width, top radius, bottom radius, center height). A deep chest, a withers
+# bump, a slight belly curve, a rounded rump.
+BARREL = [
+    (-1.95, 0.22, 0.26, 0.3, 3.12),
+    (-1.78, 0.46, 0.56, 0.68, 3.1),
+    (-1.45, 0.58, 0.7, 0.86, 3.04),
+    (-1.0, 0.6, 0.84, 0.82, 3.04),
+    (-0.5, 0.61, 0.74, 0.8, 3.02),
+    (0.0, 0.63, 0.71, 0.86, 3.0),
+    (0.5, 0.66, 0.72, 0.82, 3.04),
+    (0.95, 0.7, 0.8, 0.76, 3.12),
+    (1.35, 0.67, 0.8, 0.72, 3.2),
+    (1.7, 0.52, 0.66, 0.58, 3.22),
+    (1.92, 0.26, 0.34, 0.3, 3.2),
+]
+BODY_N = 12
 
 
-def build_horse():
-    # Body: chest, barrel and hindquarters, overlapping. Faces -Y.
-    chest = blob((0, -0.95, 3.15), (0.66, 0.85, 0.78), "spine", "coat")
-    barrel = blob((0, 0.05, 3.05), (0.64, 1.15, 0.72), "spine", "coat")
-    hind = blob((0, 1.0, 3.18), (0.7, 0.85, 0.8), "spine", "coat")
-    # Neck and head.
-    limb((0, -1.2, 3.55), (0, -2.05, 4.75), 0.52, 0.34, "neck", "coat")
-    head = box((0, -2.55, 4.55), (0.31, 0.62, 0.34), "head", "coat", rotation=(math.radians(-38), 0, 0))
-    box((0, -2.98, 4.18), (0.24, 0.24, 0.24), "head", "muzzle", rotation=(math.radians(-38), 0, 0))
-    for side in (-1, 1):
-        limb((side * 0.15, -2.2, 4.95), (side * 0.2, -2.18, 5.42), 0.09, 0.02, "ear." + ("L" if side > 0 else "R"),
-             "coat", sides=5)
-        box((side * 0.275, -2.55, 4.72), (0.03, 0.07, 0.06), "head", "eye")
-    # Mane: blocky tufts along the neck, and a forelock.
-    for i in range(6):
-        t = i / 5
-        y = -1.35 + (-2.05 + 1.35) * t
-        z = 3.95 + (4.95 - 3.95) * t
-        box((0, y + 0.18, z + 0.12), (0.1, 0.16, 0.24), "neck", "mane", rotation=(math.radians(-35), 0, 0))
-    box((0, -2.28, 4.98), (0.12, 0.12, 0.18), "head", "mane", rotation=(math.radians(-50), 0, 0))
-    # Legs: upper, lower, hoof. Slender racing legs.
-    legs = {"FL": (0.38, -1.15), "FR": (-0.38, -1.15), "BL": (0.4, 1.2), "BR": (-0.4, 1.2)}
-    for key, (x, y) in legs.items():
-        back = key[0] == "B"
-        knee = (x, y + (0.12 if back else 0), 1.35)
-        limb((x, y, 2.75), knee, 0.3 if back else 0.26, 0.17, "upper." + key, "coat")
-        limb(knee, (x, y, 0.22), 0.16, 0.14, "lower." + key, "legshade")
-        limb((x, y, 0.22), (x, y, 0.0), 0.16, 0.18, "hoof." + key, "hoof", sides=8)
-    # Tail: three flowing segments.
-    limb((0, 1.75, 3.45), (0, 2.15, 2.85), 0.17, 0.2, "tail.1", "mane")
-    limb((0, 2.15, 2.85), (0, 2.4, 2.05), 0.2, 0.18, "tail.2", "mane")
-    limb((0, 2.4, 2.05), (0, 2.5, 1.25), 0.18, 0.07, "tail.3", "mane")
-    # Tack: noseband, cheek straps, reins, chest strap with the medallion.
-    bpy.ops.mesh.primitive_torus_add(major_radius=0.3, minor_radius=0.035, major_segments=10, minor_segments=4,
-                                     location=(0, -2.85, 4.3), rotation=(math.radians(52), 0, 0))
-    finish(bpy.context.active_object, "head", "tack")
-    for side in (-1, 1):
-        limb((side * 0.29, -2.75, 4.35), (side * 0.29, -2.3, 4.85), 0.03, 0.03, "head", "tack", sides=4)
-        limb((side * 0.3, -2.9, 4.25), (side * 0.32, -1.3, 3.95), 0.025, 0.025, "neck", "tackdark", sides=4)
-    bpy.ops.mesh.primitive_torus_add(major_radius=0.7, minor_radius=0.06, major_segments=16, minor_segments=4,
-                                     location=(0, -1.12, 3.15))
-    strap = bpy.context.active_object
-    # Keep only the front half of the strap ring (it wraps the chest).
-    bm = bmesh.new()
-    bm.from_mesh(strap.data)
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > 0.05], context="VERTS")
-    bm.to_mesh(strap.data)
-    bm.free()
-    finish(strap, "spine", "tack")
-    bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.17, depth=0.08, location=(0, -1.84, 3.15),
-                                        rotation=(math.radians(90), 0, 0))
-    finish(bpy.context.active_object, "spine", "medallion")
-    # Saddle blanket, saddle, and the star bedroll behind it.
-    box((0, -0.05, 3.72), (0.72, 0.62, 0.06), "spine", "blanket")
-    for side in (-1, 1):
-        box((side * 0.66, -0.05, 3.35), (0.05, 0.6, 0.38), "spine", "blanket")
-    box((0, -0.1, 3.84), (0.38, 0.42, 0.08), "spine", "saddle")
-    bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.26, depth=1.3, location=(0, 0.75, 4.0),
-                                        rotation=(0, math.radians(90), 0))
-    roll = bpy.context.active_object
-    finish(roll, "spine", "blanket")
-    star_map(roll)
-    for x in (-0.35, 0.35):
-        bpy.ops.mesh.primitive_torus_add(major_radius=0.275, minor_radius=0.03, major_segments=10, minor_segments=4,
-                                         location=(x, 0.75, 4.0), rotation=(0, math.radians(90), 0))
-        finish(bpy.context.active_object, "spine", "tackdark")
-    return chest, barrel, hind
+def barrel_ring(y):
+    """(half width, top radius, bottom radius, center height) of the barrel at `y`."""
+    for k in range(len(BARREL) - 1):
+        a, b = BARREL[k], BARREL[k + 1]
+        if a[0] <= y <= b[0]:
+            t = (y - a[0]) / (b[0] - a[0])
+            return [a[i] + (b[i] - a[i]) * t for i in range(1, 5)]
+    return list(BARREL[0][1:])
 
 
-def star_map(obj):
-    """UVs of the bedroll on the star tile: around the roll -> u, along it -> v (0-0.5)."""
+def build_barrel():
+    rings = [ring_points(Vector((0, y, cz)), Vector((1, 0, 0)), Vector((0, 0, 1)), rx, rt, rb, BODY_N)
+             for y, rx, rt, rb, cz in BARREL]
+    ys = [s[0] for s in BARREL]
+    length = ys[-1] - ys[0]
+    obj = loft("barrel", rings, lambda i, j: tile_uv(TILE_BODY, (ys[i] - ys[0]) / length, j / BODY_N),
+               tile_uv(TILE_BODY, 0.5, 0.0))
+    PARTS.append((obj, "spine"))
+
+
+NECK_BASE, NECK_CTRL, NECK_TOP = Vector((0, -1.3, 3.5)), Vector((0, -1.5, 4.55)), Vector((0, -2.08, 4.82))
+
+
+def bezier(a, c, b, t):
+    return a * (1 - t) ** 2 + c * 2 * (1 - t) * t + b * t * t
+
+
+def neck_frame(t):
+    center = bezier(NECK_BASE, NECK_CTRL, NECK_TOP, t)
+    tangent = (NECK_CTRL - NECK_BASE) * 2 * (1 - t) + (NECK_TOP - NECK_CTRL) * 2 * t
+    side, up = frame_at(tangent)
+    return center, side, up
+
+
+def neck_radii(t):
+    return 0.42 + (0.25 - 0.42) * t, 0.6 + (0.3 - 0.6) * t
+
+
+def build_neck():
+    count = 10
+    ts = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    rings = []
+    for t in ts:
+        center, side, up = neck_frame(t)
+        rx, rz = neck_radii(t)
+        rings.append(ring_points(center, side, up, rx, rz, rz * 0.95, count))
+    obj = loft("neck", rings, lambda i, j: tile_uv(TILE_NECK, j / count, ts[i]), swatch_uv("coat"))
+    PARTS.append((obj, "neck"))
+
+
+HEAD_POLL, HEAD_TIP = Vector((0, -2.08, 4.86)), Vector((0, -2.98, 4.12))
+
+
+def build_head():
+    count = 10
+    axis = HEAD_TIP - HEAD_POLL
+    side, up = frame_at(axis)
+    # (t along the head, half width, top radius, bottom radius (the jaw), color)
+    sections = [
+        (0.0, 0.2, 0.22, 0.26, "coat"),
+        (0.22, 0.29, 0.26, 0.4, "coat"),  # cheeks and jaw
+        (0.45, 0.24, 0.24, 0.3, "coat"),
+        (0.7, 0.19, 0.21, 0.23, "muzzle"),
+        (0.92, 0.18, 0.2, 0.2, "muzzle"),
+        (1.0, 0.16, 0.17, 0.17, "muzzle"),  # the nostril plane (the end cap)
+    ]
+    rings = [ring_points(HEAD_POLL + axis * t, side, up, rx, rt, rb, count) for t, rx, rt, rb, _ in sections]
+    colors = [section[4] for section in sections]
+    obj = loft("head", rings, lambda i, j: swatch_uv(colors[i]), swatch_uv("muzzle"))
+    PARTS.append((obj, "head"))
+    facing = axis.to_track_quat("Y", "Z").to_euler()
+    for sx in (-1, 1):
+        # Nostrils on the flat muzzle end.
+        bpy.ops.mesh.primitive_cube_add(size=1, location=HEAD_TIP + axis.normalized() * 0.01 + side * (0.08 * sx)
+                                        + up * 0.02, rotation=facing)
+        nostril = bpy.context.active_object
+        nostril.scale = (0.06, 0.03, 0.08)
+        bpy.ops.object.transform_apply(scale=True, rotation=True)
+        flat_part(nostril, "head", "nostril")
+        # Eyes on the sides, above the cheeks.
+        bpy.ops.mesh.primitive_cube_add(size=1, location=HEAD_POLL + axis * 0.2 + side * (0.27 * sx) + up * 0.1,
+                                        rotation=facing)
+        eye = bpy.context.active_object
+        eye.scale = (0.06, 0.1, 0.08)
+        bpy.ops.object.transform_apply(scale=True, rotation=True)
+        flat_part(eye, "head", "eye")
+        # Ears: larger, alert, a little flattened.
+        base = HEAD_POLL + side * (0.15 * sx) + up * 0.1
+        bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.12, radius2=0.015, depth=0.58,
+                                        location=base + Vector((0.03 * sx, 0.02, 0.29)))
+        ear = bpy.context.active_object
+        ear.scale = (0.65, 1.0, 1.0)
+        ear.rotation_euler = (math.radians(-8), math.radians(8 * sx), 0)
+        bpy.ops.object.transform_apply(scale=True, rotation=True)
+        flat_part(ear, "ear." + ("L" if sx > 0 else "R"), "coat")
+
+
+def tuft(name, points, widths, thickness, bone, along):
+    """A flowing mane / forelock tuft: a flattened tapered tube through `points`, its flat side along
+    `along` (the neck), `widths` per point."""
+    rings = []
+    for k, p in enumerate(points):
+        tangent = (points[min(k + 1, len(points) - 1)] - points[max(k - 1, 0)]).normalized()
+        flat = along - tangent * along.dot(tangent)
+        flat = flat.normalized() if flat.length > 1e-4 else Vector((0, 1, 0))
+        normal = tangent.cross(flat).normalized()
+        w = widths[k]
+        rings.append([p + flat * w, p + normal * thickness, p - flat * w, p - normal * thickness])
+    obj = loft(name, rings, lambda i, j: swatch_uv("mane" if j % 2 == 0 else "maneshade"), swatch_uv("mane"))
+    PARTS.append((obj, bone))
+
+
+def build_mane():
+    # Five flowing tufts along the crest, falling to the horse's right (+x), close to the neck.
+    for k in range(5):
+        t = 0.1 + 0.19 * k
+        center, side, up = neck_frame(t)
+        rx, rz = neck_radii(t)
+        along = (neck_frame(min(t + 0.05, 1))[0] - neck_frame(max(t - 0.05, 0))[0]).normalized()
+        root = center + up * (rz * 0.92) + side * 0.03
+        mid = center + up * (rz * 0.55) + side * (rx + 0.06) + Vector((0, 0.06, 0))
+        end = center + up * (rz * 0.05) + side * (rx + 0.07) + Vector((0, 0.12, -0.12))
+        tuft("mane%d" % k, [root, mid, end], [0.28 - 0.015 * k, 0.24, 0.1], 0.07, "neck", along)
+    # The forelock between the ears, falling forward over the face.
+    axis = (HEAD_TIP - HEAD_POLL).normalized()
+    root = HEAD_POLL + Vector((0, 0.02, 0.2))
+    tuft("forelock", [root, root + axis * 0.22 + Vector((0.03, 0, 0.04)), root + axis * 0.45 + Vector((0.05, 0, -0.02))],
+         [0.11, 0.09, 0.02], 0.05, "head", Vector((1, 0, 0)))
+
+
+LEGS = {
+    # (y, z) path points and radii; the x is set per side.
+    "F": ([(-1.2, 2.85), (-1.22, 2.35), (-1.22, 1.65), (-1.22, 1.32), (-1.22, 0.9), (-1.22, 0.42), (-1.2, 0.24),
+           (-1.2, 0.22), (-1.2, 0.0)],
+          [0.26, 0.22, 0.165, 0.19, 0.13, 0.155, 0.13, 0.19, 0.22]),
+    # The hind leg: the gaskin slopes back to the point of the hock, the cannon comes down near vertical.
+    "B": ([(1.15, 2.95), (1.3, 2.15), (1.48, 1.42), (1.42, 1.28), (1.37, 0.85), (1.33, 0.42), (1.32, 0.24),
+           (1.32, 0.22), (1.32, 0.0)],
+          [0.32, 0.24, 0.19, 0.2, 0.13, 0.155, 0.13, 0.19, 0.22]),
+}
+LEG_X = {"FL": 0.36, "FR": -0.36, "BL": 0.4, "BR": -0.4}
+
+
+def leg_points(key):
+    path, _ = LEGS[key[0]]
+    return [Vector((LEG_X[key], y, z)) for y, z in path]
+
+
+def build_leg(key):
+    _, radii = LEGS[key[0]]
+    points = leg_points(key)
+    count = 8
+    rings = []
+    for k, p in enumerate(points):
+        tangent = points[min(k + 1, len(points) - 1)] - points[max(k - 1, 0)]
+        side, up = frame_at(tangent)
+        rings.append(ring_points(p, side, up, radii[k], radii[k], radii[k], count))
+    top = points[0].z
+
+    def uv_of(i, j):
+        if i >= 7:  # rings 7-8 are the hoof
+            return swatch_uv("hoof")
+        return tile_uv(TILE_LEG, j / count, points[i].z / top)
+
+    obj = loft("leg" + key, rings, uv_of, swatch_uv("hoof"))
+    # Bones: upper (points 0-3: to the knee / hock), lower (3-7: to the hoof top), hoof (7-8).
+    joints = [points[0], points[3], points[7], points[8]]
+    PARTS.append((obj, chain_weights(joints, ["upper." + key, "lower." + key, "hoof." + key], blend=0.14)))
+
+
+TAIL = [Vector((0, 1.86, 3.5)), Vector((0, 2.12, 3.05)), Vector((0, 2.32, 2.45)), Vector((0, 2.44, 1.85)),
+        Vector((0, 2.5, 1.2))]
+TAIL_RADII = [0.12, 0.2, 0.25, 0.22, 0.06]
+
+
+def build_tail():
+    count = 6
+    rings = []
+    for k, p in enumerate(TAIL):
+        tangent = TAIL[min(k + 1, 4)] - TAIL[max(k - 1, 0)]
+        side, up = frame_at(tangent)
+        r = TAIL_RADII[k]
+        rings.append(ring_points(p, side, up, r * 0.75, r, r, count))
+    obj = loft("tail", rings, lambda i, j: swatch_uv("mane" if j % 2 == 0 else "maneshade"), swatch_uv("mane"))
+    PARTS.append((obj, chain_weights(TAIL, ["tail.1", "tail.2", "tail.3", "tail.4"])))
+
+
+def arc_slab(name, y0, y1, half_angle, inner, outer, hang, color, steps=5):
+    """A thin slab draped over the barrel's top between y0 and y1: `half_angle` each side of the top,
+    from `inner` to `outer` off the surface; its edges flare out and hang `hang` lower."""
+    arc = 8
+    rings = []
+    for s in range(steps):
+        y = y0 + (y1 - y0) * s / (steps - 1)
+        rx, rt, _rb, cz = barrel_ring(y)
+        outer_pts, inner_pts = [], []
+        for a in range(arc + 1):
+            ang = -half_angle + 2 * half_angle * a / arc  # 0 = the top
+            edge = abs(ang) / half_angle
+            sx, cz_off = math.sin(ang), math.cos(ang)
+            surface = Vector((rx * sx * (1 + edge * edge * hang), y, cz + rt * cz_off - edge ** 3 * hang))
+            normal = Vector((sx / max(rx, 1e-3), 0, cz_off / max(rt, 1e-3))).normalized()
+            outer_pts.append(surface + normal * outer)
+            inner_pts.append(surface + normal * inner)
+        rings.append(outer_pts + list(reversed(inner_pts)))
+    obj = loft(name, rings, lambda i, j: swatch_uv(color), swatch_uv(color))
+    PARTS.append((obj, "spine"))
+
+
+def star_map(obj, center, length):
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     uv = bm.loops.layers.uv.verify()
-    center = Vector((0, 0.75, 4.0))
     for face in bm.faces:
         for loop in face.loops:
             p = obj.matrix_world @ loop.vert.co - center
+            if abs(face.normal.x) > 0.9:
+                loop[uv].uv = swatch_uv("blanket")  # the end caps
+                continue
             u = (math.atan2(p.z, p.y) / (2 * math.pi)) % 1.0
-            v = (p.x / 1.3 + 0.5) * 0.48 + 0.01
-            loop[uv].uv = (u, v)
+            loop[uv].uv = tile_uv(TILE_STAR, u, p.x / length + 0.5)
     bm.to_mesh(obj.data)
     bm.free()
 
 
-def spots(body_parts):
-    """8-15 large dark spots (whole faces), most on the hindquarters; darker toward the feet."""
-    faces = []
-    for obj in body_parts:
-        for poly in obj.data.polygons:
-            faces.append((obj, poly.index, obj.matrix_world @ poly.center))
-    candidates = [f for f in faces if f[2].z > 2.6]
-    hind = [f for f in candidates if f[2].y > 0.35]
-    mid = [f for f in candidates if -0.6 < f[2].y <= 0.35]
-    front = [f for f in candidates if f[2].y <= -0.6]
-    centers = random.sample(hind, 7) + random.sample(mid, 3) + random.sample(front, 2)
-    chosen = set()
-    for _, _, point in centers:
-        radius = random.uniform(0.28, 0.42)
-        for obj, index, center in faces:
-            if (center - point).length < radius:
-                chosen.add((obj.name, index))
-    u, v = swatch_uv("spot")
-    for obj in body_parts:
-        bm = bmesh.new()
-        bm.from_mesh(obj.data)
-        uv = bm.loops.layers.uv.verify()
-        bm.faces.ensure_lookup_table()
-        for face in bm.faces:
-            if (obj.name, face.index) in chosen:
-                for loop in face.loops:
-                    loop[uv].uv = (u, v)
-        bm.to_mesh(obj.data)
-        bm.free()
-    return len(centers)
+def build_tack():
+    # Saddle blanket draped over the back, a brown seat, a smaller star bedroll behind the saddle.
+    arc_slab("blanket", -0.55, 0.38, math.radians(78), 0.01, 0.05, 0.12, "blanket")
+    arc_slab("blankettrim", -0.6, -0.5, math.radians(80), 0.012, 0.06, 0.13, "blankettrim", steps=2)
+    arc_slab("seat", -0.38, 0.12, math.radians(42), 0.05, 0.17, 0.02, "saddle", steps=4)
+    arc_slab("cantle", 0.06, 0.18, math.radians(30), 0.15, 0.3, 0.0, "saddle", steps=2)
+    _rx, rt, _rb, cz = barrel_ring(0.5)
+    roll_at = Vector((0, 0.5, cz + rt + 0.14))
+    bpy.ops.mesh.primitive_cylinder_add(vertices=10, radius=0.17, depth=0.9, location=roll_at,
+                                        rotation=(0, math.radians(90), 0))
+    roll = bpy.context.active_object
+    bpy.ops.object.transform_apply(rotation=True)
+    flat_part(roll, "spine", "blanket")
+    star_map(roll, roll_at, 0.9)
+    for x in (-0.28, 0.28):
+        bpy.ops.mesh.primitive_torus_add(major_radius=0.18, minor_radius=0.025, major_segments=8, minor_segments=4,
+                                         location=roll_at + Vector((x, 0, 0)), rotation=(0, math.radians(90), 0))
+        flat_part(bpy.context.active_object, "spine", "tackdark")
+    # Bridle: noseband, cheek straps, reins to the withers.
+    axis = HEAD_TIP - HEAD_POLL
+    side, up = frame_at(axis)
+    nose = HEAD_POLL + axis * 0.72
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.24, minor_radius=0.03, major_segments=10, minor_segments=4,
+                                     location=nose, rotation=axis.to_track_quat("Z", "Y").to_euler())
+    band = bpy.context.active_object
+    band.scale = (0.92, 1.05, 1.0)
+    bpy.ops.object.transform_apply(scale=True, rotation=True)
+    flat_part(band, "head", "tack")
+    for sx in (-1, 1):
+        rod(nose + side * (0.22 * sx), HEAD_POLL + side * (0.2 * sx) + up * 0.05, 0.025, 0.025, "head", "tack", sides=4)
+        rod(nose + side * (0.24 * sx) - up * 0.08, Vector((0.3 * sx, -1.35, 3.92)), 0.022, 0.022, "neck", "tackdark",
+            sides=4)
+    # Chest strap around the front of the chest, with the round medallion at its center.
+    rx, _rt, _rb, cz = barrel_ring(-1.55)
+    bpy.ops.mesh.primitive_torus_add(major_radius=1.0, minor_radius=0.05, major_segments=20, minor_segments=4,
+                                     location=(0, -1.55, cz - 0.05))
+    strap = bpy.context.active_object
+    strap.scale = (rx + 0.05, 0.36, 1.0)
+    bpy.ops.object.transform_apply(scale=True)
+    bm = bmesh.new()
+    bm.from_mesh(strap.data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > -0.02], context="VERTS")
+    bm.to_mesh(strap.data)
+    bm.free()
+    flat_part(strap, "spine", "tack")
+    bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.16, depth=0.07, location=(0, -1.55 - 0.38, cz - 0.05),
+                                        rotation=(math.radians(90), 0, 0))
+    flat_part(bpy.context.active_object, "spine", "medallion")
 
 
 # -------------------------------------------------------------------------------------------------
 # Rig
 # -------------------------------------------------------------------------------------------------
 
-BONES = {
-    # name: (head, tail, parent)
-    "root": ((0, 0, 0), (0, 0, 0.6), None),
-    "spine": ((0, 1.2, 3.15), (0, -1.15, 3.25), "root"),
-    "neck": ((0, -1.2, 3.55), (0, -2.05, 4.75), "spine"),
-    "head": ((0, -2.05, 4.75), (0, -3.05, 4.15), "neck"),
-    "ear.L": ((0.15, -2.2, 4.95), (0.2, -2.18, 5.42), "head"),
-    "ear.R": ((-0.15, -2.2, 4.95), (-0.2, -2.18, 5.42), "head"),
-    "tail.1": ((0, 1.75, 3.45), (0, 2.15, 2.85), "spine"),
-    "tail.2": ((0, 2.15, 2.85), (0, 2.4, 2.05), "tail.1"),
-    "tail.3": ((0, 2.4, 2.05), (0, 2.5, 1.25), "tail.2"),
-}
-for _key, (_x, _y) in {"FL": (0.38, -1.15), "FR": (-0.38, -1.15), "BL": (0.4, 1.2), "BR": (-0.4, 1.2)}.items():
-    _back = _key[0] == "B"
-    _knee = (_x, _y + (0.12 if _back else 0), 1.35)
-    BONES["upper." + _key] = ((_x, _y, 2.75), _knee, "spine")
-    BONES["lower." + _key] = (_knee, (_x, _y, 0.22), "upper." + _key)
-    BONES["hoof." + _key] = ((_x, _y, 0.22), (_x, _y, 0.0), "lower." + _key)
+def bone_table():
+    bones = {
+        "root": ((0, 0, 0), (0, 0, 0.6), None),
+        "spine": ((0, 1.15, 3.15), (0, -1.2, 3.25), "root"),
+        "neck": (tuple(NECK_BASE), tuple(NECK_TOP), "spine"),
+        "head": (tuple(HEAD_POLL), tuple(HEAD_TIP), "neck"),
+        "ear.L": ((0.18, -2.06, 4.98), (0.21, -2.04, 5.55), "head"),
+        "ear.R": ((-0.18, -2.06, 4.98), (-0.21, -2.04, 5.55), "head"),
+    }
+    names = ["tail.1", "tail.2", "tail.3", "tail.4"]
+    for k, name in enumerate(names):
+        bones[name] = (tuple(TAIL[k]), tuple(TAIL[k + 1]), "spine" if k == 0 else names[k - 1])
+    for key in LEG_X:
+        points = leg_points(key)
+        bones["upper." + key] = (tuple(points[0]), tuple(points[3]), "spine")
+        bones["lower." + key] = (tuple(points[3]), tuple(points[7]), "upper." + key)
+        bones["hoof." + key] = (tuple(points[7]), tuple(points[8]), "lower." + key)
+    return bones
+
+
+BONES = bone_table()
 
 
 def build_rig():
@@ -326,8 +643,16 @@ def build_rig():
 
 def join_and_skin(arm, material):
     for obj, bone in PARTS:
-        group = obj.vertex_groups.new(name=bone)
-        group.add(range(len(obj.data.vertices)), 1.0, "REPLACE")
+        if callable(bone):
+            groups = {}
+            for vert in obj.data.vertices:
+                for name, weight in bone(obj.matrix_world @ vert.co).items():
+                    if name not in groups:
+                        groups[name] = obj.vertex_groups.new(name=name)
+                    groups[name].add([vert.index], weight, "REPLACE")
+        else:
+            group = obj.vertex_groups.new(name=bone)
+            group.add(range(len(obj.data.vertices)), 1.0, "REPLACE")
     bpy.ops.object.select_all(action="DESELECT")
     for obj, _ in PARTS:
         obj.select_set(True)
@@ -347,7 +672,7 @@ def join_and_skin(arm, material):
 
 
 def make_outline(mesh, material):
-    """An inverted hull: the mesh pushed out along its normals, faces flipped, outline color."""
+    """An inverted hull: the mesh pushed out along its normals, faces flipped, the outline color."""
     outline = mesh.copy()
     outline.data = mesh.data.copy()
     outline.name = NAME + "_outline"
@@ -389,11 +714,10 @@ def make_material(image):
 
 # -------------------------------------------------------------------------------------------------
 # Animations (rotation_euler.x pitches a bone in its side plane, degrees: + tips a forward-pointing
-# bone down and swings a downward-pointing bone back)
+# bone down and swings a downward-pointing bone back; .z turns it sideways)
 # -------------------------------------------------------------------------------------------------
 
 def key(arm, frame, values):
-    """values: { bone: (x, y, z) degrees } or { "root.loc": (x, y, z) }."""
     for name, value in values.items():
         if name == "root.loc":
             pb = arm.pose.bones["root"]
@@ -421,25 +745,37 @@ def make_cyclic(action):
         curve.modifiers.new("CYCLES")
 
 
+def pulse(frame, at, width):
+    """0 -> 1 -> 0 around frame `at`, `width` frames each way."""
+    return max(0.0, 1 - abs(frame - at) / width)
+
+
 def anim_idle(arm):
     action = new_action(arm, "idle")
     length = 90
-    for frame in range(0, length + 1, 6):
+    for frame in range(0, length + 1, 3):
         t = frame / length
-        sway = math.sin(t * 2 * math.pi)
+        wave = math.sin(t * 2 * math.pi)
         values = {
-            "spine": (0, sway * 2.0, 0),
-            "root.loc": (sway * 0.04, 0, -abs(sway) * 0.02),
-            "neck": (math.sin(t * 2 * math.pi + 0.8) * 3, 0, 0),
-            "head": (math.sin(t * 2 * math.pi + 1.6) * 2, 0, 0),
-            "tail.1": (0, 0, math.sin(t * 4 * math.pi) * 8),
-            "tail.2": (0, 0, math.sin(t * 4 * math.pi - 0.6) * 10),
-            "upper.BL": (sway * -2, 0, 0),
-            "upper.BR": (sway * 2, 0, 0),
+            # Weight shift side to side, one hind leg resting at a time.
+            "root.loc": (wave * 0.1, 0, -abs(wave) * 0.03),
+            "spine": (0, wave * 4.0, 0),
+            "upper.BL": (-wave * 5, 0, 0),
+            "upper.BR": (wave * 5, 0, 0),
+            "lower.BL": (max(0.0, -wave) * 12, 0, 0),
+            "lower.BR": (max(0.0, wave) * 12, 0, 0),
+            # Head bob (down and up twice) and a little turn.
+            "neck": (math.sin(t * 4 * math.pi) * 14, 0, math.sin(t * 2 * math.pi + 0.5) * 12),
+            "head": (math.sin(t * 4 * math.pi + 1.2) * 14, 0, 0),
+            # Tail swish side to side.
+            "tail.1": (8 + math.sin(t * 4 * math.pi + 1.0) * 12, 0, math.sin(t * 4 * math.pi) * 22),
+            "tail.2": (4 + math.sin(t * 4 * math.pi + 0.3) * 10, 0, math.sin(t * 4 * math.pi - 0.7) * 24),
+            "tail.3": (2, 0, math.sin(t * 4 * math.pi - 1.4) * 22),
+            "tail.4": (0, 0, math.sin(t * 4 * math.pi - 2.1) * 24),
+            # Ear flicks: left at 20 and 62, right at 42.
+            "ear.L": (-55 * max(pulse(frame, 20, 6), pulse(frame, 62, 6)), 0, -25 * pulse(frame, 20, 6)),
+            "ear.R": (-55 * pulse(frame, 42, 6), 0, 25 * pulse(frame, 42, 6)),
         }
-        # An ear flick around frame 40 (L) and 66 (R).
-        values["ear.L"] = (0, 0, -28 if 38 <= frame <= 44 else 0)
-        values["ear.R"] = (0, 0, 28 if 64 <= frame <= 70 else 0)
         key(arm, frame, values)
     make_cyclic(action)
     return action, (0, length)
@@ -456,20 +792,25 @@ def anim_gallop(arm):
             p = (t + offset) % 1.0
             swing = math.sin(p * 2 * math.pi)  # + forward, - back
             front = leg[0] == "F"
-            values["upper." + leg] = (-swing * (38 if front else 32), 0, 0)
-            # The lower leg folds while the leg comes forward (swing rising).
-            fold = max(0.0, math.cos(p * 2 * math.pi)) * (55 if front else -50)
-            values["lower." + leg] = (fold, 0, 0)
-        bob = math.sin(t * 4 * math.pi)
-        values["spine"] = (math.sin(t * 2 * math.pi) * 5, 0, 0)
-        values["root.loc"] = (0, 0, 0.18 + bob * 0.12)
-        values["neck"] = (-math.sin(t * 2 * math.pi) * 7, 0, 0)
-        values["head"] = (math.sin(t * 2 * math.pi) * 4, 0, 0)
-        values["tail.1"] = (28 + math.sin(t * 2 * math.pi) * 6, 0, 0)
-        values["tail.2"] = (12 + math.sin(t * 2 * math.pi - 0.7) * 8, 0, 0)
-        values["tail.3"] = (8 + math.sin(t * 2 * math.pi - 1.4) * 10, 0, 0)
-        values["ear.L"] = (-15, 0, 0)
-        values["ear.R"] = (-15, 0, 0)
+            values["upper." + leg] = (-swing * (40 if front else 30), 0, 0)
+            # Coming forward the joint folds: the knee (front) and the hock (hind) both bring the lower
+            # leg back and up.
+            fold = max(0.0, math.cos(p * 2 * math.pi))
+            values["lower." + leg] = (fold * (70 if front else 55), 0, 0)
+            values["hoof." + leg] = (fold * 30, 0, 0)
+        body = math.sin(t * 2 * math.pi)
+        values["spine"] = (body * 6, 0, 0)
+        values["root.loc"] = (0, 0, 0.2 + math.sin(t * 4 * math.pi) * 0.14)
+        # Head and neck counter to the body.
+        values["neck"] = (-body * 10, 0, 0)
+        values["head"] = (body * 6, 0, 0)
+        # The tail streams back and whips.
+        values["tail.1"] = (50 + math.sin(t * 2 * math.pi) * 8, 0, 0)
+        values["tail.2"] = (14 + math.sin(t * 2 * math.pi - 0.8) * 12, 0, math.sin(t * 2 * math.pi) * 6)
+        values["tail.3"] = (10 + math.sin(t * 2 * math.pi - 1.6) * 14, 0, math.sin(t * 2 * math.pi - 0.8) * 8)
+        values["tail.4"] = (8 + math.sin(t * 2 * math.pi - 2.4) * 16, 0, math.sin(t * 2 * math.pi - 1.6) * 10)
+        values["ear.L"] = (-18, 0, 0)
+        values["ear.R"] = (-18, 0, 0)
         key(arm, frame, values)
     make_cyclic(action)
     return action, (0, length)
@@ -477,12 +818,11 @@ def anim_gallop(arm):
 
 def anim_rear(arm):
     action = new_action(arm, "rear_up")
-    # The spine pitches up about the hips (its head); the hind legs counter-rotate to stay planted.
     poses = [
         (0, 0.0, 0.0),
         (10, 0.15, 0.25),  # gather
         (22, 1.0, 1.0),  # reared
-        (34, 1.0, 1.05),  # hold at the top, front hooves pawing
+        (34, 1.0, 1.05),  # held at the top, front hooves pawing
         (42, 1.0, 0.95),
         (56, 0.0, 0.0),  # down
     ]
@@ -493,17 +833,19 @@ def anim_rear(arm):
             "root.loc": (0, 0, -0.15 * up),
             "upper.BL": (-pitch * 0.9, 0, 0),
             "upper.BR": (-pitch * 0.9, 0, 0),
-            "lower.BL": (-12 * up, 0, 0),
-            "lower.BR": (-12 * up, 0, 0),
+            "lower.BL": (8 * up, 0, 0),
+            "lower.BR": (8 * up, 0, 0),
             "upper.FL": (-70 * paw, 0, 0),
             "upper.FR": (-58 * paw, 0, 0),
             "lower.FL": (118 * paw, 0, 0),
             "lower.FR": (104 * paw, 0, 0),
             "neck": (-14 * up, 0, 0),
             "head": (18 * up, 0, 0),
-            "tail.1": (62 * up, 0, 0),
-            "tail.2": (18 * up, 0, 0),
-            "tail.3": (14 * up, 0, 0),
+            # The tail hangs and flows behind as the body rises.
+            "tail.1": (60 * up, 0, 0),
+            "tail.2": (16 * up, 0, 6 * paw),
+            "tail.3": (14 * up, 0, -8 * paw),
+            "tail.4": (12 * up, 0, 10 * paw),
             "ear.L": (-10 * up, 0, 0),
             "ear.R": (-10 * up, 0, 0),
         }
@@ -539,16 +881,16 @@ def camera(scene):
     return cam
 
 
-def aim(cam, angle_deg, elevation_deg=12, target=(0, 0.2, 2.6), distance=20):
+def aim(cam, angle_deg, elevation_deg=12, target=(0, 0.2, 2.7), distance=24):
     a, e = math.radians(angle_deg), math.radians(elevation_deg)
     t = Vector(target)
     cam.location = t + Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e))) * distance
     cam.rotation_euler = (t - cam.location).to_track_quat("-Z", "Y").to_euler()
 
 
-def render_to(scene, path, size):
-    scene.render.resolution_x = size
-    scene.render.resolution_y = size
+def render_to(scene, path, width, height=None):
+    scene.render.resolution_x = width
+    scene.render.resolution_y = height or width
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)
 
@@ -562,11 +904,10 @@ def load_pixels(path):
 
 
 def save_sheet(rows, path):
-    """rows: list of lists of pixel arrays (same size). Row 0 is the top row."""
     tile_h, tile_w = rows[0][0].shape[:2]
     sheet = np.ones((tile_h * len(rows), tile_w * max(len(r) for r in rows), 4), dtype=np.float32)
     for r, row in enumerate(rows):
-        y0 = (len(rows) - 1 - r) * tile_h  # image rows start at the bottom
+        y0 = (len(rows) - 1 - r) * tile_h
         for c, tile in enumerate(row):
             sheet[y0 : y0 + tile_h, c * tile_w : (c + 1) * tile_w] = tile
     h, w = sheet.shape[:2]
@@ -582,6 +923,10 @@ def tmp(name):
     return os.path.join(REVIEW, "_tmp_" + name + ".png")
 
 
+def out(name):
+    return os.path.join(REVIEW, NAME + "_" + name + SUFFIX + ".png")
+
+
 def turntable(scene, cam):
     rows = []
     for background in ((0.42, 0.42, 0.44), (0.06, 0.06, 0.08)):
@@ -593,33 +938,37 @@ def turntable(scene, cam):
             render_to(scene, path, 384)
             row.append(load_pixels(path))
         rows.append(row)
-    save_sheet(rows, os.path.join(REVIEW, NAME + "_turntable.png"))
+    save_sheet(rows, out("turntable"))
 
 
-def frame_strip(scene, cam, arm, action, frames, name, count):
+def frame_strip(scene, cam, arm, action, frames, name, count, closed):
+    """`count` frames across the action; a loop (`closed`) leaves out its last frame (= the first)."""
     arm.animation_data.action = action
     scene.world.color = (0.42, 0.42, 0.44)
-    aim(cam, 90, 8, target=(0, 0.4, 3.0))  # side view, room above for the rear-up
+    # Side view, room above for the rear-up; the idle from 3/4 so its sideways sway shows.
+    aim(cam, 60 if name == "idle" else 90, 8, target=(0, 0.4, 3.0))
     cam.data.ortho_scale = 10.5
     start, end = frames
     row = []
     for i in range(count):
-        frame = round(start + (end - start) * i / max(1, count - 1))
+        frame = round(start + (end - start) * i / (count if closed else max(1, count - 1)))
         scene.frame_set(frame)
         path = tmp("%s%d" % (name, i))
         render_to(scene, path, 320)
         row.append(load_pixels(path))
-    save_sheet([row], os.path.join(REVIEW, NAME + "_anim_" + name + ".png"))
+    save_sheet([row], out("anim_" + name))
     cam.data.ortho_scale = 8.2
 
 
-def rig_render(scene, cam, arm, mesh, outline):
-    """The rest pose with the skeleton drawn as orange sticks through a see-through body."""
+def rig_render(scene, cam, arm, outline):
+    """The rest pose with the skeleton drawn as orange sticks through a see-through body (no root)."""
     arm.data.pose_position = "REST"
     sticks = []
     stick_material = bpy.data.materials.new("bone")
     stick_material.diffuse_color = (1.0, 0.45, 0.05, 1)
     for name, (head, tail, _parent) in BONES.items():
+        if name == "root":
+            continue
         location, length, rotation = between(head, tail)
         bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=0.09, radius2=0.02, depth=max(length, 0.05),
                                         location=location, rotation=rotation)
@@ -632,21 +981,79 @@ def rig_render(scene, cam, arm, mesh, outline):
     shading.xray_alpha = 0.35
     outline.hide_render = True
     scene.world.color = (0.42, 0.42, 0.44)
-    rows = []
     row = []
     for angle in (90, 30):
         aim(cam, angle, 10)
         path = tmp("rig%d" % angle)
         render_to(scene, path, 512)
         row.append(load_pixels(path))
-    rows.append(row)
-    save_sheet(rows, os.path.join(REVIEW, NAME + "_rig.png"))
+    save_sheet([row], out("rig"))
     for stick in sticks:
         bpy.data.objects.remove(stick)
     shading.color_type = "TEXTURE"
     shading.show_xray = False
     outline.hide_render = False
     arm.data.pose_position = "POSE"
+
+
+def match_distance(scene, arm, image):
+    """The horse at game size (its back at FigureConfig.horse.backHeight of a 4.6-stud unit), small at
+    the match camera's angle (RenderConfig.cameraOffset 0, 46, 34), next to a blocky R6-sized figure,
+    on the arena gray."""
+    arm.animation_data.action = None
+    for pb in arm.pose.bones:
+        pb.rotation_euler = (0, 0, 0)
+        pb.location = (0, 0, 0)
+    scale = GAME_UNIT_HEIGHT * GAME_BACK_HEIGHT / 3.76  # the model's back is at ~3.76 studs
+    arm.scale = (scale, scale, scale)
+    arm.rotation_euler = (0, 0, math.radians(-35))
+    made = []
+
+    def colored(color):
+        """A material whose color shows in Workbench texture mode: a 1-pixel image of that color."""
+        img = bpy.data.images.new("c", 1, 1, alpha=False)
+        img.pixels = list(color)
+        material = bpy.data.materials.new("m")
+        material.use_nodes = True
+        tex = material.node_tree.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        material.node_tree.links.new(tex.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+        return material
+
+    bpy.ops.mesh.primitive_plane_add(size=60, location=(0, 0, 0))
+    floor = bpy.context.active_object
+    floor.data.materials.append(colored((0.55, 0.56, 0.58, 1)))
+    made.append(floor)
+    # A blocky R6 figure 4.6 studs tall (legs 2, torso 2, head 1 of 5), beside the horse.
+    skin, shirt = colored((0.92, 0.74, 0.58, 1)), colored((0.25, 0.4, 0.75, 1))
+    k = GAME_UNIT_HEIGHT / 5
+    x0 = 3.0
+    for size, loc, material in [
+        ((1, 1, 2), (x0 / k - 0.5, 0, 1), shirt), ((1, 1, 2), (x0 / k + 0.5, 0, 1), shirt),
+        ((2, 1, 2), (x0 / k, 0, 3), shirt), ((1, 1, 2), (x0 / k - 1.5, 0, 3), skin),
+        ((1, 1, 2), (x0 / k + 1.5, 0, 3), skin), ((1.2, 1.2, 1), (x0 / k, 0, 4.5), skin),
+    ]:
+        bpy.ops.mesh.primitive_cube_add(size=1, location=(loc[0] * k, loc[1] * k, loc[2] * k))
+        cube = bpy.context.active_object
+        cube.scale = (size[0] * k, size[1] * k, size[2] * k)
+        cube.data.materials.append(material)
+        made.append(cube)
+    scene.world.color = (0.36, 0.37, 0.39)
+    cam_data = bpy.data.cameras.new("match")
+    cam_data.lens_unit = "FOV"
+    cam_data.angle = math.radians(70)
+    cam = bpy.data.objects.new("match", cam_data)
+    scene.collection.objects.link(cam)
+    scene.camera = cam
+    target = Vector((1.0, 0, 1.3))
+    direction = Vector((0, 34, 46)).normalized()  # Roblox (0, 46, 34): up 46, back 34
+    cam.location = target + direction * 15.0  # closer than the match camera, so the horse is ~100 px
+    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
+    render_to(scene, out("match_distance"), 960, 540)
+    for obj in made:
+        bpy.data.objects.remove(obj)
+    arm.scale = (1, 1, 1)
+    arm.rotation_euler = (0, 0, 0)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -658,10 +1065,16 @@ def main():
     scene = bpy.context.scene
     scene.render.fps = FPS
 
-    image = make_palette()
+    image, spot_count = make_palette()
     material = make_material(image)
-    body = build_horse()
-    spot_count = spots(list(body))
+    build_barrel()
+    build_neck()
+    build_head()
+    build_mane()
+    for leg in LEG_X:
+        build_leg(leg)
+    build_tail()
+    build_tack()
     arm = build_rig()
     mesh = join_and_skin(arm, material)
     outline = make_outline(mesh, material)
@@ -674,7 +1087,6 @@ def main():
     tris = sum(len(p.vertices) - 2 for p in mesh.data.polygons)
     outline_tris = sum(len(p.vertices) - 2 for p in outline.data.polygons)
 
-    # FBX: mesh, outline mesh and armature with every action.
     bpy.ops.object.select_all(action="DESELECT")
     for obj in (arm, mesh, outline):
         obj.select_set(True)
@@ -694,23 +1106,23 @@ def main():
         axis_up="Y",
     )
 
-    # Review renders.
     setup_render(scene)
     cam = camera(scene)
     scene.frame_set(0)
     arm.data.pose_position = "REST"
     turntable(scene, cam)
     arm.data.pose_position = "POSE"
-    rig_render(scene, cam, arm, mesh, outline)
-    frame_strip(scene, cam, arm, idle, idle_range, "idle", 10)
-    frame_strip(scene, cam, arm, gallop, gallop_range, "gallop", 10)
-    frame_strip(scene, cam, arm, rear, rear_range, "rear_up", 12)
+    rig_render(scene, cam, arm, outline)
+    frame_strip(scene, cam, arm, idle, idle_range, "idle", 10, True)
+    frame_strip(scene, cam, arm, gallop, gallop_range, "gallop", 10, True)
+    frame_strip(scene, cam, arm, rear, rear_range, "rear_up", 12, False)
+    match_distance(scene, arm, image)
     for name in os.listdir(REVIEW):
         if name.startswith("_tmp_"):
             os.remove(os.path.join(REVIEW, name))
 
-    print("MODEL %s: %d tris (+%d outline hull), %d bones, %d spots, palette %dx%d" % (
-        NAME, tris, outline_tris, len(BONES), spot_count, SIZE, SIZE))
+    print("MODEL %s: %d tris (+%d outline hull = %d), %d bones, %d spots, palette %dx%d" % (
+        NAME, tris, outline_tris, tris + outline_tris, len(BONES), spot_count, SIZE, SIZE))
 
 
 main()

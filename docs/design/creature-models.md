@@ -32,27 +32,39 @@ Reference images and notes are local only (`docs/references/models/`). See also
 Generator: `scripts/blender/models/mount_spurshot.py` (headless:
 `tools/blender-4.2.3-windows-x64/blender.exe -b --factory-startup --python scripts/blender/models/mount_spurshot.py`).
 
-- **Mesh:** 1,772 triangles (+1,772 for the optional outline hull: 3,544 with it). Flat-shaded.
-- **Texture:** `assets/models/mount_spurshot_palette.png`, 256x256: 15 swatches (coat white, spot
-  dark gray, lower-leg gray, cream mane, hooves, muzzle, eyes, inner ear, tan and dark tack, blue
-  medallion, light-blue blanket, saddle, outline, metal) and a star tile (light blue with pink and
-  white stars) for the bedroll.
-- **Look:** white coat with 12 large dark-gray spots (7 on the hindquarters, 3 mid, 2 at the
-  shoulder), gray lower legs and dark hooves; cream mane tufts and a long cream tail; ears up; tan
-  bridle and reins; a chest strap with a round dark-blue medallion; a light-blue blanket, a saddle and
-  a star bedroll behind it. Slender racing legs (a little thicker than real, to sit with R6 bodies).
-- **Rig:** 21 bones: root, spine (pivot at the hips), neck, head, two ears, three tail bones, and
-  upper / lower / hoof for each leg.
-- **Animations:** `idle` (90 frames, 3 s loop: weight shift, ear flicks, tail swish), `gallop`
-  (20-frame loop: four-beat legs, body bob, neck pump, streaming tail), `rear_up` (56 frames: gather,
-  rear up ~56 degrees about the hips with the front knees folded high and the tail streaming, a held
-  top, back down).
+Version 2 (after the first review: v1 read as a crude blockout).
+
+- **Mesh:** lofted cross-sections instead of stacked primitives: one continuous tapered barrel
+  (deep chest, withers bump, belly curve, rounded rump), an arched neck thicker at the base, a head
+  with cheeks and jaw, a tapered muzzle ending in a flat nostril plane, larger alert ears and a
+  forelock; legs with knee / fetlock bulges, the hind leg's gaskin sloping back to the point of the
+  hock and the cannon near vertical, wider hooves. **2,264 triangles** (+2,264 for the optional
+  outline hull: 4,528 with it). Flat-shaded.
+- **Texture:** `assets/models/mount_spurshot_palette.png`, 512x512: 18 flat swatches (top-left), a
+  star tile for the bedroll (top-right), and painted coat tiles (bottom): the barrel with 13 round,
+  irregular leopard spots of varied size (10 on the hindquarters and rump, 2 mid, 1 at the shoulder),
+  the legs (white, gray, then dark toward the hooves, 3 small spots) and the neck (2 spots). Spots
+  are painted in UV space, scaled per axis so they stay round on the body.
+- **Look:** a light-blue blanket draped over the back (follows it, hangs a little at the sides, a
+  darker front trim), a brown seat with a cantle, a smaller star bedroll behind the saddle with two
+  ties; tan bridle and reins; a chest strap with the round dark-blue medallion; five wide cream mane
+  tufts falling to one side, close to the neck (no fan in the front view); a tapered flowing tail.
+- **Rig:** 22 bones: root, spine (pivot at the hips), neck, head, two ears, four tail bones, and
+  upper / lower / hoof for each leg. Each ring of the lofted parts is weighted to its bone, blended
+  50/50 at the joints, so the legs and tail bend without cracks.
+- **Animations:** `idle` (90 frames, 3 s loop: head bob and turn, ear flicks at 20 / 42 / 62, tail
+  swish, weight shift with a resting hind leg), `gallop` (20-frame loop: four-beat legs with knee and
+  hock folding the lower leg back and up, body bob, head and neck counter to the body, the tail
+  streaming and whipping), `rear_up` (56 frames: gather, rear up ~56 degrees about the hips with the
+  front knees folded high, the tail hanging and flowing, a held top, back down).
 - **Export:** `assets/models/mount_spurshot.fbx` (mesh, outline mesh, armature, the three actions;
-  texture embedded; -Z forward, Y up). Scale: 1 Blender unit = 1 stud; the horse is ~5.4 studs tall
-  at the ears.
-- **Review renders** (local, `docs/references/models/review/`): `mount_spurshot_turntable.png` (8
-  angles on gray and dark), `mount_spurshot_rig.png` (rest pose, skeleton through a see-through
-  body), `mount_spurshot_anim_idle.png`, `_anim_gallop.png`, `_anim_rear_up.png` (10-12 frames each).
+  texture embedded; -Z forward, Y up). Scale: 1 Blender unit = 1 stud; ~5.6 studs at the ears. In game
+  it is scaled to its rider (FigureConfig.horse.backHeight: the back at 0.42 of a 4.6-stud unit).
+- **Review renders** (local, `docs/references/models/review/`, `_v2`): `mount_spurshot_turntable_v2.png`
+  (8 angles on gray and dark), `_rig_v2.png` (rest pose, skeleton through a see-through body),
+  `_anim_idle_v2.png` (from 3/4, so the sway shows), `_anim_gallop_v2.png`, `_anim_rear_up_v2.png`
+  (10-12 frames each), `_match_distance_v2.png` (game size at the match camera's angle next to a
+  4.6-stud blocky figure, on the arena gray).
 
 **Review gate:** the other six models wait until this pilot is approved (style, proportions,
 palette, spots, animations).
