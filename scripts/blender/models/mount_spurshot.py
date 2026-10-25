@@ -29,15 +29,31 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 ASSETS = os.path.join(ROOT, "assets", "models")
 REVIEW = os.path.join(ROOT, "docs", "references", "models", "review")
 NAME = "mount_spurshot"
-SUFFIX = "_v2"
+SUFFIX = "_v2_1"
+FULL_RENDERS = False  # also the rig and animation strips (v2.1 re-renders the turntable and match distance)
 FPS = 30
 OUTLINE = 0.03  # inverted-hull thickness (studs)
 SIZE = 512
-random.seed(11)
+random.seed(21)
 
-# In game the mount is scaled to its rider (FigureConfig.horse.backHeight x a 4.6-stud unit).
-GAME_UNIT_HEIGHT = 4.6
-GAME_BACK_HEIGHT = 0.42
+# Scale (v2.1): sized to its rider, an R6 unit 4.6 studs tall: the withers at 0.9x the rider's height
+# and nose to rump 1.5x. The model is authored small (withers 3.88), then placed after skinning
+# (`place`): the body and neck scale by KX / KY / KZ (longer than tall), while the head, legs and
+# tail scale evenly by KZ about where they join, so they keep their authored shape.
+RIDER_HEIGHT = 4.6
+AUTHORED_WITHERS = 3.88
+AUTHORED_POLL_Y, AUTHORED_NOSE_Y, AUTHORED_RUMP_Y = -2.08, -3.0, 1.95
+KZ = 0.9 * RIDER_HEIGHT / AUTHORED_WITHERS
+KX = KZ
+KY = (1.5 * RIDER_HEIGHT - (AUTHORED_POLL_Y - AUTHORED_NOSE_Y) * KZ) / (AUTHORED_RUMP_Y - AUTHORED_POLL_Y)
+RATIO = KY / KZ
+
+# The saddle seat's top (authored), where a rider's hips go: the "seat" bone's head.
+SEAT_AUTHORED = Vector((0, -0.13, 3.89))
+
+
+def scaled(p):
+    return Vector((p[0] * KX, p[1] * KY, p[2] * KZ))
 
 # -------------------------------------------------------------------------------------------------
 # Palette (512x512): swatches top-left (8x8 of 32 px), star tile top-right, coat tiles at the
@@ -138,36 +154,45 @@ def make_palette():
             for cx, cy, radius, color in stars:
                 if star_inside(x, y, cx, cy, radius):
                     pixels[y0 + y, x0 + x] = color
-    # Barrel: u along the body (front 0 -> rump 1), v around (0 belly, 0.5 top, 1 belly).
-    # About 3.9 studs long over 384 px and 4.4 studs around over 256 px.
+    # Barrel: u along the body (front 0 -> rump 1), v around (0 belly, 0.5 top, 1 belly). After the
+    # stretch it is about 3.9 x KY studs long over 384 px and 4.4 x KZ studs around over 256 px.
+    # Appaloosa spotting: many small, varied spots, densest over the hindquarters, two medium ones on
+    # the rump; none on the belly (v near 0 / 1).
     spots = []
-    for _ in range(7):  # hindquarters, most of them
-        spots.append((random.uniform(0.6, 0.95), random.choice([random.uniform(0.2, 0.36), random.uniform(0.64, 0.8)]),
-                      random.uniform(0.2, 0.34), random.uniform(0, 6)))
-    for _ in range(2):  # over the rump top
-        spots.append((random.uniform(0.72, 0.92), random.uniform(0.45, 0.55), random.uniform(0.16, 0.24),
+
+    def side_v():
+        return random.choice([random.uniform(0.17, 0.42), random.uniform(0.58, 0.83)])
+
+    for _ in range(13):  # hindquarters
+        spots.append((random.uniform(0.6, 0.97), side_v(), random.uniform(0.07, 0.15), random.uniform(0, 6)))
+    for _ in range(4):  # over the rump top
+        spots.append((random.uniform(0.7, 0.95), random.uniform(0.42, 0.58), random.uniform(0.06, 0.12),
                       random.uniform(0, 6)))
-    for v in (0.28, 0.72):  # mid barrel, one each side
-        spots.append((random.uniform(0.4, 0.55), v, random.uniform(0.14, 0.22), random.uniform(0, 6)))
-    spots.append((0.12, random.choice([0.3, 0.7]), 0.15, 2.0))  # shoulder
-    paint_spots(pixels, TILE_BODY, spots, 384 / 3.9, 256 / 4.4)
+    for _ in range(5):  # mid barrel, thinning toward the front
+        spots.append((random.uniform(0.35, 0.6), side_v(), random.uniform(0.06, 0.11), random.uniform(0, 6)))
+    for _ in range(2):  # shoulder
+        spots.append((random.uniform(0.08, 0.3), side_v(), random.uniform(0.05, 0.09), random.uniform(0, 6)))
+    for v in (0.3, 0.7):  # two medium ones on the rump
+        spots.append((random.uniform(0.78, 0.88), v, random.uniform(0.2, 0.24), random.uniform(0, 6)))
+    paint_spots(pixels, TILE_BODY, spots, 384 / (3.9 * KY), 256 / (4.4 * KZ))
     # Legs: u around, v up the leg (0 hoof -> 1 top). Darker toward the feet.
     x0, y0, w, h = TILE_LEG
     for y in range(h):
         v = y / h
         color = SWATCHES["spot"] if v < 0.2 else SWATCHES["legshade"] if v < 0.46 else SWATCHES["coat"]
         pixels[y0 + y, x0 : x0 + w] = color
-    paint_spots(pixels, TILE_LEG, [(0.3, 0.72, 0.12, 1.0), (0.78, 0.6, 0.1, 3.0), (0.55, 0.38, 0.1, 4.0)],
-                64 / 1.3, 256 / 2.9, wrap_u=True)
-    # Neck: u around, v along (0 base -> 1 head). Two spots.
-    paint_spots(pixels, TILE_NECK, [(0.25, 0.3, 0.13, 2.0), (0.7, 0.55, 0.11, 5.0)], 64 / 2.6, 256 / 1.6, wrap_u=True)
+    leg_spots = [(0.3, 0.74, 0.07, 1.0), (0.78, 0.62, 0.06, 3.0), (0.55, 0.4, 0.06, 4.0), (0.1, 0.55, 0.05, 5.0)]
+    paint_spots(pixels, TILE_LEG, leg_spots, 64 / (1.3 * KZ), 256 / (2.9 * KZ), wrap_u=True)
+    # Neck: u around, v along (0 base -> 1 head). A few small spots.
+    neck_spots = [(0.25, 0.25, 0.07, 2.0), (0.7, 0.45, 0.06, 5.0), (0.4, 0.62, 0.05, 1.0)]
+    paint_spots(pixels, TILE_NECK, neck_spots, 64 / 2.6, 256 / (1.6 * KZ), wrap_u=True)
 
     image = bpy.data.images.new(NAME + "_palette", SIZE, SIZE, alpha=False)
     image.pixels = pixels.flatten()
     image.filepath_raw = os.path.join(ASSETS, NAME + "_palette.png")
     image.file_format = "PNG"
     image.save()
-    return image, len(spots) + 2 + 3
+    return image, (len(spots), len(leg_spots), len(neck_spots))
 
 
 # -------------------------------------------------------------------------------------------------
@@ -293,6 +318,46 @@ def chain_weights(points, bones, blend=0.12):
             return {bones[best]: share, bones[best - 1]: 1 - share}
         return {bones[best]: 1.0}
     return weights
+
+
+def rein_weights(start, end):
+    """head at `start` fading to neck at `end`."""
+    def weights(p):
+        ab = end - start
+        t = max(0.0, min(1.0, (p - start).dot(ab) / ab.length_squared))
+        return {"head": 1 - t, "neck": t} if 0 < t < 1 else {("head" if t <= 0 else "neck"): 1.0}
+    return weights
+
+
+def unstretch(obj, center):
+    """Pre-squeezes a round part along y about `center`, so the body's stretch (RATIO longer in y than
+    in z) leaves it round."""
+    world = obj.matrix_world.copy()
+    local = world.inverted()
+    for vert in obj.data.vertices:
+        p = world @ vert.co
+        p.y = center.y + (p.y - center.y) / RATIO
+        vert.co = local @ p
+
+
+def bone_anchor(bone):
+    """Where the part on `bone` joins the body (it scales evenly about it), or None for the body."""
+    if bone in ("head", "ear.L", "ear.R"):
+        return HEAD_POLL
+    if bone.startswith("tail."):
+        return TAIL[0]
+    side = bone.split(".")[-1]
+    if side in LEG_X:
+        return leg_points(side)[0]
+    return None
+
+
+def place(p, bone):
+    """The authored point `p` on `bone` at final scale."""
+    anchor = bone_anchor(bone)
+    if anchor is None:
+        return scaled(p)
+    return scaled(anchor) + (Vector(p) - anchor) * KZ
 
 
 # -------------------------------------------------------------------------------------------------
@@ -556,10 +621,12 @@ def build_tack():
     bpy.ops.object.transform_apply(rotation=True)
     flat_part(roll, "spine", "blanket")
     star_map(roll, roll_at, 0.9)
+    unstretch(roll, roll_at)
     for x in (-0.28, 0.28):
         bpy.ops.mesh.primitive_torus_add(major_radius=0.18, minor_radius=0.025, major_segments=8, minor_segments=4,
                                          location=roll_at + Vector((x, 0, 0)), rotation=(0, math.radians(90), 0))
         flat_part(bpy.context.active_object, "spine", "tackdark")
+        unstretch(bpy.context.active_object, roll_at)
     # Bridle: noseband, cheek straps, reins to the withers.
     axis = HEAD_TIP - HEAD_POLL
     side, up = frame_at(axis)
@@ -572,8 +639,10 @@ def build_tack():
     flat_part(band, "head", "tack")
     for sx in (-1, 1):
         rod(nose + side * (0.22 * sx), HEAD_POLL + side * (0.2 * sx) + up * 0.05, 0.025, 0.025, "head", "tack", sides=4)
-        rod(nose + side * (0.24 * sx) - up * 0.08, Vector((0.3 * sx, -1.35, 3.92)), 0.022, 0.022, "neck", "tackdark",
-            sides=4)
+        start, end = nose + side * (0.24 * sx) - up * 0.08, Vector((0.3 * sx, -1.35, 3.92))
+        rod(start, end, 0.022, 0.022, "neck", "tackdark", sides=4)
+        # The rein runs from the head to the withers: blend it head -> neck along its length.
+        PARTS[-1] = (PARTS[-1][0], rein_weights(start, end))
     # Chest strap around the front of the chest, with the round medallion at its center.
     rx, _rt, _rb, cz = barrel_ring(-1.55)
     bpy.ops.mesh.primitive_torus_add(major_radius=1.0, minor_radius=0.05, major_segments=20, minor_segments=4,
@@ -613,7 +682,10 @@ def bone_table():
         bones["upper." + key] = (tuple(points[0]), tuple(points[3]), "spine")
         bones["lower." + key] = (tuple(points[3]), tuple(points[7]), "upper." + key)
         bones["hoof." + key] = (tuple(points[7]), tuple(points[8]), "lower." + key)
-    return bones
+    # The rider's anchor: head on the seat's top, pointing up (a rider's hips go at its head).
+    bones["seat"] = (tuple(SEAT_AUTHORED), tuple(SEAT_AUTHORED + Vector((0, 0, 0.5))), "spine")
+    return {name: (tuple(place(head, name)), tuple(place(tail, name)), parent)
+            for name, (head, tail, parent) in bones.items()}
 
 
 BONES = bone_table()
@@ -659,6 +731,17 @@ def join_and_skin(arm, material):
     bpy.context.view_layer.objects.active = PARTS[0][0]
     bpy.ops.object.join()
     mesh = bpy.context.active_object
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # Final scale: each vertex placed by its bones' weights (the body stretches, the parts on the head,
+    # legs and tail scale evenly about their joins).
+    names = {group.index: group.name for group in mesh.vertex_groups}
+    for vert in mesh.data.vertices:
+        total, moved = 0.0, Vector((0, 0, 0))
+        for g in vert.groups:
+            if g.weight > 0:
+                moved += place(vert.co, names[g.group]) * g.weight
+                total += g.weight
+        vert.co = moved / total if total > 0 else scaled(vert.co)
     mesh.name = NAME
     mesh.data.name = NAME
     mesh.data.materials.clear()
@@ -874,14 +957,14 @@ def setup_render(scene):
 def camera(scene):
     cam_data = bpy.data.cameras.new("cam")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = 8.2
+    cam_data.ortho_scale = 10.2
     cam = bpy.data.objects.new("cam", cam_data)
     scene.collection.objects.link(cam)
     scene.camera = cam
     return cam
 
 
-def aim(cam, angle_deg, elevation_deg=12, target=(0, 0.2, 2.7), distance=24):
+def aim(cam, angle_deg, elevation_deg=12, target=(0, 0.2, 3.0), distance=30):
     a, e = math.radians(angle_deg), math.radians(elevation_deg)
     t = Vector(target)
     cam.location = t + Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e))) * distance
@@ -946,8 +1029,8 @@ def frame_strip(scene, cam, arm, action, frames, name, count, closed):
     arm.animation_data.action = action
     scene.world.color = (0.42, 0.42, 0.44)
     # Side view, room above for the rear-up; the idle from 3/4 so its sideways sway shows.
-    aim(cam, 60 if name == "idle" else 90, 8, target=(0, 0.4, 3.0))
-    cam.data.ortho_scale = 10.5
+    aim(cam, 60 if name == "idle" else 90, 8, target=(0, 0.4, 3.4))
+    cam.data.ortho_scale = 13.0
     start, end = frames
     row = []
     for i in range(count):
@@ -957,7 +1040,7 @@ def frame_strip(scene, cam, arm, action, frames, name, count, closed):
         render_to(scene, path, 320)
         row.append(load_pixels(path))
     save_sheet([row], out("anim_" + name))
-    cam.data.ortho_scale = 8.2
+    cam.data.ortho_scale = 10.2
 
 
 def rig_render(scene, cam, arm, outline):
@@ -996,64 +1079,113 @@ def rig_render(scene, cam, arm, outline):
     arm.data.pose_position = "POSE"
 
 
-def match_distance(scene, arm, image):
-    """The horse at game size (its back at FigureConfig.horse.backHeight of a 4.6-stud unit), small at
-    the match camera's angle (RenderConfig.cameraOffset 0, 46, 34), next to a blocky R6-sized figure,
-    on the arena gray."""
+def colored(color):
+    """A material whose color shows in Workbench texture mode: a 1-pixel image of that color."""
+    img = bpy.data.images.new("c", 1, 1, alpha=False)
+    img.pixels = list(color)
+    material = bpy.data.materials.new("m")
+    material.use_nodes = True
+    tex = material.node_tree.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    material.node_tree.links.new(tex.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+    return material
+
+
+def r6_block(made, size, location, material, parent=None, tilt=0.0):
+    """One block of an R6 proxy (studs), optionally tilted about y and parented."""
+    bpy.ops.mesh.primitive_cube_add(size=1, location=location, rotation=(0, tilt, 0))
+    cube = bpy.context.active_object
+    cube.scale = size
+    cube.data.materials.append(material)
+    if parent:
+        cube.parent = parent
+    made.append(cube)
+
+
+def r6_standing(made, x, y, skin, shirt, pants):
+    """A blocky R6 figure 4.6 studs tall (legs 2, torso 2, head 1 of 5 parts), standing at (x, y)."""
+    k = RIDER_HEIGHT / 5
+    for size, loc, material in [
+        ((1, 1, 2), (-0.5, 0, 1), pants), ((1, 1, 2), (0.5, 0, 1), pants), ((2, 1, 2), (0, 0, 3), shirt),
+        ((1, 1, 2), (-1.5, 0, 3), skin), ((1, 1, 2), (1.5, 0, 3), skin), ((1.2, 1.2, 1), (0, 0, 4.5), skin),
+    ]:
+        r6_block(made, tuple(v * k for v in size), (x + loc[0] * k, y + loc[1] * k, loc[2] * k), material)
+
+
+def r6_seated(made, arm, skin, shirt, pants):
+    """The same figure astride the saddle: hips on the seat bone's head, torso up, legs from the hips
+    tilted out around the barrel. Parented to the rig object, so it turns with the horse."""
+    k = RIDER_HEIGHT / 5
+    seat = Vector(BONES["seat"][0])
+    for size, loc, material in [
+        ((2, 1, 2), (0, 0, 1), shirt), ((1.2, 1.2, 1), (0, 0, 2.5), skin),
+        ((1, 1, 2), (-1.5, -0.2, 1), skin), ((1, 1, 2), (1.5, -0.2, 1), skin),
+    ]:
+        r6_block(made, tuple(v * k for v in size), seat + Vector(loc) * k, material, parent=arm)
+    half = barrel_ring(SEAT_AUTHORED.y)[0] * KX  # the barrel's half width under the seat
+    length = 2 * k
+    tilt = math.asin(min(0.75, half / length))
+    for sx in (-1, 1):
+        center = seat + Vector((sx * (0.5 * k + math.sin(tilt) * length / 2), -0.1, -math.cos(tilt) * length / 2))
+        r6_block(made, (k, k, length), center, pants, parent=arm, tilt=sx * tilt)
+
+
+def match_distance(scene, arm, cam):
+    """Two rows: the horse at game size from the match camera's angle (RenderConfig.cameraOffset
+    0, 46, 34) with an R6 figure standing beside it and one seated on the saddle; then a side view of
+    the same, for the rider fit. On the arena gray, in the rest pose."""
     arm.animation_data.action = None
-    for pb in arm.pose.bones:
-        pb.rotation_euler = (0, 0, 0)
-        pb.location = (0, 0, 0)
-    scale = GAME_UNIT_HEIGHT * GAME_BACK_HEIGHT / 3.76  # the model's back is at ~3.76 studs
-    arm.scale = (scale, scale, scale)
-    arm.rotation_euler = (0, 0, math.radians(-35))
+    arm.data.pose_position = "REST"
     made = []
-
-    def colored(color):
-        """A material whose color shows in Workbench texture mode: a 1-pixel image of that color."""
-        img = bpy.data.images.new("c", 1, 1, alpha=False)
-        img.pixels = list(color)
-        material = bpy.data.materials.new("m")
-        material.use_nodes = True
-        tex = material.node_tree.nodes.new("ShaderNodeTexImage")
-        tex.image = img
-        material.node_tree.links.new(tex.outputs["Color"], material.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
-        return material
-
-    bpy.ops.mesh.primitive_plane_add(size=60, location=(0, 0, 0))
+    bpy.ops.mesh.primitive_plane_add(size=80, location=(0, 0, 0))
     floor = bpy.context.active_object
     floor.data.materials.append(colored((0.55, 0.56, 0.58, 1)))
     made.append(floor)
-    # A blocky R6 figure 4.6 studs tall (legs 2, torso 2, head 1 of 5), beside the horse.
-    skin, shirt = colored((0.92, 0.74, 0.58, 1)), colored((0.25, 0.4, 0.75, 1))
-    k = GAME_UNIT_HEIGHT / 5
-    x0 = 3.0
-    for size, loc, material in [
-        ((1, 1, 2), (x0 / k - 0.5, 0, 1), shirt), ((1, 1, 2), (x0 / k + 0.5, 0, 1), shirt),
-        ((2, 1, 2), (x0 / k, 0, 3), shirt), ((1, 1, 2), (x0 / k - 1.5, 0, 3), skin),
-        ((1, 1, 2), (x0 / k + 1.5, 0, 3), skin), ((1.2, 1.2, 1), (x0 / k, 0, 4.5), skin),
-    ]:
-        bpy.ops.mesh.primitive_cube_add(size=1, location=(loc[0] * k, loc[1] * k, loc[2] * k))
-        cube = bpy.context.active_object
-        cube.scale = (size[0] * k, size[1] * k, size[2] * k)
-        cube.data.materials.append(material)
-        made.append(cube)
+    skin, pants = colored((0.92, 0.74, 0.58, 1)), colored((0.2, 0.22, 0.3, 1))
+    r6_seated(made, arm, skin, colored((0.25, 0.4, 0.75, 1)), pants)
+    r6_standing(made, 0.0, 5.6, skin, colored((0.75, 0.3, 0.3, 1)), pants)
     scene.world.color = (0.36, 0.37, 0.39)
     cam_data = bpy.data.cameras.new("match")
     cam_data.lens_unit = "FOV"
     cam_data.angle = math.radians(70)
-    cam = bpy.data.objects.new("match", cam_data)
-    scene.collection.objects.link(cam)
-    scene.camera = cam
-    target = Vector((1.0, 0, 1.3))
+    match = bpy.data.objects.new("match", cam_data)
+    scene.collection.objects.link(match)
+    # Row 1: the match angle, the horse turned 3/4.
+    arm.rotation_euler = (0, 0, math.radians(-35))
+    scene.camera = match
+    target = Vector((0, 1.2, 2.2))
     direction = Vector((0, 34, 46)).normalized()  # Roblox (0, 46, 34): up 46, back 34
-    cam.location = target + direction * 15.0  # closer than the match camera, so the horse is ~100 px
-    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
-    render_to(scene, out("match_distance"), 960, 540)
+    match.location = target + direction * 20.0  # closer than the match camera (~57), so it is not tiny
+    match.rotation_euler = (target - match.location).to_track_quat("-Z", "Y").to_euler()
+    render_to(scene, tmp("match_far"), 960, 540)
+    far = load_pixels(tmp("match_far"))
+    # Row 2: a side view, orthographic.
+    arm.rotation_euler = (0, 0, 0)
+    scene.camera = cam
+    cam.data.ortho_scale = 17.0
+    aim(cam, 90, 4, target=(0, 0.8, 3.2))
+    render_to(scene, tmp("match_side"), 960, 540)
+    side = load_pixels(tmp("match_side"))
+    cam.data.ortho_scale = 10.2
+    save_sheet([[far], [side]], out("match_distance"))
     for obj in made:
         bpy.data.objects.remove(obj)
-    arm.scale = (1, 1, 1)
-    arm.rotation_euler = (0, 0, 0)
+    arm.data.pose_position = "POSE"
+
+
+def report_dimensions(mesh):
+    """Prints the model's sizes (studs, rest pose) and the seat anchor, for the doc."""
+    world = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
+    xs, ys, zs = [p.x for p in world], [p.y for p in world], [p.z for p in world]
+    withers = max(p.z for p in world if abs(p.y + 1.0 * KY) < 0.3 and abs(p.x) < 0.4)
+    rump = BARREL[-1][0] * KY
+    seat = Vector(BONES["seat"][0])
+    print("DIMS ears %.2f withers %.2f nose_y %.2f rump_y %.2f nose-to-rump %.2f width %.2f "
+          "bbox x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f" % (
+              max(zs), withers, min(ys), rump, rump - min(ys), max(xs) - min(xs),
+              min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)))
+    print("SEAT blender (%.3f, %.3f, %.3f) roblox (%.3f, %.3f, %.3f) KX %.4f KY %.4f KZ %.4f" % (
+        seat.x, seat.y, seat.z, seat.x, seat.z, -seat.y, KX, KY, KZ))
 
 
 # -------------------------------------------------------------------------------------------------
@@ -1112,16 +1244,18 @@ def main():
     arm.data.pose_position = "REST"
     turntable(scene, cam)
     arm.data.pose_position = "POSE"
-    rig_render(scene, cam, arm, outline)
-    frame_strip(scene, cam, arm, idle, idle_range, "idle", 10, True)
-    frame_strip(scene, cam, arm, gallop, gallop_range, "gallop", 10, True)
-    frame_strip(scene, cam, arm, rear, rear_range, "rear_up", 12, False)
-    match_distance(scene, arm, image)
+    if FULL_RENDERS:
+        rig_render(scene, cam, arm, outline)
+        frame_strip(scene, cam, arm, idle, idle_range, "idle", 10, True)
+        frame_strip(scene, cam, arm, gallop, gallop_range, "gallop", 10, True)
+        frame_strip(scene, cam, arm, rear, rear_range, "rear_up", 12, False)
+    match_distance(scene, arm, cam)
+    report_dimensions(mesh)
     for name in os.listdir(REVIEW):
         if name.startswith("_tmp_"):
             os.remove(os.path.join(REVIEW, name))
 
-    print("MODEL %s: %d tris (+%d outline hull = %d), %d bones, %d spots, palette %dx%d" % (
+    print("MODEL %s: %d tris (+%d outline hull = %d), %d bones, spots body/legs/neck %s, palette %dx%d" % (
         NAME, tris, outline_tris, tris + outline_tris, len(BONES), spot_count, SIZE, SIZE))
 
 

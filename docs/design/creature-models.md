@@ -58,13 +58,55 @@ Version 2 (after the first review: v1 read as a crude blockout).
   streaming and whipping), `rear_up` (56 frames: gather, rear up ~56 degrees about the hips with the
   front knees folded high, the tail hanging and flowing, a held top, back down).
 - **Export:** `assets/models/mount_spurshot.fbx` (mesh, outline mesh, armature, the three actions;
-  texture embedded; -Z forward, Y up). Scale: 1 Blender unit = 1 stud; ~5.6 studs at the ears. In game
-  it is scaled to its rider (FigureConfig.horse.backHeight: the back at 0.42 of a 4.6-stud unit).
+  texture embedded; -Z forward, Y up). Scale: 1 Blender unit = 1 stud, exported at final size (v2.1).
 - **Review renders** (local, `docs/references/models/review/`, `_v2`): `mount_spurshot_turntable_v2.png`
   (8 angles on gray and dark), `_rig_v2.png` (rest pose, skeleton through a see-through body),
   `_anim_idle_v2.png` (from 3/4, so the sway shows), `_anim_gallop_v2.png`, `_anim_rear_up_v2.png`
   (10-12 frames each), `_match_distance_v2.png` (game size at the match camera's angle next to a
   4.6-stud blocky figure, on the arena gray).
+
+Version 2.1 (v2 approved; scale and spots).
+
+- **Scale:** sized to its rider, an R6 unit 4.6 studs tall. Withers **4.14** studs (0.90x the
+  rider), nose to rump **6.95** (1.51x), **5.88** to the ear tips, **1.63** wide; bounding box
+  (Blender) x -0.82..0.82, y -4.13..3.58 (nose to tail tip), z 0..5.88. The generator authors the
+  v2 shapes and places them after skinning: the body and neck scale by (1.067, 1.469, 1.067), so the
+  horse is longer than tall; the head, legs and tail scale evenly by 1.067 about where they join, so
+  they keep their v2 shapes (the bedroll is pre-squeezed so it stays round).
+- **Spots:** appaloosa-style, **33** in all: 26 on the barrel (13 small on the hindquarters, 4 over
+  the rump, 5 thinning along the mid barrel, 2 at the shoulder, 2 medium on the rump), 4 on the legs,
+  3 on the neck. Small spots are ~0.1-0.3 studs across, the two medium ones ~0.5.
+- **Rig:** 23 bones: the v2 skeleton plus `seat` (child of `spine`), its head on the saddle seat's
+  top, pointing up: the rider anchor.
+- **Review renders** (`_v2_1`): `mount_spurshot_turntable_v2_1.png`, `_match_distance_v2_1.png`
+  (top: the match camera's angle, a figure seated on the saddle and one standing behind; bottom: a
+  side view of the same, for the rider fit). Rig and animation strips are unchanged from v2 apart
+  from the scale (set `FULL_RENDERS = True` to re-render them).
+
+### Rider seat offset
+
+The rider's hips sit on the seat anchor: the `seat` bone's head. Relative to the horse root (the
+armature origin: on the ground, under the middle of the body):
+
+| Space | Seat anchor | Horse forward |
+|---|---|---|
+| Blender (Z up) | (0, -0.191, 4.151) | -Y |
+| Roblox (Y up, after the FBX's -Z forward / Y up axes) | (0, 4.151, 0.191) | +Z |
+
+```lua
+-- Horse root (ground point under the body) to the rider's hips, rider facing the horse's forward (+Z).
+local SEAT_OFFSET = CFrame.new(0, 4.151, 0.191) * CFrame.Angles(0, math.pi, 0)
+-- An R6 rider's root (torso center) sits half a torso above the hips: 0.92 studs at the 4.6-stud unit
+-- size (1 at the default 5-stud R6).
+local RIDER_ROOT = SEAT_OFFSET * CFrame.new(0, 0.92, 0)
+```
+
+If Studio's importer pivots the model on its bounding-box center instead of the root, the bounding
+box center is (0, 2.94, 0.275) in Roblox axes from the root, so the seat is (0, 1.211, -0.084) from
+the pivot. Check the forward axis on import (the head should point along +Z for these numbers);
+the legs hang from the hips down the barrel's sides (straddling), so the rider's leg pose needs the
+thighs turned out about 26 degrees. Integration also replaces the mount's horse scaling
+(FigureConfig.horse.backHeight 0.42 of the unit): this model is already at final size.
 
 **Review gate:** the other six models wait until this pilot is approved (style, proportions,
 palette, spots, animations).
