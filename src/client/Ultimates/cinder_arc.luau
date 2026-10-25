@@ -518,7 +518,7 @@ local function strike(run, index: number)
 		end
 	end
 	VfxRecipe.embers(run, tip(run), s, nil, 6)
-	Sfx.play("whoosh", { pitch = 1 + 0.06 * (index - 1) })
+	Sfx.play("whooshLight", { pitch = 1 + 0.06 * (index - 1) })
 	if index >= #STRIKES then
 		return -- the finisher's hit is the real one (def.event, Area)
 	end
@@ -533,7 +533,7 @@ local function strike(run, index: number)
 	HitFeel.react(target, pivot)
 	HitFeel.hitStop({ run.view, target }, if index == 1 then 0.05 else 0.06, { caster = run.view })
 	HitFeel.cameraShake(if index == 1 then 0.12 else 0.15, 0.18)
-	Sfx.play("hitImpact", { volume = 0.8 })
+	Sfx.play("impactLight", { volume = 0.8 })
 end
 
 local finisher: (any) -> () -- below
@@ -545,7 +545,7 @@ def.beats = {
 			local plan = planFor(run)
 			run:face(run:target())
 			local s = run:scale()
-			Sfx.play("windup")
+			Sfx.play("energyCharge")
 			attachBlade(run)
 			-- The callout: an orange outline on him through the windup and the strikes, a small
 			-- ground ring under him.
@@ -636,7 +636,7 @@ finisher = function(run)
 	end
 	HitFeel.cameraShake(0.3, 0.35)
 	HitFeel.punchIn(1)
-	Sfx.play("finisherBoom")
+	Sfx.play("impactHeavy")
 	Sfx.play("fireBurst")
 	-- Embers drifting up off the splash after.
 	for i = 0, 2 do

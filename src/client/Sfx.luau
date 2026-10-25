@@ -1,9 +1,10 @@
 -- Plays named sound effects (SfxConfig) for presentation: non-positional, each play with its own
--- pitch and volume variation, cleaned up when it ends. A name whose id is empty plays its built-in
--- fallback (UltimateConfig.sounds) if it has one, else nothing (silently), so effects can call
--- Sfx.play before the real sounds are chosen.
+-- pitch and volume variation, cleaned up when it ends. A name is a shared library sound
+-- ("impactHeavy") or a unit's signature sound ("<unit_id>.<sound>"). A name whose id is empty plays
+-- its built-in fallback (UltimateConfig.sounds) if it has one, else nothing (silently), so effects
+-- can call Sfx.play before the real sounds are chosen.
 --
--- Use: Sfx.play("whoosh"), Sfx.play("finisherBoom", { volume = 1.2 }). Returns whether it played.
+-- Use: Sfx.play("whooshLight"), Sfx.play("impactHeavy", { volume = 1.2 }). Returns whether it played.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
@@ -28,9 +29,19 @@ export type PlayOptions = {
 	pitch: number?, -- times the picked pitch
 }
 
+-- The spec of a library sound, or of a unit's signature sound ("<unit_id>.<sound>").
+local function specOf(name: string): any?
+	local unitType, sound = string.match(name, "^([%w_]+)%.([%w_]+)$")
+	if unitType then
+		local signatures = SfxConfig.units[unitType]
+		return if signatures then signatures[sound] else nil
+	end
+	return SfxConfig.library[name]
+end
+
 -- Plays sound `name` now. False when it has no id and no fallback (or is unknown).
 function Sfx.play(name: string, opts: PlayOptions?): boolean
-	local spec = SfxConfig.sounds[name]
+	local spec = specOf(name)
 	if not spec then
 		return false
 	end

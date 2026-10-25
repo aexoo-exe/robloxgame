@@ -14,7 +14,7 @@ An ultimate dresses the unit's real cast. It is client presentation only. Combat
 | `HitFeel` | `react` (flash, knockback slide, stagger, finisher launch), `hitStop`, `cameraShake`, `punchIn` (finisher only). |
 | `ViewScale` | Distance sizing: 1.0 at ≤20 studs → 1.8 at ≥60 (smoothstep). Use `VfxRecipe.viewScale(at)` / `ViewScale.of(at)`. |
 | `UltimateCallout` | Caster outline + a small ground ring through the windup and strikes: `UltimateCallout.mark(run.view, color, run:span(...))`. |
-| `Sfx` + `SfxConfig` | Named sounds. An empty `id` skips silently. No `fallback` that pings (the built-in "charge" ping read as a monotone ding). |
+| `Sfx` + `SfxConfig` | Named sounds: the shared `library` (`Sfx.play("impactHeavy")`, varied per use) and at most 2 signature sounds per tier 3+ unit (`Sfx.play("<unit_id>.<sound>")`). An empty `id` skips silently. No `fallback` that pings (the built-in "charge" ping read as a monotone ding). |
 
 ## Beats
 
@@ -51,7 +51,7 @@ When the real window is short (`run.k < 1`), lay the anticipation out again with
 - **ViewScale on every readable layer:** trails, swooshes, hit stars, sparks, blooms, flames, dust.
 - **Shake** through `HitFeel.cameraShake` (it caps and budgets): strikes 0.12–0.15 for ~0.18 s, the finisher ~0.3 for ~0.35 s. Punch-in on the finisher only. Camera moves/dims only where the tier allows (`UltimateConfig.tiers`: tiers 4–5).
 - **Budget:** peak live effect parts per tier are `ReelConfig.budget` = `{ 14, 18, 26, 34, 44 }` (tiers 1–5; same as `scripts/audit-units.luau` PEAK_LIMIT). Aim for half the tier budget at peak.
-- **Sounds:** per-unit `SfxConfig` names with empty ids and a one-line description of each sound (length, character).
+- **Sounds:** library sounds first ([sound-picks.md](sound-picks.md)); a tier 3+ unit may add at most 2 signature sounds (`SfxConfig.units`), each with an empty id and a one-line description (length, character).
 - **Names:** unit ids only. Real character or anime names never go in code, file names, assets or commits.
 
 ## Dev keys (DevLineup)

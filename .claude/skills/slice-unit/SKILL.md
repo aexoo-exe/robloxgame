@@ -8,14 +8,16 @@ argument-hint: <unit_id> "<concept>"
 
 Arguments: `$ARGUMENTS`. The first word is the `unit_id`; the rest (quoted) is the concept: what the ultimate should look and feel like.
 
-Rebuild `src/client/Ultimates/<unit_id>.luau` to the playbook's standard, using `cinder_arc` as the template. This is client presentation only.
+Rebuild `src/client/Ultimates/<unit_id>.luau` to the playbook's standard, using `cinder_arc` as the template. This is client presentation only. The unit's concept, wave and shared assets are in `docs/design/overhaul-plan.md`; tick its row in `docs/design/overhaul-queue.md` as you go.
+
+**Time-box.** One build pass (steps 2-5), one review round (step 6), the Studio check with at most one fix round (step 6b), then commit, push and hand off (step 7) **even if minor issues remain**: list them as **leftovers** in the handoff instead of iterating.
 
 ## Standing rules (from CLAUDE.md)
 
 - Do **not** run tests, the audit, the sim or Blender MCP. Budget numbers are estimates you work out by hand. Studio MCP is used only for the short check in step 6b, and only if it is already connected.
 - Unit ids only. No real character or anime names anywhere: code, comments, file names, asset names, commit messages.
 - Never change gameplay: no edits to `src/server`, `CombatSim`, `Abilities`, `AbilityConfig`, `UnitConfig` or any event timing. Real unit positions are never moved (visual travel is `lunge` / `rise` only).
-- Touch only this unit's files and entries, plus the two shared config tables listed in step 4.
+- Touch only this unit's files and entries (its `UltimateConfig` entry, its `SfxConfig.units` entry if any), plus its rows in `docs/design/overhaul-queue.md` and `sound-picks.md`.
 
 ## 0. Check and branch
 
@@ -58,11 +60,14 @@ Update this unit's `UltimateConfig.units.<unit_id>`: `preroll` = the full antici
 
 ## 4. Sounds
 
-In `src/shared/SfxConfig.luau`, add one entry per new sound, named `<unit_id>_<sound>` (e.g. `<unit_id>_windup`). Shared names such as `whoosh` and `hitImpact` may be reused when they fit.
+**Prefer the shared library** (`SfxConfig.library`, listed in `docs/design/sound-picks.md`): `Sfx.play("impactHeavy")`, with per-use variation through the options (`Sfx.play("whooshLight", { pitch = 1.1, volume = 0.8 })`). Use the sound cues the unit's concept names in `overhaul-plan.md`.
 
-- Each entry is `{ id = "", volume = ..., pitch = { ..., ... }, volumeJitter = ... }`, with **no `fallback`**.
+Signature sounds only when no library sound fits, **at most 2 per unit, and only for tier 3+ units**:
+
+- Add them under `SfxConfig.units.<unit_id>`: `{ <sound> = { id = "", volume = ..., pitch = { ..., ... }, volumeJitter = ... } }`, with **no `fallback`**.
 - Put a one-line comment above each: what it sounds like and how long it is (e.g. "a low rising hum, ~0.5 s, no impact in it").
-- Call them with `Sfx.play("<name>")`. Empty ids skip silently.
+- Call them with `Sfx.play("<unit_id>.<sound>")`. Empty ids skip silently.
+- Add a row for each to `docs/design/sound-picks.md` (search terms, what it should sound like).
 
 Optionally set `SLICE_UNIT` in `src/client/DevLineup/Config.luau` to this unit so K / G / S replay it. Mention it in the handoff.
 
@@ -79,8 +84,8 @@ End each message with the attribution line the session asks for.
 
 Run the `playbook-reviewer` agent (Agent tool, `subagent_type: "playbook-reviewer"`). Give it the branch's diff range (`main...HEAD`), the unit id and its tier.
 
-- Fix every **FAIL** it reports. Fix a **WARN** when the fix is cheap; otherwise list it under Unsure.
-- If the fixes were more than trivial, run the reviewer once more. Two rounds at most.
+- Fix every **FAIL** it reports. Fix a **WARN** when the fix is cheap; otherwise list it as a leftover.
+- **One review round.** Don't run the reviewer again; anything still open goes to the leftovers.
 - Commit the fixes: `<unit_id> slice: playbook review fixes`.
 
 ## 6b. Studio check (only if the Studio MCP is connected)
@@ -91,11 +96,11 @@ If the Roblox Studio built-in MCP server's tools are available (`start_stop_play
 2. Trigger the K replay (the MCP's key input if it has one; otherwise from `execute_luau` in the client context). Use a fixed side camera: the slice camera's default framing, no orbiting between captures.
 3. Capture about 6 screenshots at the key beats from your timeline: coil, set, each strike, finisher, aftermath. **At most 8 screenshots per unit.** Check `get_console_output` once for errors from the module.
 4. Check them against the playbook: no screen-filling sprites or flashes, trails on the blade (or the ranged arc), readable poses at the coil, set and finisher.
-5. Fix obvious problems **once**, commit (`<unit_id> slice: studio check fixes`), stop play with `start_stop_play`. Don't loop. List what you saw, and anything left, under Unsure in the handoff.
+5. Fix obvious problems in **at most one fix round**, commit (`<unit_id> slice: studio check fixes`), stop play with `start_stop_play`. Don't capture again after the fix. List what you saw, and anything left, as leftovers in the handoff.
 
 ## 7. Push and hand off
 
-`git push -u origin <branch>`. Never push or merge `main`.
+Always reach this step, even with leftovers. `git push -u origin <branch>`. Never push or merge `main`.
 
 End with the HANDOFF in one code block (format in CLAUDE.md), including:
 
@@ -103,8 +108,9 @@ End with the HANDOFF in one code block (format in CLAUDE.md), including:
 - Files changed.
 - What changed.
 - **Per-unit beats:** the timeline in one or two lines.
-- **New sounds needing ids:** each SfxConfig name with its description.
+- **Sounds:** the library sounds it uses, and any signature sounds (`<unit_id>.<sound>`) needing ids with their descriptions.
 - **Budget peak:** the estimate against the tier budget, marked as an estimate.
 - **Reviewer result:** pass/fail counts, and anything left as WARN.
+- **Leftovers:** minor issues not fixed within the time-box.
 - **Unsure:** anything not verified in Studio.
 - **Next step:** usually "judge it in Studio: K, G, S".

@@ -365,7 +365,7 @@ def.beats = {
 		run = function(run)
 			local plan = planFor(run)
 			run:face(run:target())
-			Sfx.play("windup")
+			Sfx.play("energyCharge")
 			attachBlade(run)
 			-- The callout: a gold outline on him through the windup to the draw, a small ground ring.
 			UltimateCallout.mark(run.view, CALLOUT, run:span(plan.windup, plan.finisher - plan.windup))
@@ -418,7 +418,7 @@ local function cut(run, target)
 	HitFeel.react(target, run.memo.from or run:chest(), { final = true })
 	HitFeel.cameraShake(0.3, 0.35)
 	HitFeel.punchIn(1)
-	Sfx.play("hitImpact", { volume = 0.8 })
+	Sfx.play("impactLight", { volume = 0.8 })
 end
 
 -- The draw on the real hit: the thunder crack, gold lightning bolts along the whole path (from
@@ -435,12 +435,12 @@ finisher = function(run)
 		to = center + past * beyond.Magnitude + Vector3.new(0, from.Y - center.Y, 0)
 	end
 	VfxRecipe.kitBolts(from, to, GOLD, if run.reduced then DASH_BOLTS.reduced else DASH_BOLTS.full, DASH_BOLTS.life)
-	Sfx.play("flashline_thunderCrack")
+	Sfx.play("lightningCrack")
 	run:at(AFTER.cut, function()
 		cut(run, target)
 	end)
 	run:at(AFTER.click, function()
-		Sfx.play("flashline_sheathe")
+		Sfx.play("sheathe")
 	end)
 end
 
