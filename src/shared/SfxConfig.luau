@@ -33,5 +33,9 @@ return deepFreeze({
 		hitImpact = { id = "101309544882556", volume = 0.55, pitch = { 0.9, 1.1 }, volumeJitter = 0.1 },
 		-- The finisher: a deep, heavy boom with a fiery tail (~0.8 s), the loudest of the set.
 		finisherBoom = { id = "138533090376585", volume = 0.65, pitch = { 0.95, 1.02 }, volumeJitter = 0.05 },
+		-- flashline's draw: a sharp, dry thunder crack with a short electric snap (~0.5 s), no rumble tail.
+		flashline_thunderCrack = { id = "", volume = 0.6, pitch = { 0.96, 1.04 }, volumeJitter = 0.06 },
+		-- flashline's sheathe: a soft blade slide into the scabbard ending on a crisp metal click (~0.4 s).
+		flashline_sheathe = { id = "", volume = 0.45, pitch = { 0.97, 1.03 }, volumeJitter = 0.05 },
 	},
 })

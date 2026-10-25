@@ -326,10 +326,11 @@ return deepFreeze({
 		-- Tier 1 -------------------------------------------------------------------------------
 		flashline = {
 			tier = 1,
-			preroll = 0.2,
-			linger = 0.5,
-			look = "low crouch at the sword, yellow sparks at his feet; a single yellow streak on the real dash (no afterimages); a beat later the cut flashes across the target with a crackle (the katana is out only now)",
-			wanted = { "thunderclap", "delayed slice" },
+			-- The quick-draw: coil, shivering set, dead stillness, load dip, the draw on the real hit.
+			preroll = 0.93,
+			linger = 1.65, -- through the delayed cut, the slow sheathe (+0.85), the slide home (+1.45) and the trail's fade
+			look = "crouched quick-draw stance with gold crackle, a held beat of dead stillness; the draw on the real hit dashes him through the target with crisp gold lightning bolts and a gold blade trail; the target is cut a split second after he is past; a low follow-through, a slow sheathe with a click, slide home",
+			wanted = { "thunder crack", "sheathe click" },
 		},
 		cinder_arc = {
 			tier = 1,
