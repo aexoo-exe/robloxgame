@@ -83,6 +83,21 @@ Version 2.1 (v2 approved; scale and spots).
   side view of the same, for the rider fit). Rig and animation strips are unchanged from v2 apart
   from the scale (set `FULL_RENDERS = True` to re-render them).
 
+Version 2.2 (fixes after the first Studio import).
+
+- **Import scale:** v2.1 imported into Studio 100x too big (~590 studs tall): Blender's FBX exporter
+  applied its metre-to-centimetre unit scale to every object. The export now sets
+  `apply_unit_scale=False`, so 1 Blender unit = 1 FBX unit = 1 stud (5.88 studs to the ear tips).
+- **Tail:** v2.1's single six-sided tube read as a flat board. Now a short dock and six flattened
+  tapered locks fanning at different angles and ending at different lengths (volume from every side,
+  a ragged end), on the same four tail bones. **2,468 triangles** (+2,468 outline hull).
+- **Coat:** a warm white (242, 236, 224) with warmer spot and leg-shade grays; v2.1's cool white read
+  pale blue under Studio's sky light.
+- **Chest strap:** a flat band (taller than thick) whose ends curve back into the barrel; v2.1's
+  round rod, cut at the chest's widest point, left open ends sticking out at the sides.
+- The `.fbm` folder Studio / Blender writes next to the FBX on import is gitignored.
+- **Review renders** (`_v2_2`): turntable and match distance.
+
 ### Rider seat offset
 
 The rider's hips sit on the seat anchor: the `seat` bone's head. Relative to the horse root (the

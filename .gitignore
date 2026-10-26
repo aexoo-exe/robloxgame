@@ -30,3 +30,6 @@ __pycache__/
 
 # Playtest report CSVs (scripts/playtest-report --csv).
 reports/
+
+# FBX importers unpack embedded textures next to the file
+assets/models/*.fbm/

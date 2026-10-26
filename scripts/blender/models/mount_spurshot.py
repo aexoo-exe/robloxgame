@@ -29,7 +29,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 ASSETS = os.path.join(ROOT, "assets", "models")
 REVIEW = os.path.join(ROOT, "docs", "references", "models", "review")
 NAME = "mount_spurshot"
-SUFFIX = "_v2_1"
+SUFFIX = "_v2_2"
 FULL_RENDERS = False  # also the rig and animation strips (v2.1 re-renders the turntable and match distance)
 FPS = 30
 OUTLINE = 0.03  # inverted-hull thickness (studs)
@@ -64,9 +64,10 @@ def srgb(r, g, b):
     return (r / 255, g / 255, b / 255, 1.0)
 
 SWATCHES = {
-    "coat": srgb(236, 237, 240),
-    "spot": srgb(74, 78, 88),
-    "legshade": srgb(150, 153, 160),
+    # A warm white (v2.2): v2.1's cool white read pale blue under Studio's sky light.
+    "coat": srgb(242, 236, 224),
+    "spot": srgb(78, 74, 76),
+    "legshade": srgb(160, 154, 148),
     "mane": srgb(240, 224, 172),
     "maneshade": srgb(214, 194, 140),
     "hoof": srgb(58, 58, 64),
@@ -554,19 +555,33 @@ def build_leg(key):
 
 TAIL = [Vector((0, 1.86, 3.5)), Vector((0, 2.12, 3.05)), Vector((0, 2.32, 2.45)), Vector((0, 2.44, 1.85)),
         Vector((0, 2.5, 1.2))]
-TAIL_RADII = [0.12, 0.2, 0.25, 0.22, 0.06]
+# Tail locks (v2.2; v2.1's single tube read as a flat board): (x offset, y offset, tip drop, flat-side
+# angle in degrees from front-back). The locks fan out from the dock at different angles and end at
+# different lengths, so the tail has volume from every side and a ragged end.
+TAIL_LOCKS = [(-0.09, 0.0, 0.05, 25), (0.09, 0.03, -0.1, -25), (0.0, 0.12, 0.15, 0), (0.0, -0.08, -0.22, 90),
+              (-0.05, 0.08, -0.02, -60), (0.06, -0.03, 0.08, 60)]
 
 
 def build_tail():
-    count = 6
+    tail_bones = ["tail.1", "tail.2", "tail.3", "tail.4"]
+    # The dock: a short rounded stub from the rump.
+    count = 8
     rings = []
-    for k, p in enumerate(TAIL):
-        tangent = TAIL[min(k + 1, 4)] - TAIL[max(k - 1, 0)]
-        side, up = frame_at(tangent)
-        r = TAIL_RADII[k]
-        rings.append(ring_points(p, side, up, r * 0.75, r, r, count))
-    obj = loft("tail", rings, lambda i, j: swatch_uv("mane" if j % 2 == 0 else "maneshade"), swatch_uv("mane"))
-    PARTS.append((obj, chain_weights(TAIL, ["tail.1", "tail.2", "tail.3", "tail.4"])))
+    for p, r in ((TAIL[0], 0.13), (TAIL[0].lerp(TAIL[1], 0.5), 0.16), (TAIL[1], 0.15)):
+        side, up = frame_at(TAIL[1] - TAIL[0])
+        rings.append(ring_points(p, side, up, r, r, r, count))
+    obj = loft("taildock", rings, lambda i, j: swatch_uv("mane" if j % 2 == 0 else "maneshade"), swatch_uv("mane"))
+    PARTS.append((obj, chain_weights(TAIL, tail_bones)))
+    # The locks: flattened tapered tufts hanging from the dock, spreading toward the tip.
+    for k, (dx, dy, drop, angle) in enumerate(TAIL_LOCKS):
+        spread = [0.3, 0.8, 1.2, 1.5]
+        points = [TAIL[1 + i] + Vector((dx * s, dy * s, 0)) for i, s in enumerate(spread[:3])]
+        points.append(TAIL[4] + Vector((dx * spread[3], dy * spread[3], -drop)))
+        points.insert(0, TAIL[0].lerp(TAIL[1], 0.6))
+        a = math.radians(angle)
+        tuft("tail%d" % k, points, [0.1, 0.15, 0.18, 0.12, 0.02], 0.06, tail_bones[0],
+             Vector((math.sin(a), math.cos(a), 0)))
+        PARTS[-1] = (PARTS[-1][0], chain_weights(TAIL, tail_bones))
 
 
 def arc_slab(name, y0, y1, half_angle, inner, outer, hang, color, steps=5):
@@ -648,11 +663,14 @@ def build_tack():
     bpy.ops.mesh.primitive_torus_add(major_radius=1.0, minor_radius=0.05, major_segments=20, minor_segments=4,
                                      location=(0, -1.55, cz - 0.05))
     strap = bpy.context.active_object
-    strap.scale = (rx + 0.05, 0.36, 1.0)
+    # A flat band hugging the chest (v2.2): taller than thick, so side-on it reads as a strap, not a rod.
+    strap.scale = (rx + 0.03, 0.36, 2.6)
     bpy.ops.object.transform_apply(scale=True)
     bm = bmesh.new()
     bm.from_mesh(strap.data)
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > -0.02], context="VERTS")
+    # Keep a little more than the front half, so the strap's ends curve back into the barrel (v2.1 cut
+    # it at its widest, leaving open ends sticking out at the sides).
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > 0.14], context="VERTS")
     bm.to_mesh(strap.data)
     bm.free()
     flat_part(strap, "spine", "tack")
@@ -1236,6 +1254,9 @@ def main():
         embed_textures=True,
         axis_forward="-Z",
         axis_up="Y",
+        # 1 Blender unit = 1 FBX unit = 1 stud. Left on, Blender's metre-to-centimetre unit scale puts
+        # a 100x scale on every object and Studio imports the horse 100 times too big (v2.1).
+        apply_unit_scale=False,
     )
 
     setup_render(scene)
