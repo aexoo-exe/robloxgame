@@ -584,7 +584,7 @@ def build_tail():
         PARTS[-1] = (PARTS[-1][0], chain_weights(TAIL, tail_bones))
 
 
-def arc_slab(name, y0, y1, half_angle, inner, outer, hang, color, steps=5):
+def arc_slab(name, y0, y1, half_angle, inner, outer, hang, color, steps=5, bone="spine"):
     """A thin slab draped over the barrel's top between y0 and y1: `half_angle` each side of the top,
     from `inner` to `outer` off the surface; its edges flare out and hang `hang` lower."""
     arc = 8
@@ -603,7 +603,7 @@ def arc_slab(name, y0, y1, half_angle, inner, outer, hang, color, steps=5):
             inner_pts.append(surface + normal * inner)
         rings.append(outer_pts + list(reversed(inner_pts)))
     obj = loft(name, rings, lambda i, j: swatch_uv(color), swatch_uv(color))
-    PARTS.append((obj, "spine"))
+    PARTS.append((obj, bone))
 
 
 def star_map(obj, center, length):
@@ -626,8 +626,10 @@ def build_tack():
     # Saddle blanket draped over the back, a brown seat, a smaller star bedroll behind the saddle.
     arc_slab("blanket", -0.55, 0.38, math.radians(78), 0.01, 0.05, 0.12, "blanket")
     arc_slab("blankettrim", -0.6, -0.5, math.radians(80), 0.012, 0.06, 0.13, "blankettrim", steps=2)
-    arc_slab("seat", -0.38, 0.12, math.radians(42), 0.05, 0.17, 0.02, "saddle", steps=4)
-    arc_slab("cantle", 0.06, 0.18, math.radians(30), 0.15, 0.3, 0.0, "saddle", steps=2)
+    # The seat and cantle ride on the "seat" bone (an unanimated child of the spine, so they move with
+    # it): Studio's importer drops bones with no skinned vertices, and the rider anchor must survive.
+    arc_slab("seat", -0.38, 0.12, math.radians(42), 0.05, 0.17, 0.02, "saddle", steps=4, bone="seat")
+    arc_slab("cantle", 0.06, 0.18, math.radians(30), 0.15, 0.3, 0.0, "saddle", steps=2, bone="seat")
     _rx, rt, _rb, cz = barrel_ring(0.5)
     roll_at = Vector((0, 0.5, cz + rt + 0.14))
     bpy.ops.mesh.primitive_cylinder_add(vertices=10, radius=0.17, depth=0.9, location=roll_at,
@@ -1254,9 +1256,10 @@ def main():
         embed_textures=True,
         axis_forward="-Z",
         axis_up="Y",
-        # 1 Blender unit = 1 FBX unit = 1 stud. Left on, Blender's metre-to-centimetre unit scale puts
-        # a 100x scale on every object and Studio imports the horse 100 times too big (v2.1).
-        apply_unit_scale=False,
+        # 1 Blender unit = 1 stud. The exporter's default ("All Local") always puts its metre-to-
+        # centimetre 100x on every object's scale (apply_unit_scale does not remove it), and Studio
+        # imported the horse 100 times too big (v2.1). 0.01 cancels it: object scale 1, unit factor 1.
+        global_scale=0.01,
     )
 
     setup_render(scene)

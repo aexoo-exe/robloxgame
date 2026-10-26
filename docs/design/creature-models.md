@@ -86,8 +86,15 @@ Version 2.1 (v2 approved; scale and spots).
 Version 2.2 (fixes after the first Studio import).
 
 - **Import scale:** v2.1 imported into Studio 100x too big (~590 studs tall): Blender's FBX exporter
-  applied its metre-to-centimetre unit scale to every object. The export now sets
-  `apply_unit_scale=False`, so 1 Blender unit = 1 FBX unit = 1 stud (5.88 studs to the ear tips).
+  (default "All Local" scale option) puts its metre-to-centimetre 100x on every object's scale, and
+  `apply_unit_scale=False` does not remove it. The export now sets `global_scale=0.01`: every object
+  scale in the file is 1 and UnitScaleFactor is 1, so 1 Blender unit = 1 stud (5.88 studs to the ear
+  tips). Checked in the FBX itself; not yet re-imported in Studio.
+- **Seat bone:** Studio's importer dropped the `seat` bone (22 of 23 bones arrived): it had no
+  skinned vertices. The saddle seat and cantle are now skinned to `seat` (an unanimated child of
+  `spine`, so they still move with the body).
+- **Forward axis (measured in Studio):** the head points along **-Z** (Roblox's own forward), not +Z
+  as v2.1 assumed. The seat table below is corrected.
 - **Tail:** v2.1's single six-sided tube read as a flat board. Now a short dock and six flattened
   tapered locks fanning at different angles and ending at different lengths (volume from every side,
   a ragged end), on the same four tail bones. **2,468 triangles** (+2,468 outline hull).
@@ -106,19 +113,20 @@ armature origin: on the ground, under the middle of the body):
 | Space | Seat anchor | Horse forward |
 |---|---|---|
 | Blender (Z up) | (0, -0.191, 4.151) | -Y |
-| Roblox (Y up, after the FBX's -Z forward / Y up axes) | (0, 4.151, 0.191) | +Z |
+| Roblox (Y up, as imported by Studio) | (0, 4.151, -0.191) | -Z (the model's LookVector) |
 
 ```lua
--- Horse root (ground point under the body) to the rider's hips, rider facing the horse's forward (+Z).
-local SEAT_OFFSET = CFrame.new(0, 4.151, 0.191) * CFrame.Angles(0, math.pi, 0)
+-- Horse root (ground point under the body) to the rider's hips, rider facing the horse's forward
+-- (-Z, Roblox's default facing, so no turn).
+local SEAT_OFFSET = CFrame.new(0, 4.151, -0.191)
 -- An R6 rider's root (torso center) sits half a torso above the hips: 0.92 studs at the 4.6-stud unit
 -- size (1 at the default 5-stud R6).
 local RIDER_ROOT = SEAT_OFFSET * CFrame.new(0, 0.92, 0)
 ```
 
-If Studio's importer pivots the model on its bounding-box center instead of the root, the bounding
-box center is (0, 2.94, 0.275) in Roblox axes from the root, so the seat is (0, 1.211, -0.084) from
-the pivot. Check the forward axis on import (the head should point along +Z for these numbers);
+Studio's importer adds an invisible `RootPart` at the root bone and makes it the PrimaryPart, so
+the model's pivot is the root and these numbers apply directly (the `seat` bone gives the same point
+once v2.2 is imported);
 the legs hang from the hips down the barrel's sides (straddling), so the rider's leg pose needs the
 thighs turned out about 26 degrees. Integration also replaces the mount's horse scaling
 (FigureConfig.horse.backHeight 0.42 of the unit): this model is already at final size.
