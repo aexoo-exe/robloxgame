@@ -13,7 +13,7 @@ unit; tick a column as it is done. "Merged" means on `main`.
 |---|---|---|---|---|---|---|---|
 | 0 | cinder_arc | [x] | [x] | [x] | [ ] | [ ] | [x] |
 | 0 | flashline | [x] | [x] | [x] | [ ] | [ ] | [x] |
-| 1 | infinite_collapse | [x] | [x] | [ ] | [ ] | [ ] | [ ] |
+| 1 | infinite_collapse | [x] | [x] | [x] | [ ] | [ ] | [ ] |
 | 1 | severing_temple | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 1 | starless_burst | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 2 | final_argument | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |

@@ -13,8 +13,8 @@
 --   -0.18  a 0.12 s load dip: the right hand cocks back, the sphere on its fingertips
 --   -0.06  the flick's 0.06 s snap: the sphere crosses to the area in a blink (far faster than the
 --          build: the signature), a violet trail off the flicking hand
---    0     THE ERASURE, on the real hit: a hollow violet shell swelling over the area and gone by
---          +0.42, one mesh ring, a white-violet core and a hit star on the main target, sparks, a
+--    0     THE ERASURE, on the real hit: a hollow violet shell swelling behind the main target (about
+--          half the area radius across) and gone by +0.42, one mesh ring over the area, a white-violet core and a hit star on the main target, sparks, a
 --          light; hit-stop on the bodies; a heavy boom, a strong shake, the punch-in and a camera
 --          push; every enemy knocked back (the main one 2.5 studs, launched 0.8); a short blue
 --          shimmer of his shield
@@ -27,8 +27,9 @@
 -- snaps, the load dip and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the orbs, the
 -- sphere, the hand trail, the ring, the hit star, the sparks and the core grow with it.
--- Layers (tier 5, within its 44; peak ~18 in the set, ~11 at the erasure, estimated): two orbs
--- (core + halo each), up to ~12 motes in flight, the violet sphere (core + halo) and 2 crackle bolts
+-- Layers (tier 5, within its 44; peak ~17 in the set at full length, ~20 compressed to k = 0.6,
+-- ~8 at the erasure, estimated): two orbs (core + halo each), up to 14 motes in flight (8 blue drawn
+-- in, 6 red pushed out; half when reduced), the violet sphere (core + halo) and 2 crackle bolts
 -- (1 when reduced), the flying sphere, a hand trail (BladeTrail), at the erasure one shell, one mesh
 -- ring, a core flash, a hit star, sparks, a light (not when reduced), the shield shimmer, then
 -- drifting motes (not when reduced); the callout's ring. Camera: a dim through the build and a push
@@ -161,7 +162,7 @@ local TRAIL = ColorSequence.new({
 })
 local TRAIL_LIFE = 0.22
 local SPARKS = ColorSequence.new(WHITE, VIOLET)
-local MOTES = { blue = 12, red = 10, reducedShare = 0.5 }
+local MOTES = { blue = 8, red = 6, reducedShare = 0.5 }
 -- The erasure's light: a short, tight violet flash at the main target's chest.
 local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
 local SHELL_SECONDS = 0.42
@@ -415,6 +416,7 @@ def.beats = {
 			-- The merge: the orbs spiral into the point between his hands over the snap, and the violet
 			-- sphere rides his right fingertips through the load, crackling.
 			run:at(plan.merge, function()
+				local view = VfxRecipe.viewScale(between(run))
 				for i, color in { BLUE, RED } do
 					local phase = if i == 1 then 0 else math.pi
 					local side = if i == 1 then "right" else "left"
@@ -423,7 +425,7 @@ def.beats = {
 						local center = run:hand(side):Lerp(between(run), k)
 						local angle = phase + u * 7
 						local r = 0.45 * (1 - k) * s
-						part.Size = Vector3.one * 0.7 * (1 - 0.5 * k) * s
+						part.Size = Vector3.one * 0.7 * (1 - 0.5 * k) * s * view
 						part.CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * r, math.sin(angle) * r * 0.6, 0))
 						part.Transparency = 0.05
 					end)
@@ -440,7 +442,7 @@ def.beats = {
 					run:at(plan.load + 0.02 + i * 0.05, function()
 						local center = run:hand("right")
 						local offset = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
-						FxKit.beam(center, center + offset * 1.4 * s * view, VIOLET_LIGHT, 0.12, 0.07, "jagged")
+						FxKit.beam(center, center + offset * 1.4 * s * view, VIOLET_LIGHT, 0.12 * view, 0.07, "jagged")
 					end)
 				end
 				Sfx.play("windGust", { pitch = 1.4, volume = 0.5 })
@@ -495,9 +497,20 @@ finisher = function(run)
 	end
 	local hit = goal(run)
 	local view = VfxRecipe.viewScale(hit)
-	local air = center + Vector3.new(0, UNIT_HEIGHT * 0.6, 0)
-	Kit.shell(run, 0, SHELL_SECONDS, VIOLET, air, function(u)
-		return radius * (0.9 + 0.6 * Kit.easeOut(u))
+	-- The shell is a bloom: about half the area radius across, behind the main target as the camera
+	-- sees it, so the caster and the hit stay in view.
+	local bloomAt = (if main then main.part.Position else center + Vector3.new(0, UNIT_HEIGHT * 0.6, 0))
+	local camera = workspace.CurrentCamera
+	if camera then
+		local away = bloomAt - camera.CFrame.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		if away.Magnitude > 1e-3 then
+			bloomAt += away.Unit * 0.6
+		end
+	end
+	local bloomView = VfxRecipe.viewScale(bloomAt)
+	Kit.shell(run, 0, SHELL_SECONDS, VIOLET, bloomAt, function(u)
+		return radius * (0.6 + 0.4 * Kit.easeOut(u)) * bloomView
 	end, function(u)
 		return 0.5 + 0.5 * Kit.easeIn(u)
 	end)
