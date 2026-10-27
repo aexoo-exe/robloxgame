@@ -10,6 +10,11 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
+**Paused 2026-10-27 (resume here):** to merge (user OK needed): `feature/hold-views` (hold side /
+front34 / back34 views, verified) and `feature/slice-severing_temple` (built, reviewed: no FAIL;
+Studio-checked with 5 held beats and one fix round, fixes not re-captured; contains hold-views). Then
+starless_burst, the cinder_arc / flashline arm sweep, and animation-notes Plan step 2.
+
 **Now**
 
 1. **Playtest readiness:** done. CI green on `main`, [playtest.md](playtest.md) syncs from `main`,
