@@ -2,8 +2,8 @@
 -- `itemOffer`) and shows each offered item's icon, name and effect text with a Pick button. "Later"
 -- folds it into a small "Pick an item" button so the board stays usable; still unpicked, it opens
 -- again by itself when the next Preparation starts. Outside Preparation it never covers the board:
--- an offer arriving then starts folded, and an open choice folds when the fight starts (so the
--- fight stays visible); it opens at the next Preparation. The server takes the first item if none was
+-- an offer arriving in the results starts folded and opens at Preparation; when the fight starts an
+-- unpicked choice is gone (the server took its first item). The server takes the first item if none was
 -- picked when Preparation ends. A picked item lands in the inventory strip, which highlights it.
 -- The client only asks (RequestPickItem). Presentation only.
 
@@ -148,13 +148,18 @@ function ItemPickPanel.start()
 		end
 	end)
 
-	-- Still unpicked when the next Preparation starts: it opens again. Open when Preparation ends:
-	-- it folds, so it never covers the fight.
+	-- Still unpicked when the next Preparation starts: it opens again. When the fight starts the
+	-- server has already taken the first item of an unpicked choice (PlayerState.startCombat) without
+	-- sending a new state, so the choice is gone: nothing is left over the fight.
 	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
 		if not offer then
 			return
 		end
-		if inPreparation() and folded then
+		if matchState:GetAttribute("Phase") == Phase.Combat then
+			offer = nil
+			offerKey = ""
+			render()
+		elseif inPreparation() and folded then
 			folded = false
 			render()
 			UI.pop(panel, 1.06)
