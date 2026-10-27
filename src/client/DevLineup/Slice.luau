@@ -12,6 +12,7 @@ local Hud = require(script.Parent.Hud)
 local Lineup = require(script.Parent.Lineup)
 local State = require(script.Parent.State)
 
+local Cinematic = require(script.Parent.Parent.Cinematic)
 local HitFeel = require(script.Parent.Parent.HitFeel)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
 
@@ -205,13 +206,19 @@ function Slice.leave()
 	Hud.refreshTitle()
 end
 
--- After `seconds` (the replay's length) plus SLICE_AIM seconds to aim on the still field; never in
--- the middle of a right-mouse drag (it waits for the drag to end).
+-- After `seconds` stage seconds (the replay's length: slow motion stretches it and a freeze stops it)
+-- plus SLICE_AIM real seconds to aim on the still field; never while frozen or in the middle of a
+-- right-mouse drag (it waits for both to end).
 local SLICE_AIM = 2
 local function leaveSliceCameraAfter(seconds: number)
 	local token = State.sliceToken
-	task.delay(seconds + SLICE_AIM, function()
-		while sliceOrbiting and token == State.sliceToken do
+	local deadline = State.stageClock() + seconds
+	task.spawn(function()
+		while token == State.sliceToken and (State.stageClock() < deadline or State.timeScale == 0) do
+			task.wait(0.2)
+		end
+		task.wait(SLICE_AIM)
+		while token == State.sliceToken and (sliceOrbiting or State.timeScale == 0) do
 			task.wait(0.2)
 		end
 		if token == State.sliceToken then
@@ -232,7 +239,7 @@ function Slice.slowReplay(s: State.Stage)
 	end
 	Field.cast(s)
 	if slice then
-		leaveSliceCameraAfter((s.previewSeconds or Config.FIELD_AFTER) / slow + 0.5)
+		leaveSliceCameraAfter((s.previewSeconds or Config.FIELD_AFTER) + 0.5)
 	end
 	print("[DevLineup] ultimate at 0.25x (back to 1x in 14 s)")
 	task.delay(14, function()
@@ -271,6 +278,86 @@ function Slice.replay(mode: string)
 			if mode == "gameplay" then "match" else "slice"
 		)
 	)
+end
+
+-- The slice unit's running ultimate (Cinematic), if any.
+local function sliceRun(): any?
+	for index = 1, 256 do
+		local run = Cinematic.running(index)
+		if run and run.unitType == SLICE_UNIT then
+			return run
+		end
+	end
+	return nil
+end
+
+local HOLD_SCALE = 0.25 -- the replay plays slowed on its way, so it stops within a few ms of the beat
+local HOLD_TIMEOUT = 20 -- real seconds
+
+-- Replays the slice (as K; G with `mode` "gameplay") and holds it at `beat`: a design time (seconds
+-- from the real hit, negative before it) or the name of one of the module's plan times
+-- (run.memo.plan: "windup", "set", "load", "finisher", ...), plus `offset` design seconds. The stage
+-- clock, poses, effects and the slice camera all stop there (O, or the QA handle's `resume`, goes
+-- on), so a screenshot catches exactly that beat. Yields until held (Studio MCP: one call, then
+-- capture); returns what it held at, or why it could not.
+function Slice.hold(beat: number | string, offset: number?, mode: string?): string
+	local before = sliceRun()
+	Slice.replay(mode or "slice")
+	State.timeScale = HOLD_SCALE
+	ImpactEffects.setTimeScale(HOLD_SCALE)
+	local started = os.clock()
+	local function giveUp(why: string): string
+		State.timeScale = 1
+		ImpactEffects.setTimeScale(1)
+		warn("[DevLineup] hold: " .. why)
+		return why
+	end
+	local run = nil
+	while not run and os.clock() - started < HOLD_TIMEOUT do
+		local found = sliceRun()
+		if found and found ~= before then
+			run = found
+		else
+			RunService.RenderStepped:Wait()
+		end
+	end
+	if not run then
+		return giveUp("no ultimate of " .. SLICE_UNIT .. " started")
+	end
+	local target: number? = if type(beat) == "number" then beat else nil
+	while os.clock() - started < HOLD_TIMEOUT do
+		local plan: any = run.memo.plan
+		if not target and plan then
+			if type(plan[beat]) ~= "number" then
+				local names = {}
+				for name in plan do
+					table.insert(names, name)
+				end
+				table.sort(names)
+				return giveUp(string.format("no beat %q in the plan (%s)", tostring(beat), table.concat(names, ", ")))
+			end
+			target = plan[beat]
+		end
+		if target and run:designTime() >= target + (offset or 0) then
+			State.frozenScale = 1
+			State.timeScale = 0
+			ImpactEffects.setTimeScale(0)
+			if State.freezeButton then
+				State.freezeButton.Text = "Resume"
+			end
+			local report = string.format(
+				"%s held at %s%s (design %.3f s)",
+				SLICE_UNIT,
+				tostring(beat),
+				if offset and offset ~= 0 then string.format(" %+.2f", offset) else "",
+				run:designTime()
+			)
+			print("[DevLineup] " .. report)
+			return report
+		end
+		RunService.RenderStepped:Wait()
+	end
+	return giveUp("timed out before " .. tostring(beat))
 end
 
 return Slice
