@@ -25,14 +25,21 @@ exactly that and moves on to the next item it can do alone.
    so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
    copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
-4. **infinite_collapse Studio check** (Claude, once Studio is synced): built and reviewed on
-   `feature/slice-infinite_collapse` (`SLICE_UNIT` set); left: the K / G / S check (8 screenshots,
-   one fix round), then merging it (user).
-5. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
+4. **Animation capture tooling** (Claude): DevLineup `sliceAt(designTime)`, which holds the slice
+   at a beat (stage clock, effects and slice camera timers paused) so the MCP can screenshot each
+   beat. Without it no ultimate can be judged frame by frame ([animation-notes.md](design/animation-notes.md),
+   Tooling).
+5. **infinite_collapse Studio check** (Claude, after 4): built and reviewed on
+   `feature/slice-infinite_collapse`; it plays with no errors in Studio, but no mid-beat frames were
+   captured (5 of 8 screenshots spent). Then merging it (user).
+6. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
    [overhaul-plan.md](design/overhaul-plan.md).
 
 **Next**
 
+- **Animation quality** (the user's top concern; Claude owns it): the plan in
+  [animation-notes.md](design/animation-notes.md): per-channel overlap in PoseAnimator, then elbow
+  and knee channels, then re-pose the three reference ultimates.
 - Wave 1 rest: starless_burst.
 - Studio-check cinder_arc and flashline (their "Studio-checked" boxes are open in the queue).
 - Library sound ids (user picks): 16 of 20 library sounds have no id
@@ -110,6 +117,13 @@ Judge your own screenshots against this before calling anything done.
   camera (G key).
 - Colors saturated, not washed out to cream or white.
 - Within the tier budget (`ReelConfig.budget`), aiming for half at peak.
+
+**Animation** (running list: [animation-notes.md](design/animation-notes.md); add to it whenever
+you watch a replay)
+
+- Overlap: head and arms trail the torso; nothing arrives all at once.
+- Weight: feet plant, landings compress, dashes step rather than glide.
+- Silhouette first: each key pose reads with the effects hidden.
 
 **Creature models**
 
