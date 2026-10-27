@@ -12,15 +12,17 @@ exactly that and moves on to the next item it can do alone.
 
 **Now**
 
-1. **Playtest readiness** (Claude): confirm CI is green on `main`, update [playtest.md](playtest.md)
-   to sync from `main` (it still names `feature/playtest-1`, already merged), a short Studio MCP smoke
-   run (Practice match starts, a fight and an ultimate play, no `[ErrorLog]` lines), then give the
-   user click-by-click publish and friend-access steps.
+1. **Playtest readiness:** CI green on `main` and [playtest.md](playtest.md) synced from `main`
+   (done, `feature/playtest-ready`). Left: the Studio MCP smoke run (Practice match starts, a fight
+   and an ultimate play, no `[ErrorLog]` lines). Blocked on (user): Studio wasn't synced (no
+   `rojo serve`); Claude starts `rojo serve`, the user clicks **Connect** in the Rojo plugin.
 2. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
    Afterwards Claude reads the feedback and errors (`scripts/playtest-report`, needs the user's
    Open Cloud key in their own terminal) and turns them into queue items.
 3. **mount_spurshot v2.2 import** (user, then Claude): the user imports the v2.2 FBX
-   (`feature/models-pilot`, commit `dfb5a43`) into Studio; Claude re-runs the MCP model check (scale
+   (`feature/models-pilot`, commit `dfb5a43`; a copy at `tools/mount_spurshot_v2_2.fbx`, gitignored,
+   so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
+   copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
 4. **Overhaul wave 1: infinite_collapse** (Claude): `/slice-unit` with its concept from
    [overhaul-plan.md](design/overhaul-plan.md).
