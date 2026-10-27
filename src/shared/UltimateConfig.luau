@@ -62,15 +62,16 @@ return deepFreeze({
 		-- Tier 5 -------------------------------------------------------------------------------
 		infinite_collapse = {
 			tier = 5,
-			preroll = 1.2,
-			linger = 1.3,
-			look = "calm stop; blue orb pulls in (right hand), red orb pushes out (left); they spiral into a purple sphere; the flick is much faster than the build; erasure at the real hit; hand in pocket",
+			-- The two-orb build, a shivering set, dead stillness, the merge snap, the load, the flick on the real hit.
+			preroll = 1.34,
+			linger = 1.3, -- through the follow-through, the hand-in-pocket stand, idle (+1.05) and the motes' fade
+			look = "calm stop; a blue orb on the right hand pulls motes in, a red orb on the left pushes them out; arms spread and held, shivering, then dead still; the hands slam together into a violet sphere, cocked and flicked at the target far faster than the build; a hollow violet shell and one ring erase the area on the real hit; hand in pocket",
 			wanted = {
-				"low hum rising (blue orb, inward suck)",
-				"distorted push-out pulse (red orb)",
-				"reverse cymbal into silence (merge)",
-				"sub-bass drop + air crack (flick)",
-				"huge muffled erasure boom, then ringing",
+				"energyCharge low (blue orb)",
+				"energyCharge high (red orb)",
+				"windGust short and high (the merge)",
+				"energyRelease (the flick)",
+				"impactHeavy, then a low windGust (the erasure)",
 			},
 		},
 		severing_temple = {

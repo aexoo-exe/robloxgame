@@ -41,6 +41,7 @@ When the real window is short (`run.k < 1`), lay the anticipation out again with
 ## Rules
 
 - **Poses ~2x realistic.** Every body pose names every body channel, so a held pose holds still.
+- **Arms: `Out` turns the raised arm, it doesn't add to it.** `<side>ArmOut` rotates about the body's forward axis after `<side>Arm` raises the arm, so an arm raised 90 forward with 85 out still points forward (it only rolls). Arms spread wide: a big `Out` on a small forward raise (about 15 / 85). Reaching forward: a big forward raise, `Out` near 0. Seen in Studio on infinite_collapse's spread.
 - **Weapon arcs are trails, never static camera-facing sprites.** The one exception: a finisher swoosh that wipes in in ≤0.08 s and fades in ≤0.28 s.
 - **No long-lived world-space flames near a moving caster.** Particles stay where emitted. Re-emit short flames (0.07–0.14 s) at the tip instead.
 - **Hit-stop** freezes bodies and impact sparks only, for ≤0.07 s. Never trails, swooshes, blooms or the caster's own effects.
