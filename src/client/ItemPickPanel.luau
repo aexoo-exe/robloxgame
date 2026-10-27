@@ -1,7 +1,9 @@
 -- The item choice screen: opens by itself the moment an item choice is offered (PlayerState view
 -- `itemOffer`) and shows each offered item's icon, name and effect text with a Pick button. "Later"
 -- folds it into a small "Pick an item" button so the board stays usable; still unpicked, it opens
--- again by itself when the next Preparation starts. The server takes the first item if none was
+-- again by itself when the next Preparation starts. Outside Preparation it never covers the board:
+-- an offer arriving in the results starts folded and opens at Preparation; when the fight starts an
+-- unpicked choice is gone (the server took its first item). The server takes the first item if none was
 -- picked when Preparation ends. A picked item lands in the inventory strip, which highlights it.
 -- The client only asks (RequestPickItem). Presentation only.
 
@@ -124,7 +126,13 @@ function ItemPickPanel.start()
 		render()
 	end)
 
-	-- A new choice opens by itself the moment it is offered (also when it replaces an older one).
+	local matchState = ReplicatedStorage:WaitForChild("MatchState")
+	local function inPreparation(): boolean
+		return matchState:GetAttribute("Phase") == Phase.Preparation
+	end
+
+	-- A new choice opens by itself the moment it is offered (also when it replaces an older one), in
+	-- Preparation; offered during a fight or the results, it waits folded for the next Preparation.
 	remotes:WaitForChild(RemoteNames.PlayerStateUpdated).OnClientEvent:Connect(function(view)
 		offer = view.itemOffer
 		pending = false
@@ -132,21 +140,32 @@ function ItemPickPanel.start()
 		local isNew = offer ~= nil and key ~= offerKey
 		offerKey = key
 		if isNew then
-			folded = false
+			folded = not inPreparation()
 		end
 		render()
-		if isNew then
+		if isNew and not folded then
 			UI.pop(panel, 1.06)
 		end
 	end)
 
-	-- Still unpicked when the next Preparation starts: it opens again.
-	local matchState = ReplicatedStorage:WaitForChild("MatchState")
+	-- Still unpicked when the next Preparation starts: it opens again. When the fight starts the
+	-- server has already taken the first item of an unpicked choice (PlayerState.startCombat) without
+	-- sending a new state, so the choice is gone: nothing is left over the fight.
 	matchState:GetAttributeChangedSignal("Phase"):Connect(function()
-		if matchState:GetAttribute("Phase") == Phase.Preparation and offer and folded then
+		if not offer then
+			return
+		end
+		if matchState:GetAttribute("Phase") == Phase.Combat then
+			offer = nil
+			offerKey = ""
+			render()
+		elseif inPreparation() and folded then
 			folded = false
 			render()
 			UI.pop(panel, 1.06)
+		elseif not inPreparation() and not folded then
+			folded = true
+			render()
 		end
 	end)
 end
