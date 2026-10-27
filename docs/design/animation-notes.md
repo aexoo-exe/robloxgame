@@ -52,12 +52,14 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
 
 ## Tooling (to judge animation at all)
 
-- [ ] **Frame-accurate captures through the MCP.** At 1x the screenshot round trip (~2-4 s) misses
-      every beat, and two captures timed out mid-effects. Freezing with O works for the effects, but
-      the slice camera's real-time "leave" timer fires while frozen and the view goes black. Fix in
-      DevLineup: a QA call `sliceAt(designTime)` that plays the slice to that design time and holds
-      it (the stage clock, the effects and the slice camera's timers all paused), so each beat can be
-      captured on purpose.
+- [x] **Hold the slice at one beat.** DevLineup QA `hold(beat, offset?, mode?)` replays the slice
+      slowed and stops it the moment the ultimate reaches a plan beat or design time; the slice
+      camera's leave timer now counts stage seconds and waits out freezes (`feature/devlineup-hold`,
+      859ee5c). Held exactly on the beat in Studio (asked "red +0.2", held at -0.831 s).
+- [ ] **Screenshots after a freeze come back black.** After the first freeze (O or a hold) every
+      Studio MCP screen capture is a flat dark frame with Roblox's top bar, even after resuming.
+      Not a NaN part, the camera, lighting or a GUI (all checked in the client). Unknown yet whether
+      the game view itself is dark or only the capture; the user to look at the window once.
 - [ ] **Pose-only replay.** A key that plays the ultimate's poses with effects off (V hides kit
       textures only), to judge the body without the VFX covering it.
 
