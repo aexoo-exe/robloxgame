@@ -12,22 +12,45 @@ exactly that and moves on to the next item it can do alone.
 
 **Now**
 
-1. **Playtest readiness** (Claude): confirm CI is green on `main`, update [playtest.md](playtest.md)
-   to sync from `main` (it still names `feature/playtest-1`, already merged), a short Studio MCP smoke
-   run (Practice match starts, a fight and an ultimate play, no `[ErrorLog]` lines), then give the
-   user click-by-click publish and friend-access steps.
-2. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
+1. **Playtest readiness:** done. CI green on `main`, [playtest.md](playtest.md) syncs from `main`,
+   and the smoke run passed (2026-10-27, `main` 2e29f83): a Practice match ran rounds 0-4 (creeps
+   won, gold and XP paid, board, bench, shop, traits, HUD all showing), no gameplay errors; the only
+   `[ErrorLog]` line is "profile not loaded" (Studio without API access). Found:
+   - the **item pick panel opens over the middle of the board during the fight** (it hides the
+     fight): fix before friends play (Now 2);
+   - the intro "seen" flag can't save in Studio without API access, so the intro returns every
+     Studio session (fine on a live server; enable API access per playtest.md for Studio tests);
+   - (user) the shop's display nicknames ("Jonny", "Dengi", "Kenny", ...) are close to real
+     character names: the user decides whether they stay for a public playtest.
+2. **Item pick panel off the fight:** done on `feature/item-pick-off-fight` (verified in Studio: open
+   in Preparation, gone when the fight starts). The panel over the fight was a stale choice the server
+   had already resolved (`PlayerState.startCombat`).
+3. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
    Afterwards Claude reads the feedback and errors (`scripts/playtest-report`, needs the user's
    Open Cloud key in their own terminal) and turns them into queue items.
-3. **mount_spurshot v2.2 import** (user, then Claude): the user imports the v2.2 FBX
-   (`feature/models-pilot`, commit `dfb5a43`) into Studio; Claude re-runs the MCP model check (scale
+4. **mount_spurshot v2.2 import** (user, then Claude): the user imports the v2.2 FBX
+   (`feature/models-pilot`, commit `dfb5a43`; a copy at `tools/mount_spurshot_v2_2.fbx`, gitignored,
+   so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
+   copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
-4. **Overhaul wave 1: infinite_collapse** (Claude): `/slice-unit` with its concept from
-   [overhaul-plan.md](design/overhaul-plan.md).
+5. **Merge** (user OK): `feature/playtest-ready` (director, notes, playtest guide),
+   `feature/item-pick-off-fight`, `feature/devlineup-hold` (the beat-hold capture tool) and
+   `feature/slice-infinite_collapse` (built, reviewed, Studio-checked with one fix round; it contains
+   the hold tool). All four green on CI.
+6. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
+   [overhaul-plan.md](design/overhaul-plan.md); check it with `hold` (playbook, Dev keys).
+7. **Hold camera + arm sweep** (Claude): a side / front camera option for `hold`, then sweep
+   cinder_arc and flashline for the forward + out arm bug ([animation-notes.md](design/animation-notes.md)).
+
+Before any Studio capture: make sure Studio isn't minimized (a minimized window captures black);
+restore it without focus (the user approved this).
 
 **Next**
 
-- Wave 1 rest: severing_temple, starless_burst (reuse what infinite_collapse builds).
+- **Animation quality** (the user's top concern; Claude owns it): the plan in
+  [animation-notes.md](design/animation-notes.md): per-channel overlap in PoseAnimator, then elbow
+  and knee channels, then re-pose the three reference ultimates.
+- Wave 1 rest: starless_burst.
 - Studio-check cinder_arc and flashline (their "Studio-checked" boxes are open in the queue).
 - Library sound ids (user picks): 16 of 20 library sounds have no id
   ([sound-picks.md](design/sound-picks.md)); Claude lists candidates, the user auditions and picks.
@@ -104,6 +127,13 @@ Judge your own screenshots against this before calling anything done.
   camera (G key).
 - Colors saturated, not washed out to cream or white.
 - Within the tier budget (`ReelConfig.budget`), aiming for half at peak.
+
+**Animation** (running list: [animation-notes.md](design/animation-notes.md); add to it whenever
+you watch a replay)
+
+- Overlap: head and arms trail the torso; nothing arrives all at once.
+- Weight: feet plant, landings compress, dashes step rather than glide.
+- Silhouette first: each key pose reads with the effects hidden.
 
 **Creature models**
 

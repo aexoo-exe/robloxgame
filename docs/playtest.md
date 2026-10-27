@@ -4,7 +4,8 @@ A small playtest: you plus 1–2 friends in a real multiplayer match, with bots 
 
 ## 1. Before you start
 
-- Sync the latest `feature/playtest-1` into Studio (`scripts/start.ps1`, then connect the Rojo plugin).
+- Sync the latest `main` into Studio (`git switch main`, `git pull`, `scripts/start.ps1`, then
+  connect the Rojo plugin). The playtest work is merged; other feature branches aren't part of it.
 - For DataStores (the how-to-play "seen" flag, feedback, error log) to work in Studio:
   Home → Game Settings → Security → **Enable Studio Access to API Services**. The place must be
   published once. Without it everything still runs; entries are only printed to the Output.
