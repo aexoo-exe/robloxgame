@@ -14,10 +14,10 @@
 --   -0.06  the flick's 0.06 s snap: the sphere crosses to the area in a blink (far faster than the
 --          build: the signature), a violet trail off the flicking hand
 --    0     THE ERASURE, on the real hit: a hollow violet shell swelling behind the main target (about
---          half the area radius across) and gone by +0.42, one mesh ring over the area, a white-violet core and a hit star on the main target, sparks, a
---          light; hit-stop on the bodies; a heavy boom, a strong shake, the punch-in and a camera
---          push; every enemy knocked back (the main one 2.5 studs, launched 0.8); a short blue
---          shimmer of his shield
+--          half the area radius across) and gone by +0.42, one mesh ring over the area, a violet
+--          core and a hit star on the main target, sparks, a light; hit-stop on the bodies; a heavy
+--          boom, a strong shake, the punch-in and a camera push; every enemy knocked back (the main
+--          one 2.5 studs, launched 0.8); his shield is the game's own bubble, nothing added
 --   +0.12  the air rushes back in (a gust); violet motes drift up off the area to +1.0
 --   +0.06  the follow-through, held to +0.35
 --   +0.62  recovered into a relaxed stand, one hand in his pocket, held; idle by +1.05
@@ -31,7 +31,7 @@
 -- ~8 at the erasure, estimated): two orbs (core + halo each), up to 14 motes in flight (8 blue drawn
 -- in, 6 red pushed out; half when reduced), the violet sphere (core + halo) and 2 crackle bolts
 -- (1 when reduced), the flying sphere, a hand trail (BladeTrail), at the erasure one shell, one mesh
--- ring, a core flash, a hit star, sparks, a light (not when reduced), the shield shimmer, then
+-- ring, a core flash, a hit star, sparks, a light (not when reduced), then
 -- drifting motes (not when reduced); the callout's ring. Camera: a dim through the build and a push
 -- at the erasure (tier 5 allows both). Poses: PoseAnimator; hit feel: HitFeel; callout:
 -- UltimateCallout; sounds: Sfx.
@@ -152,7 +152,6 @@ local BLUE = rgb(70, 140, 255)
 local RED = rgb(255, 55, 70)
 local VIOLET = rgb(170, 70, 255)
 local VIOLET_LIGHT = rgb(215, 170, 255)
-local SHIELD = rgb(130, 195, 255)
 local WHITE = Kit.WHITE
 local CALLOUT = VIOLET
 local TRAIL = ColorSequence.new({
@@ -202,12 +201,14 @@ local function with(base: { [string]: number }, changes: { [string]: number }): 
 	return out
 end
 
--- The blue build: the right arm out wide and forward, palm open, weight settling back.
+-- The blue build: the right arm out wide and a little forward, palm open, weight settling back.
+-- (`out` turns the arm about the body's forward axis after `rightArm` raises it, so a wide spread
+-- is a big `out` on a small forward raise: 90 forward plus 85 out only rolls a forward arm.)
 local BLUE_OUT = pose({
 	lean = -6,
 	twist = 14,
-	rightArm = 88,
-	rightArmOut = 55,
+	rightArm = 25,
+	rightArmOut = 75,
 	leftArm = -10,
 	leftArmOut = 12,
 	leftLeg = 12,
@@ -219,16 +220,16 @@ local BLUE_OUT = pose({
 local SPREAD = pose({
 	crouch = 0.18,
 	lean = -8,
-	rightArm = 90,
-	rightArmOut = 75,
-	leftArm = 90,
-	leftArmOut = 75,
+	rightArm = 15,
+	rightArmOut = 85,
+	leftArm = 15,
+	leftArmOut = 85,
 	leftLeg = 25,
 	rightLeg = -22,
 	headPitch = -6,
 })
 -- The set: spread wider and lower still, held (shivering, then dead still).
-local SET = with(SPREAD, { crouch = 0.28, lean = -10, rightArmOut = 85, leftArmOut = 85, headPitch = -10 })
+local SET = with(SPREAD, { crouch = 0.28, lean = -10, rightArmOut = 95, leftArmOut = 95, headPitch = -10 })
 -- The merge: the hands slammed together in front of the chest.
 local MERGE = pose({
 	crouch = 0.3,
@@ -383,7 +384,7 @@ local function build(run, plan: Plan, side: string, color: Color3, from: number,
 	end
 	local view = VfxRecipe.viewScale(at())
 	Kit.orb(run, from, plan.merge, color, at, function(u)
-		return (0.25 + 0.5 * Kit.easeOut(u * 2.5)) * s * view
+		return (0.4 + 0.7 * Kit.easeOut(u * 2.5)) * s * view
 	end)
 	if outward then
 		Kit.converge(run, from + 0.02, plan.still, at, color:Lerp(WHITE, 0.3), 2.4 * s, count, true)
@@ -456,7 +457,7 @@ def.beats = {
 				local start = run:hand("right")
 				local to = goal(run)
 				local view = VfxRecipe.viewScale(to)
-				Kit.live(run, plan.flick, plan.finisher, "Ball", VIOLET_LIGHT, function(part, u)
+				Kit.live(run, plan.flick, plan.finisher, "Ball", VIOLET, function(part, u)
 					part.Size = Vector3.one * 0.9 * s * view
 					part.CFrame = CFrame.new(start:Lerp(to, Kit.easeIn(u)))
 					part.Transparency = 0
@@ -513,10 +514,10 @@ finisher = function(run)
 	Kit.shell(run, 0, SHELL_SECONDS, VIOLET, bloomAt, function(u)
 		return radius * (0.6 + 0.4 * Kit.easeOut(u)) * bloomView
 	end, function(u)
-		return 0.5 + 0.5 * Kit.easeIn(u)
+		return 0.3 + 0.7 * Kit.easeIn(u)
 	end)
 	VfxRecipe.meshRing(center, radius * 0.7, VIOLET, 0.4, 0.3)
-	ImpactEffects.ball(hit, VIOLET_LIGHT, UNIT_HEIGHT * 0.9 * s * view, 0.15)
+	ImpactEffects.ball(hit, VIOLET, UNIT_HEIGHT * 0.9 * s * view, 0.15)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.8 * view, VIOLET, view)
 	VfxRecipe.sparks(hit, 0.7 * view, 12, SPARKS, nil, view)
 	if not run.reduced then
@@ -557,13 +558,8 @@ function def.event(run, event): boolean
 	elseif kind == "Damage" and event.target and not event.dot then
 		return true -- the erasure draws every hit
 	elseif kind == "Shield" and event.target == run.unitIndex then
-		-- A short blue shimmer around him; the shield bubble still shows (CombatPlayback).
-		local at = run.view.part.Position
-		Kit.shell(run, 0, 0.4, SHIELD, at, function(u)
-			return run.view.part.Size.Y * (1.2 + 0.2 * u)
-		end, function(u)
-			return 0.7 + 0.3 * u
-		end)
+		-- The shield bubble (CombatPlayback) is his shield: nothing on top of it (an extra shimmer
+		-- stacked on the bubble hid him at the erasure).
 		return false
 	end
 	return false
