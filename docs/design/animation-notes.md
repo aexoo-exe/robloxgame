@@ -45,10 +45,23 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
 
 ## Seen (per unit)
 
-- **infinite_collapse** (2026-10-27): no mid-ultimate frames captured yet (see Tooling). What the
-  module asks for that the rig can't show: a cocked wrist on the load and a snapping wrist on the
-  flick (no wrist channel); hands slamming together at the merge read only as two arms crossing in
-  front (no elbows).
+- **infinite_collapse** (2026-10-27, 5 held beats from the default slice camera, behind him):
+  - The "arms spread far apart" set read as both hands together in front: 90 forward + 85 out only
+    rolls a forward arm (`Figure.luau` turns `Out` about the front axis outside the forward raise).
+    Fixed to 15 / 85; now a playbook rule. Every older ultimate with big forward + big out on the
+    same arm likely has the same bug: worth a sweep (grep the modules for both > 60).
+  - Orbs too small to read at the slice camera (0.25-0.75 studs); raised to 0.4-1.1.
+  - The flying sphere and the hit core read as plain white, not violet: neon light colors wash out.
+    Use the saturated color for neon cores, the light tint only for halos.
+  - The game's own shield bubble plus an added shimmer hid him at the erasure and through the
+    recovery; the shimmer is gone, but the bubble (CombatPlayback) still covers him for its whole
+    duration: a system-level look item (thinner, more transparent, or a rim only).
+  - At the erasure every target flashes plain white (the generic hit flash and stun): the cast's
+    color loses to it. System idea: tint the hit flash with the attacker's color.
+  - The flick reads (arm whipped out at the targets). The hand-in-pocket recovery doesn't: no
+    elbow, so it's just an arm hanging down.
+  - Not seen: the wrist cock on the load and the wrist snap on the flick (no wrist channel); the
+    hands slamming together at the merge (no elbows).
 
 ## Tooling (to judge animation at all)
 
@@ -56,17 +69,19 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
       slowed and stops it the moment the ultimate reaches a plan beat or design time; the slice
       camera's leave timer now counts stage seconds and waits out freezes (`feature/devlineup-hold`,
       859ee5c). Held exactly on the beat in Studio (asked "red +0.2", held at -0.831 s).
-- [ ] **Screenshots after a freeze come back black.** After the first freeze (O or a hold) every
-      Studio MCP screen capture is a flat dark frame with Roblox's top bar, even after resuming.
-      Not a NaN part, the camera, lighting or a GUI (all checked in the client). Unknown yet whether
-      the game view itself is dark or only the capture; the user to look at the window once.
+- [x] **Black screenshots.** Not the freeze: Studio was minimized, and a minimized window draws
+      nothing. Before a capture session, check the window (`IsIconic`) and restore it without focus
+      (`ShowWindow(handle, 4)`, SW_SHOWNOACTIVATE); the user approved doing this (2026-10-27).
+- [ ] **A side / front camera for holds.** The slice camera's default framing is behind the
+      caster's shoulder: poses are judged from the back, faces and chests never show. A `camera`
+      option on `hold` (side, front, 3/4 front) would make every pose judgeable.
 - [ ] **Pose-only replay.** A key that plays the ultimate's poses with effects off (V hides kit
       textures only), to judge the body without the VFX covering it.
 
 ## Plan
 
-1. DevLineup `sliceAt(designTime)` (Tooling, first item): without it Claude can't judge animation
-   in Studio.
+1. A side / front camera option for `hold` (Tooling), then sweep the finished ultimates for the
+   forward + out arm bug.
 2. PoseAnimator per-channel lag (overlap) with a default per channel: the cheapest broad win, every
    ultimate gets it.
 3. Elbow and knee channels in UnitMotion / Figure (check which avatar parts can bend: catalog

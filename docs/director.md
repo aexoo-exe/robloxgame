@@ -14,9 +14,8 @@ exactly that and moves on to the next item it can do alone.
 
 1. **Playtest readiness:** CI green on `main` and [playtest.md](playtest.md) synced from `main`
    (done, `feature/playtest-ready`). Left: the Studio MCP smoke run (Practice match starts, a fight
-   and an ultimate play, no `[ErrorLog]` lines). Blocked on (user): Studio isn't synced; the user
-   runs `scripts/start.ps1` and clicks **Connect** in the Rojo plugin (the user runs Rojo, not
-   Claude).
+   and an ultimate play, no `[ErrorLog]` lines). Unblocked: the user runs Rojo (`scripts/start.ps1`,
+   Connect) and it serves whatever branch is checked out, so switch to `main` for the smoke run.
 2. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
    Afterwards Claude reads the feedback and errors (`scripts/playtest-report`, needs the user's
    Open Cloud key in their own terminal) and turns them into queue items.
@@ -25,15 +24,16 @@ exactly that and moves on to the next item it can do alone.
    so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
    copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
-4. **Animation capture tooling** (Claude): DevLineup `sliceAt(designTime)`, which holds the slice
-   at a beat (stage clock, effects and slice camera timers paused) so the MCP can screenshot each
-   beat. Without it no ultimate can be judged frame by frame ([animation-notes.md](design/animation-notes.md),
-   Tooling).
-5. **infinite_collapse Studio check** (Claude, after 4): built and reviewed on
-   `feature/slice-infinite_collapse`; it plays with no errors in Studio, but no mid-beat frames were
-   captured (5 of 8 screenshots spent). Then merging it (user).
-6. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
-   [overhaul-plan.md](design/overhaul-plan.md).
+4. **Merge** (user OK): `feature/devlineup-hold` (the beat-hold capture tool) and
+   `feature/slice-infinite_collapse` (built, reviewed, Studio-checked with one fix round; it contains
+   the hold tool).
+5. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
+   [overhaul-plan.md](design/overhaul-plan.md); check it with `hold` (playbook, Dev keys).
+6. **Hold camera + arm sweep** (Claude): a side / front camera option for `hold`, then sweep
+   cinder_arc and flashline for the forward + out arm bug ([animation-notes.md](design/animation-notes.md)).
+
+Before any Studio capture: make sure Studio isn't minimized (a minimized window captures black);
+restore it without focus (the user approved this).
 
 **Next**
 
