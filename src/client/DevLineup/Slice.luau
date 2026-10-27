@@ -293,16 +293,29 @@ end
 
 local HOLD_SCALE = 0.25 -- the replay plays slowed on its way, so it stops within a few ms of the beat
 local HOLD_TIMEOUT = 20 -- real seconds
+-- Fixed slice-camera views for holds (the slice orbit's yaw / pitch / distance / height; yaw 0 is
+-- square from the side, the default framing is behind his shoulder), so poses can be judged from the
+-- front and side.
+local HOLD_VIEWS: { [string]: Config.SliceView } = {
+	side = { yaw = 0, pitch = 10, distance = 12, height = 0 },
+	front34 = { yaw = -48.6, pitch = 16, distance = 12, height = 0.5 },
+	back34 = { yaw = 131.4, pitch = 20.4, distance = 12, height = 0 }, -- SLICE_DEFAULT
+}
 
--- Replays the slice (as K; G with `mode` "gameplay") and holds it at `beat`: a design time (seconds
--- from the real hit, negative before it) or the name of one of the module's plan times
--- (run.memo.plan: "windup", "set", "load", "finisher", ...), plus `offset` design seconds. The stage
--- clock, poses, effects and the slice camera all stop there (O, or the QA handle's `resume`, goes
--- on), so a screenshot catches exactly that beat. Yields until held (Studio MCP: one call, then
--- capture); returns what it held at, or why it could not.
+-- Replays the slice and holds it at `beat`: a design time (seconds from the real hit, negative
+-- before it) or the name of one of the module's plan times (run.memo.plan: "windup", "set", "load",
+-- "finisher", ...), plus `offset` design seconds. `mode`: "slice" (K's camera, as last aimed),
+-- "gameplay" (G: the match camera) or a fixed view, "side", "front34" or "back34". The stage clock,
+-- poses, effects and the slice camera all stop there (O, or the QA handle's `resume`, goes on), so
+-- a screenshot catches exactly that beat. Yields until held (Studio MCP: one call, then capture);
+-- returns what it held at, or why it could not.
 function Slice.hold(beat: number | string, offset: number?, mode: string?): string
 	local before = sliceRun()
-	Slice.replay(mode or "slice")
+	local view = mode and HOLD_VIEWS[mode]
+	Slice.replay(if mode == "gameplay" then "gameplay" else "slice")
+	if view then
+		State.sliceView = table.clone(view)
+	end
 	State.timeScale = HOLD_SCALE
 	ImpactEffects.setTimeScale(HOLD_SCALE)
 	local started = os.clock()
