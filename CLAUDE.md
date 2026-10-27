@@ -11,8 +11,15 @@ robloxgame is an anime-inspired Roblox auto-battler (in the style of Teamfight T
 - **Dev tools:** `DevLineup` (close-ups, test arenas, reel), `ReelCheck` (peak vs tier budget, leaks, unloaded textures).
 - **Ultimate template:** `cinder_arc` is finished and is the template for every ultimate. Rebuild others with the `/slice-unit` skill.
 
+### Director
+
+Claude is the project director: [docs/director.md](docs/director.md) holds the goal, current state,
+the **Now / Next / Later** list, the workflow, the quality bar and when to ask the user. **`/next`**
+is the default way to continue work: it does the top "Now" item end to end and updates the list.
+
 ### Key docs
 
+- [docs/director.md](docs/director.md): priorities, workflow, quality bar.
 - [docs/design/ultimate-playbook.md](docs/design/ultimate-playbook.md): how every ultimate is built (modules, beats, caps, budgets, dev keys).
 - [docs/design/vfx-style.md](docs/design/vfx-style.md): the texture look and the asset pipeline.
 
@@ -35,7 +42,7 @@ robloxgame is an anime-inspired Roblox auto-battler (in the style of Teamfight T
 
 ## Standing Rules (every task)
 
-1. **Do not run tests, the audit, the sim, Studio MCP or Blender MCP** unless the user explicitly asks in that task. They cost usage. CI (`.github/workflows/ci.yml`) runs StyLua, Selene, the Rojo build, the Lune tests and a short sim smoke run on every push; Claude does not run them locally unless asked, and reads the CI result instead.
+1. **Do not run tests, the audit, the sim or Blender MCP** unless the user explicitly asks in that task. They cost usage. **Studio MCP** only for the visual check in the director workflow (`/next`, `/slice-unit`: at most 8 screenshots per task) or when the user asks. CI (`.github/workflows/ci.yml`) runs StyLua, Selene, the Rojo build, the Lune tests and a short sim smoke run on every push; Claude does not run them locally unless asked, and reads the CI result instead.
 2. **Unit ids only.** Never put real character or anime names in code, comments, file names, assets or commit messages. Real names belong only in gitignored `docs/references/`.
 3. **Presentation never changes gameplay.** Client effects, poses and ultimates must never change server results, event timing or real unit positions.
 4. **Stay within the tier VFX budgets** (`ReelConfig.budget`, the same as the audit's PEAK_LIMIT). Aim for half the tier budget at peak.
