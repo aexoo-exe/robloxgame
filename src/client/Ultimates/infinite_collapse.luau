@@ -426,7 +426,8 @@ def.beats = {
 						local angle = phase + u * 7
 						local r = 0.45 * (1 - k) * s
 						part.Size = Vector3.one * 0.7 * (1 - 0.5 * k) * s * view
-						part.CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * r, math.sin(angle) * r * 0.6, 0))
+						part.CFrame =
+							CFrame.new(center + Vector3.new(math.cos(angle) * r, math.sin(angle) * r * 0.6, 0))
 						part.Transparency = 0.05
 					end)
 				end
@@ -519,7 +520,13 @@ finisher = function(run)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.8 * view, VIOLET, view)
 	VfxRecipe.sparks(hit, 0.7 * view, 12, SPARKS, nil, view)
 	if not run.reduced then
-		ImpactEffects.light(hit, VIOLET, FINISH_LIGHT.brightness, FINISH_LIGHT.range * UNIT_HEIGHT, FINISH_LIGHT.seconds)
+		ImpactEffects.light(
+			hit,
+			VIOLET,
+			FINISH_LIGHT.brightness,
+			FINISH_LIGHT.range * UNIT_HEIGHT,
+			FINISH_LIGHT.seconds
+		)
 	end
 	HitFeel.hitStop(held, 0.07, { caster = run.view })
 	for _, target in targets do
