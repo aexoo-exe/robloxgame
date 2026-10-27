@@ -12,24 +12,32 @@ exactly that and moves on to the next item it can do alone.
 
 **Now**
 
-1. **Playtest readiness:** CI green on `main` and [playtest.md](playtest.md) synced from `main`
-   (done, `feature/playtest-ready`). Left: the Studio MCP smoke run (Practice match starts, a fight
-   and an ultimate play, no `[ErrorLog]` lines). Unblocked: the user runs Rojo (`scripts/start.ps1`,
-   Connect) and it serves whatever branch is checked out, so switch to `main` for the smoke run.
-2. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
+1. **Playtest readiness:** done. CI green on `main`, [playtest.md](playtest.md) syncs from `main`,
+   and the smoke run passed (2026-10-27, `main` 2e29f83): a Practice match ran rounds 0-4 (creeps
+   won, gold and XP paid, board, bench, shop, traits, HUD all showing), no gameplay errors; the only
+   `[ErrorLog]` line is "profile not loaded" (Studio without API access). Found:
+   - the **item pick panel opens over the middle of the board during the fight** (it hides the
+     fight): fix before friends play (Now 2);
+   - the intro "seen" flag can't save in Studio without API access, so the intro returns every
+     Studio session (fine on a live server; enable API access per playtest.md for Studio tests);
+   - (user) the shop's display nicknames ("Jonny", "Dengi", "Kenny", ...) are close to real
+     character names: the user decides whether they stay for a public playtest.
+2. **Item pick panel off the fight** (Claude): show it only in Preparation (or docked to the side
+   during Combat) so the fight stays visible.
+3. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
    Afterwards Claude reads the feedback and errors (`scripts/playtest-report`, needs the user's
    Open Cloud key in their own terminal) and turns them into queue items.
-3. **mount_spurshot v2.2 import** (user, then Claude): the user imports the v2.2 FBX
+4. **mount_spurshot v2.2 import** (user, then Claude): the user imports the v2.2 FBX
    (`feature/models-pilot`, commit `dfb5a43`; a copy at `tools/mount_spurshot_v2_2.fbx`, gitignored,
    so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
    copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
-4. **Merge** (user OK): `feature/devlineup-hold` (the beat-hold capture tool) and
+5. **Merge** (user OK): `feature/devlineup-hold` (the beat-hold capture tool) and
    `feature/slice-infinite_collapse` (built, reviewed, Studio-checked with one fix round; it contains
    the hold tool).
-5. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
+6. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
    [overhaul-plan.md](design/overhaul-plan.md); check it with `hold` (playbook, Dev keys).
-6. **Hold camera + arm sweep** (Claude): a side / front camera option for `hold`, then sweep
+7. **Hold camera + arm sweep** (Claude): a side / front camera option for `hold`, then sweep
    cinder_arc and flashline for the forward + out arm bug ([animation-notes.md](design/animation-notes.md)).
 
 Before any Studio capture: make sure Studio isn't minimized (a minimized window captures black);
