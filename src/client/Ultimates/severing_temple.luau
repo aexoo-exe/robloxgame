@@ -28,12 +28,13 @@
 -- the coil, and only past that does everything but the load and the snap shrink evenly. The load,
 -- the snap and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the cuts, the
--- hand trail, the ring, the hit star, the sparks and the core grow with it.
--- Layers (tier 5, within its 44; peak ~22 at the hit, estimated): the pool (1), the shrine (6 wood
--- blocks, 4 red neon strips with their glow layers, 3 teeth when not reduced: ~17 while it stands),
--- the bell ring, at the hit ~8 cuts alive at once (24 over 0.45 s; 12 when reduced), one mesh ring,
--- a core, a hit star, sparks, a light (not when reduced), a hand trail (BladeTrail); the callout's
--- ring. Camera: a dim through the build and a short push at the hit (tier 5 allows both). Poses:
+-- hand trail, the mesh ring, the bell ring, the shrine's dust, the hit star, the sparks and the core
+-- grow with it.
+-- Layers (tier 5, within its 44; peak ~27 at the hit, estimated): the pool (1), the shrine (6 wood
+-- blocks, 3 red strips, a red neon panel with its glow layer, 3 teeth when not reduced: ~14 while it
+-- stands), the bell ring, at the hit ~6 cuts alive at once (18 over 0.45 s; 10 when reduced), one
+-- mesh ring, a core, a hit star, sparks, a light (not when reduced), a hand trail (BladeTrail); the
+-- callout's ring. Camera: a dim through the build and a short push at the hit (tier 5 allows both). Poses:
 -- PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -161,9 +162,10 @@ local TRAIL = ColorSequence.new({
 })
 local TRAIL_LIFE = 0.22
 local SPARKS = ColorSequence.new(IVORY, CRIMSON)
-local CUT_COLORS = { CRIMSON, IVORY, CRIMSON, rgb(255, 90, 100) }
-local STORM = { full = 24, reduced = 12, life = 0.14, wipe = 0.35 } -- wipe: share of the life spent drawing in
+local CUT_COLORS = { CRIMSON, rgb(255, 70, 85), CRIMSON, IVORY } -- mostly crimson: white-heavy cuts read pink at a distance
+local STORM = { full = 18, reduced = 10, life = 0.14, wipe = 0.35 } -- wipe: share of the life spent drawing in
 local TICK_CUTS = 3
+local TICK_SPREAD = 0.3 -- seconds a tick's cuts are spread over (never all alive at once)
 local SHRINK_DEPTH = 9 -- studs the shrine starts (and ends) under the ground
 -- The hit's light: a short, tight crimson flash at the main target's chest.
 local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
@@ -205,8 +207,8 @@ end
 
 -- The coil: both hands up at the chest in a sign, head bowed, weight sinking.
 local SIGN = pose({
-	crouch = 0.2,
-	lean = 8,
+	crouch = 0.38,
+	lean = 16,
 	twist = -8,
 	rightArm = 80,
 	rightArmOut = -10,
@@ -235,9 +237,9 @@ local RAISE = pose({
 local LOAD = with(RAISE, { rightArm = 178, crouch = 0.34, lean = -12, headPitch = -18 })
 -- The sweep: the right arm cut down and out to the side, the body turning into it.
 local SWEEP = pose({
-	crouch = 0.42,
-	lean = 16,
-	twist = -32,
+	crouch = 0.55,
+	lean = 20,
+	twist = -55,
 	tilt = 6,
 	rightArm = 35,
 	rightArmOut = 75,
@@ -248,7 +250,7 @@ local SWEEP = pose({
 	headYaw = -12,
 	headPitch = 8,
 })
-local FOLLOW = with(SWEEP, { rightArmOut = 88, twist = -40, lean = 12 })
+local FOLLOW = with(SWEEP, { rightArmOut = 88, twist = -62, lean = 16 })
 -- The recovery: arms crossed low in front of him, upright, unmoved.
 local FOLD = pose({
 	lean = -3,
@@ -370,17 +372,17 @@ local function shrinePart(
 	end, material)
 end
 
--- The shrine: two pillars with red neon strips, a beam with a strip under it, a pitched roof and a
+-- The shrine: two pillars with red strips, a beam with a red strip under it, a pitched roof and a
 -- ridge, a few ivory teeth along the beam (not when reduced), a faint red glow between the pillars.
 local function buildShrine(run, plan: Plan)
 	local frame = shrineFrame(run)
 	local v, c = Vector3.new, CFrame.new
 	for _, x in { -3.2, 3.2 } do
 		shrinePart(run, plan, frame, WOOD, c(x, 3.4, 0), v(0.7, 6.8, 0.7), 0.05)
-		shrinePart(run, plan, frame, CRIMSON, c(x * 0.97, 3.4, -0.36), v(0.12, 6.2, 0.05), 0.15, Enum.Material.Neon)
+		shrinePart(run, plan, frame, CRIMSON, c(x * 0.97, 3.4, -0.36), v(0.12, 6.2, 0.05), 0.15)
 	end
 	shrinePart(run, plan, frame, WOOD, c(0, 6.9, 0), v(8.6, 0.55, 1.4), 0.05)
-	shrinePart(run, plan, frame, CRIMSON, c(0, 6.6, -0.72), v(8.2, 0.1, 0.05), 0.1, Enum.Material.Neon)
+	shrinePart(run, plan, frame, CRIMSON, c(0, 6.6, -0.72), v(8.2, 0.1, 0.05), 0.1)
 	for _, side in { -1, 1 } do
 		shrinePart(
 			run,
@@ -454,11 +456,11 @@ def.beats = {
 			-- The ground under the area darkens into a shallow pool, then fades after the storm.
 			Kit.pool(run, plan.windup, plan.poolGone, POOL, center, function()
 				local t = run:designTime()
-				return radius * 2 * Kit.easeOut((t - plan.windup) / math.max(plan.set - plan.windup + 0.2, 1e-3))
+				return radius * 1.8 * Kit.easeOut((t - plan.windup) / math.max(plan.set - plan.windup + 0.2, 1e-3))
 			end, function()
 				local t = run:designTime()
 				return 0.35 + 0.65 * Kit.smooth((t - plan.sink) / (plan.poolGone - plan.sink))
-			end, Enum.Material.Glass)
+			end, Enum.Material.SmoothPlastic) -- not Glass: it reflected the sky as a blue lake
 			Sfx.play("energyCharge", { pitch = 0.7, volume = 0.6 })
 			-- The shrine climbs out of the ground through the set.
 			run:at(plan.set, function()
@@ -466,7 +468,7 @@ def.beats = {
 				ImpactEffects.burst("puff", center + Vector3.new(0, 0.3, 0), nil, {
 					color = POOL:Lerp(IVORY, 0.25),
 					count = 8,
-					size = 1.1,
+					size = 1.1 * VfxRecipe.viewScale(center),
 					speed = { 2, 4 },
 					lifetime = { 0.4, 0.7 },
 					transparency = 0.4,
@@ -519,7 +521,7 @@ finisher = function(run)
 	end
 	local view = VfxRecipe.viewScale(center)
 	cutsAcross(center, radius, if run.reduced then STORM.reduced else STORM.full, AFTER.storm, view)
-	VfxRecipe.meshRing(center, radius * 0.7, CRIMSON, 0.4, 0.3)
+	VfxRecipe.meshRing(center, radius * 0.7 * view, CRIMSON, 0.4, 0.3)
 	local hit = if main then main.part.Position else center + Vector3.new(0, UNIT_HEIGHT * 0.6, 0)
 	local hitView = VfxRecipe.viewScale(hit)
 	local coreAt = hit
@@ -531,7 +533,9 @@ finisher = function(run)
 			coreAt += away.Unit * 0.6
 		end
 	end
-	ImpactEffects.ball(coreAt, CRIMSON, UNIT_HEIGHT * 0.8 * hitView, 0.14)
+	-- Low (waist height) and small, so it never covers the target it is behind.
+	coreAt -= Vector3.new(0, UNIT_HEIGHT * 0.25, 0)
+	ImpactEffects.ball(coreAt, CRIMSON, UNIT_HEIGHT * 0.5 * hitView, 0.14)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.8 * hitView, CRIMSON, hitView)
 	VfxRecipe.sparks(hit, 0.7 * hitView, 12, SPARKS, nil, hitView)
 	if not run.reduced then
@@ -574,7 +578,7 @@ function def.event(run, event): boolean
 		local view = run.context.views[event.target]
 		if view and view.part.Parent then
 			local at = view.part.Position - Vector3.new(0, view.part.Size.Y / 2, 0)
-			cutsAcross(at, view.part.Size.X, TICK_CUTS, 0.12, VfxRecipe.viewScale(at) * 0.7)
+			cutsAcross(at, view.part.Size.X, TICK_CUTS, TICK_SPREAD, VfxRecipe.viewScale(at) * 0.7)
 		end
 		return true
 	elseif kind == "Dot" then
