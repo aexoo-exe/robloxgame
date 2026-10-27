@@ -167,6 +167,7 @@ local PREVIEW_KEYS: { [Enum.KeyCode]: (State.Stage) -> () } = {
 -- A handle for Studio scripts (the command bar, Studio MCP; DevLineupQA below) for visual checks:
 -- show(unitId), ultimate(unitId) (shows it and plays its next cast, as key 3), press("One" ...
 -- "Nine", "F", "X", "Q"), timeScale(0.25) for slow motion (0 freezes), freezeAfter(stageSeconds),
+-- hold(beat, offset?, mode?) (the slice held at one beat of its ultimate) and resume(),
 -- camera("front" | "side" | "close" | "board"; "close" also frames key 3's preview close on the
 -- unit), state(), vfxReport() and vfxTest(seconds) (VfxDebug: effect textures). Studio only.
 local function qaHandle()
@@ -214,6 +215,17 @@ local function qaHandle()
 				s.camera = if s.fieldPreview and s.fieldFocus
 					then TestArena.fieldFraming(s.fieldFocus)
 					else s.stageCamera
+			end
+		end,
+		-- Replays the slice and holds it at one beat (Slice.hold): hold("load"), hold("finisher", 0.05),
+		-- hold(-0.5), hold("set", 0, "gameplay"). Yields until held; returns what it held at.
+		hold = function(beat: number | string, offset: number?, mode: string?)
+			return Slice.hold(beat, offset, mode)
+		end,
+		-- Goes on from a hold or a freeze (as O).
+		resume = function()
+			if State.timeScale == 0 then
+				Hud.toggleFreeze()
 			end
 		end,
 		state = function()

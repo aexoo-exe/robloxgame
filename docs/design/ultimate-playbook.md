@@ -61,3 +61,5 @@ When the real window is short (`run.k < 1`), lay the anticipation out again with
 | K | Replays the slice unit (`SLICE_UNIT` in `src/client/DevLineup/Config.luau`) on the close orbit camera. RMB drag / arrows orbit, wheel zooms, P prints and keeps the framing. |
 | G | The same with the match camera (how players see it). |
 | S | After K or G: the same replay at 0.25x. |
+
+**Beat captures (Studio MCP):** `Players.LocalPlayer.DevLineupQA:Invoke("hold", beat, offset?, mode?)` from the client replays the slice and holds it at one beat: a plan name from the module (`"windup"`, `"set"`, `"load"`, `"finisher"`, ...) or a design time (`-0.5`), plus an optional offset; `mode` `"gameplay"` uses the match camera. It returns once held (poses, effects and the slice camera all stopped), so the next screenshot is exactly that beat. `Invoke("resume")` goes on.
