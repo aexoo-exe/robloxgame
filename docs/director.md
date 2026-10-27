@@ -22,8 +22,9 @@ exactly that and moves on to the next item it can do alone.
      Studio session (fine on a live server; enable API access per playtest.md for Studio tests);
    - (user) the shop's display nicknames ("Jonny", "Dengi", "Kenny", ...) are close to real
      character names: the user decides whether they stay for a public playtest.
-2. **Item pick panel off the fight** (Claude): show it only in Preparation (or docked to the side
-   during Combat) so the fight stays visible.
+2. **Item pick panel off the fight:** done on `feature/item-pick-off-fight` (verified in Studio: open
+   in Preparation, gone when the fight starts). The panel over the fight was a stale choice the server
+   had already resolved (`PlayerState.startCombat`).
 3. **Friend playtest** (user): 1-2 friends, the checklist in [playtest.md](playtest.md) section 7.
    Afterwards Claude reads the feedback and errors (`scripts/playtest-report`, needs the user's
    Open Cloud key in their own terminal) and turns them into queue items.
@@ -32,9 +33,10 @@ exactly that and moves on to the next item it can do alone.
    so it works from any branch) with File > Import 3D (the MCP can't run the importer; the old 100x
    copy is already removed from Workspace); Claude re-runs the MCP model check (scale
    vs a 4.6-stud R6, seat, coat, outline, match-camera view). Then the review gate (user).
-5. **Merge** (user OK): `feature/devlineup-hold` (the beat-hold capture tool) and
+5. **Merge** (user OK): `feature/playtest-ready` (director, notes, playtest guide),
+   `feature/item-pick-off-fight`, `feature/devlineup-hold` (the beat-hold capture tool) and
    `feature/slice-infinite_collapse` (built, reviewed, Studio-checked with one fix round; it contains
-   the hold tool).
+   the hold tool). All four green on CI.
 6. **Overhaul wave 1: severing_temple** (Claude): `/slice-unit` with its concept from
    [overhaul-plan.md](design/overhaul-plan.md); check it with `hold` (playbook, Dev keys).
 7. **Hold camera + arm sweep** (Claude): a side / front camera option for `hold`, then sweep
