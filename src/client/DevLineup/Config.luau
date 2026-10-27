@@ -1,4 +1,4 @@
-﻿-- DevLineup's fixed settings: lineup layout, the preview stage, key 3's field, the test arenas,
+-- DevLineup's fixed settings: lineup layout, the preview stage, key 3's field, the test arenas,
 -- the slice unit and camera, and the key help. Studio only (see DevLineup).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

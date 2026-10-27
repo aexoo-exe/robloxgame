@@ -1,4 +1,4 @@
-﻿# Overhaul Queue
+# Overhaul Queue
 
 The build order for the VFX + sound overhaul ([overhaul-plan.md](overhaul-plan.md)). One row per
 unit; tick a column as it is done. "Merged" means on `main`.
