@@ -1,6 +1,6 @@
 ---
 name: slice-unit
-description: Rebuild one unit's signature ultimate to the cinder_arc standard (docs/design/ultimate-playbook.md) from a short concept, review it with the playbook-reviewer agent, commit, push and hand off. Invoked as /slice-unit <unit_id> "<concept>".
+description: Rebuild one unit's signature ultimate to the cinder_arc standard (docs/design/ultimate-playbook.md) from a short concept, review it with the playbook-reviewer agent, commit, push and summarize. Invoked as /slice-unit <unit_id> "<concept>".
 argument-hint: <unit_id> "<concept>"
 ---
 
@@ -10,7 +10,7 @@ Arguments: `$ARGUMENTS`. The first word is the `unit_id`; the rest (quoted) is t
 
 Rebuild `src/client/Ultimates/<unit_id>.luau` to the playbook's standard, using `cinder_arc` as the template. This is client presentation only. The unit's concept, wave and shared assets are in `docs/design/overhaul-plan.md`; tick its row in `docs/design/overhaul-queue.md` as you go.
 
-**Time-box.** One build pass (steps 2-5), one review round (step 6), the Studio check with at most one fix round (step 6b), then commit, push and hand off (step 7) **even if minor issues remain**: list them as **leftovers** in the handoff instead of iterating.
+**Time-box.** One build pass (steps 2-5), one review round (step 6), the Studio check with at most one fix round (step 6b), then commit, push and summarize (step 7) **even if minor issues remain**: record them as **leftovers** (summary and queue row) instead of iterating.
 
 ## Standing rules (from CLAUDE.md)
 
@@ -69,7 +69,7 @@ Signature sounds only when no library sound fits, **at most 2 per unit, and only
 - Call them with `Sfx.play("<unit_id>.<sound>")`. Empty ids skip silently.
 - Add a row for each to `docs/design/sound-picks.md` (search terms, what it should sound like).
 
-Optionally set `SLICE_UNIT` in `src/client/DevLineup/Config.luau` to this unit so K / G / S replay it. Mention it in the handoff.
+Optionally set `SLICE_UNIT` in `src/client/DevLineup/Config.luau` to this unit so K / G / S replay it. Mention it in the summary.
 
 ## 5. Commit
 
@@ -96,13 +96,13 @@ If the Roblox Studio built-in MCP server's tools are available (`start_stop_play
 2. Trigger the K replay (the MCP's key input if it has one; otherwise from `execute_luau` in the client context). Use a fixed side camera: the slice camera's default framing, no orbiting between captures.
 3. Capture about 6 screenshots at the key beats from your timeline: coil, set, each strike, finisher, aftermath. **At most 8 screenshots per unit.** Check `get_console_output` once for errors from the module.
 4. Check them against the playbook: no screen-filling sprites or flashes, trails on the blade (or the ranged arc), readable poses at the coil, set and finisher.
-5. Fix obvious problems in **at most one fix round**, commit (`<unit_id> slice: studio check fixes`), stop play with `start_stop_play`. Don't capture again after the fix. List what you saw, and anything left, as leftovers in the handoff.
+5. Fix obvious problems in **at most one fix round**, commit (`<unit_id> slice: studio check fixes`), stop play with `start_stop_play`. Don't capture again after the fix. List what you saw, and anything left, as leftovers in the summary.
 
-## 7. Push and hand off
+## 7. Push and summarize
 
 Always reach this step, even with leftovers. `git push -u origin <branch>`. Never push or merge `main`.
 
-End with the HANDOFF in one code block (format in CLAUDE.md), including:
+End with a short summary for the user (HANDOFF blocks are paused, see CLAUDE.md), covering:
 
 - Branch and commits.
 - Files changed.
