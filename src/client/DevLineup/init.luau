@@ -218,10 +218,11 @@ local function qaHandle()
 			end
 		end,
 		-- Replays the slice and holds it at one beat (Slice.hold): hold("load"), hold("finisher", 0.05),
-		-- hold(-0.5), hold("set", 0, "side" | "front34" | "back34" | "gameplay"). Yields until held;
+		-- hold(-0.5), hold("set", 0, "side" | "front34" | "back34" | "gameplay"), hold("load", 0, "side", 3)
+		-- (the preview fight's third cast). Yields until held;
 		-- returns what it held at.
-		hold = function(beat: number | string, offset: number?, mode: string?)
-			return Slice.hold(beat, offset, mode)
+		hold = function(beat: number | string, offset: number?, mode: string?, cast: number?)
+			return Slice.hold(beat, offset, mode, cast)
 		end,
 		-- Goes on from a hold or a freeze (as O).
 		resume = function()

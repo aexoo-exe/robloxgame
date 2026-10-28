@@ -252,8 +252,9 @@ end
 
 -- K: the vertical slice's ultimate at 1x on key 3's field (its first cast, every time), with the
 -- slice camera (`mode` "slice"); G: the same with the match camera's framing ("gameplay"), to judge
--- it the way players see it.
-function Slice.replay(mode: string)
+-- it the way players see it. `cast` (QA holds) replays that cast of the preview fight instead of the
+-- first (units whose casts differ, such as form changes).
+function Slice.replay(mode: string, cast: number?)
 	sliceCameraMode = mode
 	if not State.folder then
 		Lineup.open()
@@ -267,7 +268,7 @@ function Slice.replay(mode: string)
 	end
 	State.timeScale = 1
 	ImpactEffects.setTimeScale(1)
-	s.castPresses = 0
+	s.castPresses = math.max(0, (cast or 1) - 1)
 	enterSliceCamera()
 	Field.cast(s)
 	leaveSliceCameraAfter((s.previewSeconds or Config.FIELD_AFTER) + 0.5)
@@ -307,12 +308,13 @@ local HOLD_VIEWS: { [string]: Config.SliceView } = {
 -- "finisher", ...), plus `offset` design seconds. `mode`: "slice" (K's camera, as last aimed),
 -- "gameplay" (G: the match camera) or a fixed view, "side", "front34" or "back34". The stage clock,
 -- poses, effects and the slice camera all stop there (O, or the QA handle's `resume`, goes on), so
--- a screenshot catches exactly that beat. Yields until held (Studio MCP: one call, then capture);
--- returns what it held at, or why it could not.
-function Slice.hold(beat: number | string, offset: number?, mode: string?): string
+-- a screenshot catches exactly that beat. `cast`: which cast of the preview fight (default the
+-- first). Yields until held (Studio MCP: one call, then capture); returns what it held at, or why it
+-- could not.
+function Slice.hold(beat: number | string, offset: number?, mode: string?, cast: number?): string
 	local before = sliceRun()
 	local view = mode and HOLD_VIEWS[mode]
-	Slice.replay(if mode == "gameplay" then "gameplay" else "slice")
+	Slice.replay(if mode == "gameplay" then "gameplay" else "slice", cast)
 	if view then
 		State.sliceView = table.clone(view)
 	end
