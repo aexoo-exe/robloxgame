@@ -35,9 +35,9 @@
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the trails, the
 -- orb, the beam, the groove, the ring, the hit stars and the sparks grow with it (the aura sheets are
 -- sized from his body).
--- Layers (tier 5, within its 44; peak ~16 in the beam's set, ~12 at the beam, estimated): the aura
--- and crackle (particles, ending at the load), the beam's orb (core + halo), 8 motes, 4 stones (not
--- when reduced), at the payoff the beam (core + glow) and groove, or the gold streak; one shock ring,
+-- Layers (tier 5, within its 44; peak ~22 at the power payoff with 3 enemies, ~17 in the beam's
+-- charge, ~19 at the beam, estimated): the aura and crackle (the beam's aura only through the
+-- clench), the beam's orb (core + halo), 8 motes, 4 stones (not when reduced), at the payoff the beam (core + glow) and groove, or the gold streak; one shock ring,
 -- hit stars and sparks (particles), a light (not when reduced); the hand trails (BladeTrail); the
 -- callout's ring. Camera: a push on him through the beam's charge and a pull at the beam (tier 5).
 -- Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
@@ -321,21 +321,24 @@ local function planFor(run): Plan
 	return plan
 end
 
--- Tracks by plan and kind, built once each.
+-- Tracks by plan, kind and push (rounded to a hundredth of a stud: it depends on his size),
+-- built once each.
 local tracks: { [Plan]: { [string]: any } } = {}
 function def.poseFor(run)
 	local plan = planFor(run)
 	local kind = kindOf(run)
-	local byKind = tracks[plan]
-	if not byKind then
-		byKind = {}
-		tracks[plan] = byKind
+	local push = if kind == "beam" then 0.25 / math.max(UnitView.sizeFactor(run.view), 0.1) else 0
+	push = math.floor(push * 100 + 0.5) / 100
+	local key = kind .. ":" .. push
+	local byKey = tracks[plan]
+	if not byKey then
+		byKey = {}
+		tracks[plan] = byKey
 	end
-	local track = byKind[kind]
+	local track = byKey[key]
 	if not track then
-		local push = if kind == "beam" then 0.25 / math.max(UnitView.sizeFactor(run.view), 0.1) else 0
 		track = PoseAnimator.track(keyframes(plan, kind, push))
-		byKind[kind] = track
+		byKey[key] = track
 	end
 	return track
 end
@@ -430,17 +433,30 @@ def.beats = {
 			run:face(run:target())
 			attachHands(run)
 			UltimateCallout.mark(run.view, CALLOUT, run:span(plan.windup, plan.finisher - plan.windup))
-			-- The gold aura climbing off him through the build (ending at the load, so no sheets hang
-			-- where he was at the release).
-			VfxRecipe.kitAuraSpike(
-				run,
-				run.view,
-				GOLD,
-				plan.windup + 0.05,
-				plan.load - plan.windup - 0.05,
-				2,
-				GOLD_DEEP
-			)
+			-- The gold aura climbing off him: through the power-up's build (ending at the load, so no
+			-- sheets hang where he was at the release); for the beam one layer through the clench only
+			-- (two layers through the charge buried his hands and the light between them).
+			if kind == "beam" then
+				VfxRecipe.kitAuraSpike(
+					run,
+					run.view,
+					GOLD,
+					plan.windup + 0.05,
+					plan.set - plan.windup - 0.05,
+					1,
+					GOLD_DEEP
+				)
+			else
+				VfxRecipe.kitAuraSpike(
+					run,
+					run.view,
+					GOLD,
+					plan.windup + 0.05,
+					plan.load - plan.windup - 0.05,
+					2,
+					GOLD_DEEP
+				)
+			end
 			Sfx.play("windGust", { pitch = 0.8, volume = 0.5 })
 			if kind == "beam" then
 				run:at(plan.set, function()
@@ -530,7 +546,7 @@ finisher = function(run, area: any?)
 		local start = cupped(run)
 		local finish = beamEnd(run, area)
 		local view = VfxRecipe.viewScale(start)
-		Kit.beam(run, 0, AFTER.beamEnd, WHITE, BLUE, function()
+		Kit.beam(run, 0, AFTER.beamEnd, BLUE_LIGHT, BLUE, function()
 			return start
 		end, function()
 			return finish
@@ -583,13 +599,14 @@ finisher = function(run, area: any?)
 		local hit = center + Vector3.new(0, UNIT_HEIGHT * 0.5, 0)
 		local from = run:hand("right")
 		local along = hit - from
+		local streakView = VfxRecipe.viewScale(hit)
 		if along.Magnitude > 1e-3 then
 			-- The gold streak crossing to the target (no solid ball).
 			ImpactEffects.emit(from, {
 				usage = "sparks",
 				count = if run.reduced then 2 else 4,
 				color = VfxRecipe.colors({ { 0, WHITE:Lerp(GOLD, 0.35) }, { 1, GOLD } }),
-				size = VfxRecipe.curve({ { 0, 0.8 * s }, { 1, 0.35 * s } }),
+				size = VfxRecipe.curve({ { 0, 0.8 * s * streakView }, { 1, 0.35 * s * streakView } }),
 				transparency = VfxRecipe.curve({ { 0, 0.1 }, { 0.8, 0.3 }, { 1, 1 } }),
 				lifetime = { 0.08, 0.1 },
 				speed = { along.Magnitude / 0.09, along.Magnitude / 0.08 },
@@ -617,16 +634,14 @@ finisher = function(run, area: any?)
 	end
 end
 
--- The real form change (power casts): a gold eruption off him, the aura flaring, sparks and embers.
+-- The real form change (power casts): a gold eruption off him, the aura flaring, sparks (blue on the
+-- way to Core III) and embers.
 local function erupt(run)
 	local chest = run:chest()
 	local view = VfxRecipe.viewScale(chest)
-	VfxRecipe.kitAuraSpike(run, run.view, GOLD, run:designTime(), 0.4, 3, GOLD_DEEP)
-	VfxRecipe.sparks(chest, 0.7 * view, 20, GOLD_SPARKS, Vector3.yAxis, view)
-	VfxRecipe.embers(run, run:ground() + Vector3.new(0, 0.5, 0), run:scale(), nil, 10)
-	if toCoreThree(run) then
-		VfxRecipe.kitCrackleAura(run, run.view, BLUE, run:designTime(), 0.4, 2)
-	end
+	VfxRecipe.kitAuraSpike(run, run.view, GOLD, run:designTime(), 0.3, 2, GOLD_DEEP)
+	VfxRecipe.sparks(chest, 0.7 * view, 20, if toCoreThree(run) then BLUE_SPARKS else GOLD_SPARKS, Vector3.yAxis, view)
+	VfxRecipe.embers(run, run:ground() + Vector3.new(0, 0.5, 0), run:scale() * view, nil, 10)
 end
 
 function def.event(run, event): boolean
