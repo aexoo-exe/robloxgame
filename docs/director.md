@@ -10,13 +10,15 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
-**Resume here (2026-10-28, later).** Merged: wave 1 (infinite_collapse, severing_temple,
-starless_burst), the hold views, the HANDOFF pause. Waiting on the user's OK to merge:
-`feature/flashline-bolts` (kitBolts chains long paths: flashline's lightning no longer covers ~40%
-of the screen; verified in Studio) and `feature/slice-final_argument` (wave 2's first: built, review
-FAIL fixed (ring cap), Studio-checked with one fix round, not re-captured). `feature/pose-overlap`
-waits for the user's look in motion (K then S). Next: elastic_wardrum, reelbreaker, then the arm
-sweep's 5 remaining candidates.
+**Resume here (2026-10-28, end).** On `main`: waves 1 and 2's final_argument, the kitBolts fix.
+Waiting on the user's OK to merge: `feature/slice-reelbreaker` (contains
+`feature/slice-elastic_wardrum` and the hold tool's cast number): elastic_wardrum and reelbreaker,
+built, reviewed (elastic_wardrum's ring-cap FAIL fixed), Studio-checked, one fix round each. Wave 2
+is complete. `feature/pose-overlap` still waits for the user's look in motion. Sounds: most library
+sounds the new ultimates call (energyCharge, windGust, punchRush, whooshHeavy, slashMetal,
+magicChime, energyRelease, groundSlam, rockDebris) have no id yet, so they play silent: the sound
+picks are now the biggest gap in how the ultimates land. Next for Claude: wave 3 (ascending_core,
+echo_legion, skybreaker), then the arm sweep's 5 candidates.
 
 **Now**
 
