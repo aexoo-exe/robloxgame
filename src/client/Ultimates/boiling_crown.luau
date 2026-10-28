@@ -14,13 +14,13 @@
 --   -0.38  stillness: the tremble stops dead, until -0.18
 --   -0.18  a 0.12 s load dip: he sinks lower
 --   -0.06  the heave's 0.06 s snap
---    0     THE ERUPTION, on the real hit: he heaves up and back; the eruption over the real area
---          (the steam recipe: core, steam clouds, one shock ring, sparks, light), large steam billows
---          thrown out in a ring from his body and a column rising over his head (all kept off the
---          camera's line to him), orange embers, a brief speed-lines flash; steam scalding up under
---          each enemy hit; hit-stop on the bodies; the explosion and the slam, a strong shake, the
---          punch-in, the camera pulling back; the enemies knocked back (the main one 2.5 studs and
---          launched 0.8, the rest 1.5)
+--    0     THE ERUPTION, on the real hit: he heaves up and back; a hot core over his head, one
+--          shock ring across the area, sparks, a small light; steam billows thrown out in a ring from
+--          his body and a column rising over his head (at their cap whatever the camera distance, and
+--          kept off the camera's line to him), orange embers, a brief speed-lines flash; steam
+--          scalding up under each enemy hit; hit-stop on the bodies; the explosion and the slam, a
+--          strong shake, the punch-in, the camera pulling back; the enemies knocked back (the main
+--          one 2.5 studs and launched 0.8, the rest 1.5); a few see-through puffs roll out after
 --   +0.12  the top of the heave; he lands by +0.4, steam rolling out across the area
 --   +0.9   settled; idle by +1.3
 -- When the real window before the cast is shorter (Cinematic run.k < 1, at least the tier's 0.6),
@@ -28,12 +28,13 @@
 -- the sink, and only past that does everything but the load and the snap shrink evenly. The load,
 -- the snap and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the steam
--- puffs, the cracks, the billows and the embers grow with it (the recipe's burst sizes itself).
--- Layers (tier 5, within its 44; peak ~24 at the eruption, estimated): the build's steam puffs and
--- glow (particles), 4 glowing cracks (2 when reduced), at the eruption the recipe's burst and
--- aftermath (core, clouds, one ring, sparks, light), up to 9 billows and a column (6 when reduced:
--- particles), embers, the speed-lines flash, steam columns under the enemies (particles); the
--- callout's ring. Camera: a dim through the build, a push in and a pull at the eruption (tier 5).
+-- puffs, the cracks, the core, the ring, the sparks, the embers and the speed lines grow with it
+-- (the billows stay at their cap: grown, they whited out the board there).
+-- Layers (tier 5, within its 44; peak ~24 at +0.3, estimated): the build's steam puffs and glow
+-- (particles), 4 glowing cracks (2 when reduced), at the eruption a core (2), one shock ring,
+-- sparks, a light (not when reduced), 6 billows and a column (4 when reduced), embers, the
+-- speed-lines flash, steam columns under the enemies, 2 rolling puffs; the callout's ring. Camera:
+-- a dim through the build, a push in and a pull at the eruption (tier 5).
 -- Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local UltimateKit = require(script.Parent.Parent.UltimateKit)
@@ -143,6 +144,8 @@ local EMBER = rgb(255, 80, 40)
 local CRACK = rgb(255, 110, 40)
 local CALLOUT = HOT
 local CRACKS = { full = 4, reduced = 2 }
+-- The eruption's light: a short, tight hot flash over his head.
+local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.25 } -- range in unit heights
 -- The eruption's steam billows: at most this many unit heights once grown, at least this
 -- transparent, and never within CAMERA_CLEAR studs of the camera's line to him (three billows on
 -- that line once filled the close camera with white).
@@ -196,7 +199,21 @@ local function keyframes(T: Plan): { PoseAnimator.Keyframe }
 		{ at = T.windup, pose = pose({}) },
 		{ at = T.set, ease = "inOut", pose = SINK },
 		-- The build, trembling harder (a shiver through the set), then dead still.
-		{ at = T.set + 0.15, ease = "quadOut", hold = math.max(0, T.still - T.set - 0.15), shiver = 2.4, pose = BUILD },
+		-- (the shiver ramps: a lighter one first, then harder; PoseAnimator holds each key's shiver)
+		{
+			at = T.set + 0.15,
+			ease = "quadOut",
+			hold = math.max(0, (T.still - T.set - 0.15) * 0.5),
+			shiver = 1.2,
+			pose = BUILD,
+		},
+		{
+			at = T.set + 0.15 + math.max(0, (T.still - T.set - 0.15) * 0.5) + 0.001,
+			ease = "hold",
+			hold = math.max(0, (T.still - T.set - 0.15) * 0.5),
+			shiver = 2.8,
+			pose = BUILD,
+		},
 		{ at = T.still, ease = "hold", hold = T.load - T.still, pose = BUILD },
 		{ at = T.snap, ease = "quadOut", pose = LOAD },
 		-- The heave (a snap) on the hit, up to the apex, back down; then settled and idle.
@@ -324,13 +341,28 @@ end
 finisher = function(run)
 	local center, radius = run:area()
 	local height = run.view.part.Size.Y * 2.6
-	local theme = VfxRecipe.themes.steam
-	VfxRecipe.burst(run, center, radius, { theme = theme })
-	VfxRecipe.aftermath(run, center, radius, { theme = theme, smokeScale = 0.6 })
 	local body = run.view.part.Position
 	local bodySize = run.view.part.Size
 	local view = VfxRecipe.viewScale(body)
-	local billowSize = math.min(height * 0.55, BILLOW_CAP * VfxRecipe.UNIT_HEIGHT / 1.3) * view
+	-- The eruption's own pieces (not the shared burst: its light, side sheets and long cloud were far
+	-- past the caps, and with the billows they whited out the board at the match camera): a hot core
+	-- over his head, one shock ring, sparks, a small light.
+	local top = body + Vector3.new(0, bodySize.Y * 0.6, 0)
+	ImpactEffects.ball(top, HOT:Lerp(WHITE, 0.35), VfxRecipe.UNIT_HEIGHT * 0.9 * view, 0.15)
+	VfxRecipe.meshRing(center, radius * 0.8 * view, HOT, 0.4, 0.3)
+	VfxRecipe.sparks(top, 0.8 * view, 16, ColorSequence.new(WHITE, HOT), Vector3.yAxis, view)
+	if not run.reduced then
+		ImpactEffects.light(
+			top,
+			HOT,
+			FINISH_LIGHT.brightness,
+			FINISH_LIGHT.range * VfxRecipe.UNIT_HEIGHT,
+			FINISH_LIGHT.seconds
+		)
+	end
+	-- The billows stay at their cap whatever the camera distance (scaled up at the match camera they
+	-- covered the board).
+	local billowSize = math.min(height * 0.55, BILLOW_CAP * VfxRecipe.UNIT_HEIGHT / 1.3)
 	local camera = workspace.CurrentCamera
 	local eye = if camera then camera.CFrame.Position else nil
 	local toward = if eye then Vector3.new(eye.X - body.X, 0, eye.Z - body.Z) else Vector3.zero
@@ -341,7 +373,7 @@ finisher = function(run)
 		end
 		return offLine(from, eye, body) >= CAMERA_CLEAR and offLine(to, eye, body) >= CAMERA_CLEAR
 	end
-	local billows = if run.reduced then 6 else 9
+	local billows = if run.reduced then 4 else 6
 	local throw = radius * 2.2
 	for i = 1, billows do
 		local angle = (i / billows) * math.pi * 2 + math.random() * 0.3
@@ -354,9 +386,24 @@ finisher = function(run)
 		end
 	end
 	-- The column: rising from above his head (never over his body).
-	local top = body + Vector3.new(0, bodySize.Y * 0.5 + billowSize * 0.5, 0)
-	if clear(top, top + Vector3.new(0, height * 0.6, 0)) then
-		VfxRecipe.kitSteam(top, billowSize, 2, Vector3.yAxis, height * 1.2, 15, BILLOW_START + 0.1)
+	local crown = body + Vector3.new(0, bodySize.Y * 0.5 + billowSize * 0.5, 0)
+	if clear(crown, crown + Vector3.new(0, height * 0.6, 0)) then
+		VfxRecipe.kitSteam(crown, billowSize, 2, Vector3.yAxis, height * 1.2, 15, BILLOW_START + 0.1)
+	end
+	-- Steam rolling out low across the area after (a few see-through puffs, not a second wave).
+	for i, t in { 0.15, 0.4 } do
+		run:at(t, function()
+			local at = center + Vector3.new(0, 0.6, 0)
+			ImpactEffects.burst("puff", at, nil, {
+				color = WHITE:Lerp(HOT, 0.15),
+				count = if run.reduced then 2 else 3,
+				size = (1.2 - 0.2 * i) * view,
+				speed = { 4, 8 },
+				lifetime = { 0.5, 0.8 },
+				spread = 180,
+				transparency = 0.6,
+			})
+		end)
 	end
 	VfxRecipe.embers(
 		run,
@@ -365,7 +412,7 @@ finisher = function(run)
 		VfxRecipe.energy(EMBER, HOT).ember,
 		22
 	)
-	VfxRecipe.kitSpeedLines(run:chest(), bodySize.Y * 1.5, HOT, 0.2)
+	VfxRecipe.kitSpeedLines(run:chest(), bodySize.Y * 1.5 * view, HOT, 0.2)
 	-- The hits.
 	local main = run:target()
 	local targets = run:targets()
@@ -377,7 +424,7 @@ finisher = function(run)
 	for _, target in targets do
 		HitFeel.react(target, body, if target == main then { final = true } else { knock = 1.5, tilt = 18 })
 	end
-	HitFeel.cameraShake(0.4, 0.4)
+	HitFeel.cameraShake(0.32, 0.38)
 	HitFeel.punchIn(1)
 	run:camera(0, 0.6, { key = "pull", push = -2.2, focus = run:chest(), rise = 0.04, fall = 0.45 })
 	Sfx.play("explosion")

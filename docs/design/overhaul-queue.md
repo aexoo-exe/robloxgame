@@ -22,7 +22,7 @@ unit; tick a column as it is done. "Merged" means on `main`.
 | 3 | ascending_core | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 3 | echo_legion | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 3 | skybreaker | [x] | [x] | [x] | [x] | [ ] | [ ] |
-| 4 | boiling_crown | [x] | [x] | [ ] | [ ] | [ ] | [ ] |
+| 4 | boiling_crown | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 4 | titanheart | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 4 | skyboulder | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 4 | iron_rush | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
