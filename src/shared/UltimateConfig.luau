@@ -96,10 +96,15 @@ return deepFreeze({
 		},
 		final_argument = {
 			tier = 5,
-			preroll = 1.05,
-			linger = 1.2,
-			look = "slouched and bored, then straight; the fist draws back slowly inside a bend of air, dust lifts; stillness while the camera goes face then fist; an almost invisible punch; white flash, a cone of air, a long crack along the punch, wind streaks and debris, long hit-stop; back to bored",
-			wanted = { "silence drop", "fist creak", "massive punch boom", "wind rush" },
+			-- Bored, straightening, the slow draw, stillness, the load, the punch on the real hit.
+			preroll = 1.38,
+			linger = 1.5, -- through the follow-through, back to bored (+0.85), idle (+1.3) and the crack's fade (+1.2)
+			look = "slouched and bored, then straight; the fist draws back slowly inside a bend of air with a low aura, dust lifts; stillness while the camera goes face then fist; an almost invisible punch on the real hit with a step into it; a brief white flash, a cone of air past the target, one shock ring, a long crack along the punch, dust and stones; back to bored",
+			wanted = {
+				"windGust low, then high (the draw, the stillness)",
+				"impactHeavy + groundSlam (the punch)",
+				"rockDebris (after)",
+			},
 		},
 		boiling_crown = {
 			tier = 5,
