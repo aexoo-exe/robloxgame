@@ -46,6 +46,5 @@ work end to end.
 
 ## 4. Report
 
-1. A short summary for the user: what changed, what you saw in Studio, what's next, and anything
-   you need from them (with exact steps).
-2. The HANDOFF block from CLAUDE.md, in one code block, for the record.
+A short summary for the user: what changed, what you saw in Studio, what's next, and anything you
+need from them (with exact steps). No HANDOFF block while CLAUDE.md has them paused.

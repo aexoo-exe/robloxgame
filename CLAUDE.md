@@ -71,7 +71,12 @@ is the default way to continue work: it does the top "Now" item end to end and u
 
 ## When Completing a Task
 
-End every task with a **HANDOFF** in ONE copyable code block:
+End every task with a **short summary** to the user: what changed, what you saw (Studio checks),
+anything unverified, and what's next. Branches, commits, budget peaks and leftovers are recorded in
+the queues and docs/director.md, not in the reply.
+
+**HANDOFF blocks are paused** (the user's request, 2026-10-28: no middle man reads them now). Don't
+write one unless the user asks. The old format, kept for when it comes back:
 
 ```
 HANDOFF

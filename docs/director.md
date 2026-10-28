@@ -109,7 +109,7 @@ One task = one pass through:
 5. **At most one fix round**, then stop. Never a third round on the same thing: log what's left as
    leftovers in the queue.
 6. **Commit and push** the feature branch.
-7. **Short summary to the user**: what changed and what's next, then the HANDOFF block (CLAUDE.md)
+7. **Short summary to the user**: what changed and what's next (HANDOFF blocks are paused, CLAUDE.md)
    for the record. Update Now / Next / Later and the queues before pushing.
 
 Parallel work: worktrees (`isolation: "worktree"`) for independent units of a wave when it's worth
@@ -173,6 +173,7 @@ The user watches their session limit:
 ## User preferences
 
 - Terminal commands in copyable code blocks.
-- End each task with a short summary of what changed and what's next, then the HANDOFF block.
+- End each task with a short summary of what changed and what's next. No HANDOFF block for now
+  (paused 2026-10-28; the user may bring it back).
 - IP: real names only in `docs/references/` (gitignored); ids everywhere else, commit messages
   included.
