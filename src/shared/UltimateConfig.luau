@@ -197,7 +197,7 @@ return deepFreeze({
 			-- The pumps, the swell (by cast: the raised swelling fist, the thumb blow, more pumping), stillness, the load, the payoff.
 			preroll = 0.96,
 			linger = 1.1, -- through the giant fist's snap back (+0.3), the laugh (+0.5) and idle (+1.0)
-			look = "bouncing leg pumps with pink-white steam on every cast; into Gear 2: a steam gush; into Gear 3: thumb to mouth, swell, white clouds and a white flame aura, arms flung wide; later casts: the fist raised and swelling, drumbeat rings, then a giant stretched fist slams down in front of him with a bouncing shock ring; he deflates laughing",
+			look = "bouncing leg pumps with pink-white steam on every cast; into Gear 2: a steam gush; into Gear 3: thumb to mouth, swell, white clouds and a white flame aura, arms flung wide; later casts: the fist raised and swelling, drumbeats thumping dust at his feet, then a giant stretched fist comes down from high over him onto the ground in front of him on the real hit, one shock ring; he deflates laughing",
 			wanted = {
 				"punchRush (the drumbeats)",
 				"energyCharge (the thumb blow)",
