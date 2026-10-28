@@ -8,8 +8,9 @@
 -- Designed timeline (real seconds at full length; SEGMENTS):
 --   -0.98  calm: the staff lifted upright before her, the left palm opening toward the target; the
 --          callout (a pale-blue outline on her, a small ground ring)
---   -0.70  set: a pale magic circle opens in front of her ring by ring (2 rings, one more for each
---          earlier cast, at most 4), each wiping open with a soft click, two glyphs riding each; light
+--   -0.70  set: a pale-blue magic circle opens on the ground around her ring by ring (2 rings, one
+--          more for each earlier cast, at most 4), each wiping open with a soft click, a glyph riding
+--          each; light
 --          gathers at the staff's head (motes drawn in, a small growing orb); a faint shiver
 --   -0.38  dead stillness: the circle holds, nothing moves, until -0.18
 --   -0.18  a 0.12 s load dip: the staff drawn back
@@ -144,12 +145,13 @@ end
 
 local WHITE = Kit.WHITE
 local PALE = rgb(150, 205, 255)
+local DEEP_PALE = rgb(100, 165, 255) -- the circle alternates the two: white rings vanished on the gray floor
 local SOFT = rgb(205, 230, 255)
 local CALLOUT = PALE
 local SPARKS = ColorSequence.new(WHITE, PALE)
 local RINGS = { base = 2, most = 4 } -- 2, one more per earlier cast this fight
 local GLYPHS = 1 -- per ring (plain, not neon: a neon block adds a glow layer, two parts a glyph)
-local BEAM_WIDTH = 0.16 -- the white core, in unit heights: thin, not fat
+local BEAM_WIDTH = 0.06 -- the white core, in unit heights: thin, not fat (0.16 read as a white bar)
 local CAST_LIGHT = { brightness = 1.8, range = 1.2, seconds = 0.2 } -- range in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
 local STAFF_HEAD = 0.045 + 0.95 * 0.75 + 0.1 -- the staff's orb up the hand's +Y, in figure heights (LookKit)
@@ -289,7 +291,7 @@ local function staffHead(run): Vector3
 	return run:hand("right")
 end
 
--- The circle's frame: in front of her chest, facing her target.
+-- Where the beam starts: in front of her chest, facing her target.
 local function circleFrame(run): CFrame
 	local target = run:target()
 	local chest = run:chest()
@@ -301,19 +303,23 @@ local function circleFrame(run): CFrame
 	return CFrame.lookAt(at, at + along)
 end
 
--- The magic circle: `rings` thin ring planes facing the target, opening one after another across
--- the set (each wiping open over 0.08 s with a soft click), glyphs riding each, all closing by
--- AFTER.closed.
+-- The magic circle: `rings` thin ring planes lying on the ground around her feet, opening one after
+-- another across the set (each wiping open over 0.08 s with a soft click), glyphs riding each, all
+-- closing by AFTER.closed. On the ground, not standing upright: from the match camera (above and
+-- behind) an upright circle facing the target was edge-on and never read.
+local function groundFrame(run): CFrame
+	return CFrame.new(run:ground() + Vector3.new(0, 0.08, 0))
+end
 local function openCircle(run, plan: Plan, rings: number)
 	local s = run:scale()
-	local view = VfxRecipe.viewScale(circleFrame(run).Position)
+	local view = VfxRecipe.viewScale(run:ground())
 	local span = math.max(plan.still - plan.set - 0.05, 0.05)
 	for i = 1, rings do
 		local open = plan.set + (i - 1) / rings * span
-		local diameter = (1.0 + i * 0.6) * s * view
-		local color = if i % 2 == 0 then PALE else WHITE
+		local diameter = (1.8 + i * 0.9) * s * view
+		local color = if i % 2 == 0 then PALE else DEEP_PALE
 		local spin = (if i % 2 == 0 then -1 else 1) * (1.6 + i * 0.3)
-		local depth = -i * 0.04
+		local depth = i * 0.02
 		local function sizeAt(): number
 			local t = run:designTime()
 			local opening = Kit.easeOut((t - open) / 0.08)
@@ -323,20 +329,20 @@ local function openCircle(run, plan: Plan, rings: number)
 		local ring = FxKit.textured("ring", color, "plane")
 		Kit.live(run, open, plan.closed, "Block", color, function(part, _u)
 			local d = math.max(0.05, sizeAt())
-			part.Size = Vector3.new(d, d, 0.04)
-			-- A slow roll, so the held circle turns rather than sitting still like a sticker.
-			part.CFrame = circleFrame(run) * CFrame.new(0, 0, depth) * CFrame.Angles(0, 0, run:now() * spin * 0.3)
+			part.Size = Vector3.new(d, 0.04, d) -- thinnest on Y: the ring texture faces up
+			-- A slow turn, so the held circle turns rather than sitting still like a sticker.
+			part.CFrame = groundFrame(run) * CFrame.new(0, depth, 0) * CFrame.Angles(0, run:now() * spin * 0.3, 0)
 			part.Transparency = if ring then 0.1 else 0.7
 		end, nil, ring)
 		for g = 1, GLYPHS do
 			Kit.block(run, open, plan.closed, SOFT, function()
 				local angle = run:now() * spin + g * math.pi
 				local r = sizeAt() / 2
-				return circleFrame(run)
-					* CFrame.new(math.cos(angle) * r, math.sin(angle) * r, depth - 0.02)
-					* CFrame.Angles(0, 0, angle)
+				return groundFrame(run)
+					* CFrame.new(math.cos(angle) * r, depth + 0.03, math.sin(angle) * r)
+					* CFrame.Angles(0, -angle, 0)
 			end, function()
-				return Vector3.new(0.2, 0.07, 0.03) * s * view
+				return Vector3.new(0.12, 0.04, 0.32) * s * view
 			end, function()
 				return if sizeAt() < 0.1 then 1 else 0.1
 			end)
