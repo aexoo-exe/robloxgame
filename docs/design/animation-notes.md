@@ -63,6 +63,15 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
   - Not seen: the wrist cock on the load and the wrist snap on the flick (no wrist channel); the
     hands slamming together at the merge (no elbows).
 
+- **flashline** (2026-10-28, held at the draw +0.03 from front34 and side): the dash's lightning
+  bolts are huge camera-facing sprites (taller than the frame from the side, a yellow haze over a
+  quarter of it from the front), covering ~40% of the screen. Breaks the quality bar; fix before
+  judging its draw pose, which is hidden under them. front34 is the wrong view for dashers (they
+  dash toward that camera).
+- **starless_burst** (2026-10-28): the staff thrust reads (the head tips forward at the target).
+  The upright circle never read from the match camera (edge-on) and the first beam was a white bar:
+  fixed (ground circle, thin beam), not re-captured.
+
 ## Tooling (to judge animation at all)
 
 - [x] **Hold the slice at one beat.** DevLineup QA `hold(beat, offset?, mode?)` replays the slice
