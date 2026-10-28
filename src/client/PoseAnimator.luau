@@ -18,6 +18,10 @@
 -- Nothing is written to the body to undo: when the keys end (or stop) the layer settles out over
 -- AnimationConfig.overlap.ultimateSettle and the unit's own motion is all that is left.
 --
+-- Overlap: the head and arms trail the body. Their keys land OVERLAP seconds after the key's time
+-- (never past their next key), so the torso leads and the limbs follow instead of every channel
+-- arriving at once. Snap keys stay exactly on time (a strike lands on its hit), and so do holds.
+--
 -- Keyframes: { { at = t, pose = { channel = value }, ease = "...", hold = seconds?, shiver = degrees? } }
 -- in order of `at` (seconds; for an ultimate, design seconds relative to the release, negative before
 -- it). `ease` shapes the way into the key from the one before (UnitMotion EASES: "linear", "in",
@@ -46,6 +50,31 @@ export type Keyframe = {
 }
 
 export type Track = { [string]: { any } }
+
+-- Design seconds each channel's keys trail the body by (the overlap); channels not listed lead.
+local OVERLAP = {
+	headPitch = 0.05,
+	headYaw = 0.05,
+	headRoll = 0.05,
+	leftArm = 0.035,
+	rightArm = 0.035,
+	leftArmOut = 0.035,
+	rightArmOut = 0.035,
+}
+local ON_TIME = { snap = true, hold = true } -- eases whose keys never trail
+
+-- Shifts a channel's keys (sorted) later by `lag`, except the first, snaps and holds, never onto or
+-- past the next key.
+local function trail(keys: { any }, lag: number)
+	for i = 2, #keys do
+		local key = keys[i]
+		if not ON_TIME[key[3] or ""] then
+			local next = keys[i + 1]
+			local latest = if next then next[1] - 1e-4 else math.huge
+			key[1] = math.max(key[1], math.min(key[1] + lag, latest))
+		end
+	end
+end
 
 -- Per-channel keys ({ { t, value, ease } }, UnitMotion.ultimatePose's track) from keyframes.
 function PoseAnimator.track(keyframes: { Keyframe }): Track
@@ -84,11 +113,16 @@ function PoseAnimator.track(keyframes: { Keyframe }): Track
 			add("tremble", ends + 1e-3, 0, "hold")
 		end
 	end
-	-- Keys are added in keyframe order; a channel's keys must also be in time order.
-	for _, keys in track do
+	-- Keys are added in keyframe order; a channel's keys must also be in time order. Then the head and
+	-- arms trail the body (OVERLAP).
+	for channel, keys in track do
 		table.sort(keys, function(a, b)
 			return a[1] < b[1]
 		end)
+		local lag = OVERLAP[channel]
+		if lag then
+			trail(keys, lag)
+		end
 	end
 	return track
 end
