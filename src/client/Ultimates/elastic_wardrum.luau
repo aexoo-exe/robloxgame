@@ -6,23 +6,23 @@
 -- Area event. Bare fists. Every movement is the figure's pose offset (UnitView): his real position
 -- never changes.
 -- Designed timeline (real seconds at full length; SEGMENTS):
---   -0.96  the coil: bouncing leg pumps, pink-white steam puffing off him on each pump (every kind);
+--   -0.96  the coil: two bouncing leg pumps, pink-white steam puffing off him on each (every kind);
 --          the callout (a red outline on him, a small ground ring)
 --   -0.68  set, by kind:
 --            slam:  the right fist raised overhead and swelling (a growing fist, white clouds round
---                   it); drumbeat rings thump out from his feet (three beats across the build)
+--                   it); drumbeats thump dust up at his feet (three beats across the build)
 --            gear3: the thumb at his mouth, he blows and swells, rocking back
 --            gear2: pumping on, steam pouring
 --          a shiver of held tension, until -0.38
---   -0.38  stillness, on the last drumbeat, until -0.18
+--   -0.38  dead stillness, on the last drumbeat, until -0.18
 --   -0.18  a 0.12 s load dip
 --   -0.06  the payoff's 0.06 s snap
 --    0     on the real event:
---            slam:  a giant stretched fist slams down just in front of him (the arm stretching out
---                   to it, a long fist trail), a cartoon shock ring that bounces (a second, smaller
---                   ring after it), hit stars on the enemies hit; hit-stop on the bodies; the boom, a
---                   shake, the punch-in; the main target knocked 2.5 studs and launched 0.8, the rest
---                   1.5; the fist snaps back by +0.3
+--            slam:  a giant stretched fist (it came down through the snap from high over his
+--                   raised fist) lands just in front of him, the arm stretching out to it, a fist
+--                   trail; one shock ring and dust where it lands, hit stars on the enemies hit;
+--                   hit-stop on the bodies; the boom, a shake, the punch-in; the main target knocked
+--                   2.5 studs and launched 0.8, the rest 1.5; the fist snaps back by +0.3
 --            gear3: a burst of white clouds and a white flame aura; he hops, arms flung wide
 --            gear2: a gush of pink-white steam and one steam ring; he straightens, fists up
 --   +0.06  the follow-through, held to +0.3
@@ -32,12 +32,13 @@
 -- the anticipation is laid out again for it (planOf): the stillness gives first, then the set, then
 -- the coil, and only past that does everything but the load and the snap shrink evenly. The load,
 -- the snap and everything after the hit never shrink.
--- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the fist, the
--- drum and shock rings, the trail, the hit stars and the clouds grow with it.
--- Layers (tier 4, within its 34; peak ~10 at the slam, estimated): steam and clouds (particles), the
--- swelling fist (1), 3 drum rings and 2 shock rings (5 rings in all, the cast's cap is 6), at the
--- slam the giant fist and its arm (2), hit stars and sparks (particles), a light (not when reduced),
--- the fist trail (BladeTrail); Gear 3's aura spikes; the callout's ring. Poses: PoseAnimator; hit
+-- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the fists, the
+-- dust, the shock ring, the trail, the hit stars and the clouds grow with it (Gear 3's aura is
+-- sized from his body).
+-- Layers (tier 4, within its 34; peak ~13 at the slam, ~15 at Gear 3, estimated): steam, clouds and
+-- dust (particles), the swelling fist (1), at the slam the giant fist and its arm (2) and one shock
+-- ring (the only ring besides the callout's), hit stars and sparks (particles), a light (not when
+-- reduced), the fist trail (BladeTrail); Gear 3's aura spikes; the callout's ring. Poses: PoseAnimator; hit
 -- feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -79,9 +80,8 @@ end
 local AFTER = {
 	finisher = 0,
 	follow = 0.06, -- the follow-through pose reached
-	slammed = 0.08, -- the giant fist down
+	slammed = 0.08, -- the giant fist starts snapping back (it lands on the hit, t = 0)
 	trailOff = 0.14, -- the fist trail stops drawing
-	bounce = 0.15, -- the shock ring's bounce
 	retracted = 0.3, -- the giant fist snapped back
 	followEnd = 0.3, -- the follow-through held until here
 	laugh = 0.5, -- deflated, laughing
@@ -162,8 +162,8 @@ local TRAIL = ColorSequence.new({
 })
 local TRAIL_LIFE = 0.24
 local SPARKS = ColorSequence.new(WHITE, RED)
-local PUMPS = 3 -- leg pumps across the coil and the set
-local GIANT_FIST = 2.6 -- the slam's fist, studs across (normal size)
+local PUMPS = 2 -- leg pumps across the coil
+local GIANT_FIST = 3.4 -- the slam's fist, studs across (normal size)
 -- The slam's light: a short, tight warm flash where the fist lands.
 local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.2 } -- range in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
@@ -273,27 +273,37 @@ local FINISH = {
 		headPitch = -18,
 	}),
 	-- Straightened in the gush, fists up.
-	gear2 = pose({ lean = -6, rightArm = 60, rightArmOut = 15, leftArm = 60, leftArmOut = 15, headPitch = -6 }),
+	gear2 = pose({
+		lean = -14,
+		rise = 0.2,
+		rightArm = 75,
+		rightArmOut = 25,
+		leftArm = 75,
+		leftArmOut = 25,
+		leftLeg = 18,
+		rightLeg = -16,
+		headPitch = -12,
+	}),
 }
 -- Deflated and laughing: arms wide, head back, a little sag.
 local LAUGH = pose({
-	crouch = 0.08,
-	lean = -10,
+	crouch = 0.16,
+	lean = -18,
 	rightArm = 20,
 	rightArmOut = 70,
 	leftArm = 20,
 	leftArmOut = 70,
-	headPitch = -20,
+	headPitch = -26,
 })
 
 -- The keys for a plan (planOf) and a kind.
 local function keyframes(T: Plan, kind: string): { PoseAnimator.Keyframe }
 	local keys: { PoseAnimator.Keyframe } = {
 		{ at = T.windup, pose = pose({}) },
-		{ at = T.set, ease = "quadOut", pose = PUMP },
+		{ at = T.windup + 0.06, ease = "quadOut", pose = PUMP },
 	}
-	-- The pumps: the crouch bouncing up and down across the coil and the set.
-	local step = (T.still - T.windup) / (PUMPS * 2)
+	-- The pumps: the crouch bouncing up and down across the coil.
+	local step = (T.set - T.windup) / (PUMPS * 2)
 	for i = 1, PUMPS * 2 - 1 do
 		table.insert(keys, {
 			at = T.windup + i * step,
@@ -301,9 +311,11 @@ local function keyframes(T: Plan, kind: string): { PoseAnimator.Keyframe }
 			pose = { crouch = if i % 2 == 1 then 0.08 else 0.36 },
 		})
 	end
+	-- The set reached, held shivering with the swell, then dead still on the last beat.
 	local set = SET[kind]
-	table.insert(keys, { at = T.still, ease = "quadOut", pose = set })
-	table.insert(keys, { at = T.still + 0.001, ease = "hold", hold = T.load - T.still, shiver = 1.4, pose = set })
+	local reached = T.set + math.min(0.12, (T.still - T.set) * 0.5)
+	table.insert(keys, { at = reached, ease = "quadOut", hold = T.still - reached, shiver = 1.4, pose = set })
+	table.insert(keys, { at = T.still + 0.001, ease = "hold", hold = T.load - T.still, pose = set })
 	table.insert(keys, { at = T.snap, ease = "quadOut", pose = LOAD[kind] })
 	table.insert(keys, { at = T.finisher, ease = "snap", pose = FINISH[kind] })
 	table.insert(keys, {
@@ -402,6 +414,7 @@ local function slamPoint(run): Vector3
 end
 
 local finisher: (any, string) -> () -- below
+local giantFist: (any, Plan) -> () -- below
 
 def.beats = {
 	{
@@ -414,7 +427,7 @@ def.beats = {
 			run:face(run:target())
 			UltimateCallout.mark(run.view, CALLOUT, run:span(plan.windup, plan.finisher - plan.windup))
 			-- Steam off him on each pump.
-			local step = (plan.still - plan.windup) / PUMPS
+			local step = (plan.set - plan.windup) / PUMPS
 			for i = 0, PUMPS - 1 do
 				run:at(plan.windup + i * step + 0.02, function()
 					puff(run, STEAM, if run.reduced then 2 else 4, 0.9)
@@ -422,20 +435,25 @@ def.beats = {
 			end
 			if kind == "slam" then
 				attachFist(run)
-				-- Drumbeats: a ring thumping out from his feet on each beat, the last on the stillness.
+				-- Drumbeats: a dust thump at his feet on each beat, the last on the stillness (not rings:
+				-- the callout's ring is already at his feet, and rings at one point get dropped).
 				Sfx.play("punchRush", { volume = 0.6 })
 				for i = 1, 3 do
 					local beat = plan.windup + (plan.still - plan.windup) * i / 3
 					run:at(beat, function()
 						local ground = run:ground()
-						VfxRecipe.meshRing(ground, (1.4 + 0.3 * i) * s * VfxRecipe.viewScale(ground), WHITE, 0.3, 0.3)
+						VfxRecipe.kitDust(ground, (1.2 + 0.25 * i) * s * VfxRecipe.viewScale(ground), 2, 0.35)
 					end)
 				end
+				-- Where the raised fist is as the snap starts: the giant fist slams down from there.
+				run:at(plan.snap, function()
+					run.memo.raised = run:hand("right")
+				end)
 				-- The fist raised and swelling, white clouds round it.
 				run:at(plan.set, function()
 					local view = VfxRecipe.viewScale(run:hand("right"))
 					Kit.live(run, plan.set, plan.snap, "Ball", SKIN, function(part, u)
-						part.Size = Vector3.one * (0.5 + 0.9 * Kit.easeOut(u)) * s * view
+						part.Size = Vector3.one * (0.6 + 1.6 * Kit.easeOut(u)) * s * view
 						part.CFrame = CFrame.new(run:hand("right"))
 						part.Transparency = 0
 					end, Enum.Material.SmoothPlastic)
@@ -451,6 +469,10 @@ def.beats = {
 				end)
 				run:at(plan.snap - 0.01, function()
 					setTrail(run, true)
+				end)
+				run:at(plan.snap, function()
+					giantFist(run, plan)
+					Sfx.play("whooshHeavy")
 				end)
 				run:at(plan.trailOff, function()
 					setTrail(run, false)
@@ -484,9 +506,10 @@ function def.release(_run): boolean
 	return true
 end
 
--- The giant fist: it stretches down from the raised hand onto the slam point by AFTER.slammed and
--- snaps back by AFTER.retracted, the arm stretching after it.
-local function giantFist(run)
+-- The giant fist: through the snap it comes down from where the raised fist was (high over his
+-- head) onto the slam point, landing on the hit (t = 0); held a moment, it snaps back to his hand by
+-- AFTER.retracted, the arm stretching after it.
+giantFist = function(run, plan: Plan)
 	local s = run:scale()
 	local land = slamPoint(run) + Vector3.new(0, GIANT_FIST * 0.4 * s, 0)
 	local view = VfxRecipe.viewScale(land)
@@ -494,17 +517,19 @@ local function giantFist(run)
 	local function fistAt(): Vector3
 		local t = run:designTime()
 		local hand = run:hand("right")
-		local out = if t < AFTER.slammed
-			then Kit.easeIn(t / AFTER.slammed)
-			else 1 - Kit.easeIn((t - AFTER.slammed) / (AFTER.retracted - AFTER.slammed))
-		return hand:Lerp(land, math.clamp(out, 0, 1))
+		if t < 0 then
+			local raised = (run.memo.raised or hand) + Vector3.new(0, size, 0)
+			return raised:Lerp(land, Kit.easeIn((t - plan.snap) / math.max(-plan.snap, 1e-3)))
+		end
+		local back = Kit.easeIn((t - AFTER.slammed) / (AFTER.retracted - AFTER.slammed))
+		return land:Lerp(hand, math.clamp(back, 0, 1))
 	end
-	Kit.live(run, 0, AFTER.retracted, "Ball", SKIN, function(part, _u)
+	Kit.live(run, plan.snap, AFTER.retracted, "Ball", SKIN, function(part, _u)
 		part.Size = Vector3.one * size
 		part.CFrame = CFrame.new(fistAt())
 		part.Transparency = 0
 	end, Enum.Material.SmoothPlastic)
-	Kit.live(run, 0, AFTER.retracted, "Block", RED, function(part, _u)
+	Kit.live(run, plan.snap, AFTER.retracted, "Block", SKIN, function(part, _u)
 		local fist = fistAt()
 		local shoulder = run:chest()
 		local length = math.max((fist - shoulder).Magnitude, 0.05)
@@ -518,15 +543,10 @@ end
 finisher = function(run, kind: string)
 	local s = run:scale()
 	if kind == "slam" then
-		giantFist(run)
-		Sfx.play("whooshHeavy")
-		run:at(AFTER.slammed, function()
+		do
 			local land = slamPoint(run)
 			local view = VfxRecipe.viewScale(land)
-			VfxRecipe.meshRing(land, UNIT_HEIGHT * 0.7 * s * view, WHITE, 0.3, 0.3)
-			run:at(AFTER.bounce, function()
-				VfxRecipe.meshRing(land, UNIT_HEIGHT * 0.45 * s * view, RED, 0.25, 0.3)
-			end)
+			VfxRecipe.meshRing(land, UNIT_HEIGHT * 0.9 * s * view, WHITE, 0.35, 0.3)
 			VfxRecipe.kitDust(land, UNIT_HEIGHT * 0.6 * s * view, 3, 0.6)
 			if not run.reduced then
 				ImpactEffects.light(
@@ -554,7 +574,7 @@ finisher = function(run, kind: string)
 			HitFeel.cameraShake(0.25, 0.3)
 			HitFeel.punchIn(1)
 			Sfx.play("impactHeavy")
-		end)
+		end
 	elseif kind == "gear3" then
 		-- White clouds round him and a white flame aura; he hops, arms wide.
 		local ground = run:ground()

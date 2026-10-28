@@ -17,7 +17,7 @@ unit; tick a column as it is done. "Merged" means on `main`.
 | 1 | severing_temple | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 1 | starless_burst | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 2 | final_argument | [x] | [x] | [x] | [x] | [ ] | [ ] |
-| 2 | elastic_wardrum | [x] | [x] | [ ] | [ ] | [ ] | [ ] |
+| 2 | elastic_wardrum | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 2 | reelbreaker | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 3 | ascending_core | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 3 | echo_legion | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
