@@ -15,12 +15,12 @@
 --    0     THE THROW, on the real cast: the arm whipped forward (a hand trail), the spinning sphere
 --          flying to the target (it arrives at +0.25)
 --   +0.25  the first real hit: it opens into a wide white-blue sphere of wind over the area (one see-
---          through shell, about the area's size) with one shock ring and a gust; quick cuts and
+--          through shell, the area's size, pulsing) with one shock ring and a gust; quick cuts and
 --          sparks; the enemies flinch
 --   +0.5, +0.75  a pulse on each real hit: cuts, sparks, a flinch, a small shake
---   +1.0   the last real hit: the sphere collapses in a white-blue flash, sparks; hit-stop on the
---          bodies, the boom, a stronger shake, the punch-in; the main target knocked 2.5 studs and
---          launched 0.8, the rest 1.5
+--   +1.0   the last real hit (a fallback at +1.05): the sphere collapses in a white-blue flash behind
+--          the main target, sparks; hit-stop on the bodies, the boom, a stronger shake, the punch-in;
+--          the main target knocked 2.5 studs and launched 0.8, the rest 1.5
 --   +0.06  the follow-through, held to +0.35
 --   +0.6   he shakes his hand out; idle by +1.2
 -- When the real window before the cast is shorter (Cinematic run.k < 1, at least the tier's 0.6),
@@ -159,7 +159,7 @@ local TRAIL = ColorSequence.new({
 	ColorSequenceKeypoint.new(1, BLUE),
 })
 local CUTS = { full = 4, reduced = 3 }
-local STEP = 0.3 -- studs (normal size) he steps into the throw (`lunge`)
+local STEP = 0.45 -- studs (normal size) he steps into the throw (`lunge`)
 -- The collapse's light: a short, tight blue flash over the area.
 local FINISH_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.22 } -- range in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
@@ -225,9 +225,9 @@ local SET = pose({
 local LOAD = with(SET, { rightArm = 182, lean = -16, twist = -30, crouch = 0.3 })
 -- The throw: the arm whipped forward and down, the body turning through it.
 local THROW = pose({
-	crouch = 0.24,
-	lean = 18,
-	twist = 32,
+	crouch = 0.34,
+	lean = 26,
+	twist = 50,
 	rightArm = 80,
 	rightArmOut = -10,
 	leftArm = -15,
@@ -236,7 +236,7 @@ local THROW = pose({
 	rightLeg = -32,
 	headPitch = 4,
 })
-local FOLLOW = with(THROW, { lean = 14, twist = 28 })
+local FOLLOW = with(THROW, { lean = 22, twist = 44 })
 -- Shaking the hand out: the arm loose to the side.
 local SHAKE = pose({ lean = -2, rightArm = 40, rightArmOut = 30, leftArm = 5, headPitch = 4 })
 
@@ -364,6 +364,8 @@ local function blades(run, from: number, to: number, center: () -> Vector3, reac
 	end
 end
 
+local collapse: (any) -> () -- below
+
 def.beats = {
 	{
 		at = planOf(1).windup, -- every plan starts its windup at the same design time (-FULL)
@@ -407,6 +409,10 @@ def.beats = {
 			run:at(AFTER.trailOff, function()
 				setTrail(run, false)
 			end)
+			-- The collapse waits for the last real hit; should it never come, it still plays.
+			run:at(AFTER.last + 0.05, function()
+				collapse(run)
+			end)
 		end,
 	},
 }
@@ -432,18 +438,58 @@ function def.release(run): boolean
 	return true
 end
 
--- Quick cuts across the area (UltimateKit.slashes), `count` of them over 0.2 s.
-local function cuts(run, center: Vector3, radius: number)
+-- Quick cuts across the area (UltimateKit.slashes), `count` of them over 0.2 s, longer and higher
+-- from far away (ViewScale).
+local function cuts(run, center: Vector3, radius: number, view: number)
 	Kit.slashes(
 		run,
 		run:designTime(),
 		run:designTime() + 0.2,
 		center,
-		radius * 0.8,
+		radius * 0.8 * view,
 		if run.reduced then CUTS.reduced else CUTS.full,
 		{ WHITE, BLUE },
-		1.6
+		1.6 * view
 	)
+end
+
+-- The collapse on the last hit (or its fallback): a white-blue flash behind the main target as the
+-- camera sees it, a light; hit-stop on the bodies, the reactions (from him, so the main target on
+-- the area's center is knocked in a real direction), the shake and the punch-in.
+collapse = function(run)
+	if run.memo.collapsed then
+		return
+	end
+	run.memo.collapsed = true
+	local center = run:area()
+	local air = center + Vector3.new(0, UNIT_HEIGHT * 0.3, 0)
+	local view = VfxRecipe.viewScale(air)
+	local flashAt = air
+	local camera = workspace.CurrentCamera
+	if camera then
+		local away = air - camera.CFrame.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		if away.Magnitude > 1e-3 then
+			flashAt += away.Unit * 0.8
+		end
+	end
+	ImpactEffects.ball(flashAt, PALE, UNIT_HEIGHT * 0.8 * run:scale() * view, 0.14)
+	if not run.reduced then
+		ImpactEffects.light(air, BLUE, FINISH_LIGHT.brightness, FINISH_LIGHT.range * UNIT_HEIGHT, FINISH_LIGHT.seconds)
+	end
+	local main = run:target()
+	local targets = run:targets()
+	local held = { run.view }
+	for _, target in targets do
+		table.insert(held, target)
+	end
+	HitFeel.hitStop(held, 0.07, { caster = run.view })
+	for _, target in targets do
+		HitFeel.react(target, run:chest(), if target == main then { final = true } else { knock = 1.5, tilt = 18 })
+	end
+	HitFeel.cameraShake(0.28, 0.32)
+	HitFeel.punchIn(1)
+	Sfx.play("impactHeavy")
 end
 
 function def.event(run, event): boolean
@@ -452,53 +498,30 @@ function def.event(run, event): boolean
 		local center, radius = run:area()
 		local air = center + Vector3.new(0, UNIT_HEIGHT * 0.3, 0)
 		local view = VfxRecipe.viewScale(air)
-		local s = run:scale()
 		run.memo.hits = (run.memo.hits or 0) + 1
 		local hit, total = run.memo.hits, math.max(run.memo.total or 4, 1)
 		local now = run:designTime()
-		local main = run:target()
-		local targets = run:targets()
 		if hit == 1 then
-			-- It opens into the wide sphere of wind, held until the last hit.
+			-- It opens into the wide sphere of wind over the whole area, see-through and pulsing, held
+			-- until the last hit.
 			local last = now + (total - 1) * 0.25 + 0.15
 			Kit.shell(run, now, last, PALE, air, function(u)
 				local open = Kit.easeOut(math.min(1, u * 4))
-				return radius * 1.4 * open * (1 + 0.05 * math.sin(run:now() * 30))
+				return radius * 2 * view * open * (1 + 0.06 * math.sin(run:now() * 24))
 			end, function(u)
-				return 0.65 + 0.3 * Kit.easeIn(u)
+				return 0.55 + 0.4 * Kit.easeIn(u)
 			end)
-			VfxRecipe.meshRing(center, radius * 0.8, PALE, 0.35, 0.3)
+			VfxRecipe.meshRing(center, radius * 0.8 * view, PALE, 0.35, 0.3)
 			Sfx.play("windGust", { pitch = 1.1 })
 		end
-		cuts(run, center, radius)
+		cuts(run, center, radius, view)
 		VfxRecipe.sparks(air, 0.45 * view, 12, SPARKS, nil, view)
 		if hit >= total then
-			-- The collapse: a white-blue flash, sparks, the strongest feel.
-			ImpactEffects.ball(air, PALE, UNIT_HEIGHT * 0.8 * s * view, 0.14)
-			if not run.reduced then
-				ImpactEffects.light(
-					air,
-					BLUE,
-					FINISH_LIGHT.brightness,
-					FINISH_LIGHT.range * UNIT_HEIGHT,
-					FINISH_LIGHT.seconds
-				)
-			end
-			local held = { run.view }
-			for _, target in targets do
-				table.insert(held, target)
-			end
-			HitFeel.hitStop(held, 0.07, { caster = run.view })
-			for _, target in targets do
-				HitFeel.react(target, center, if target == main then { final = true } else { knock = 1.5, tilt = 18 })
-			end
-			HitFeel.cameraShake(0.28, 0.32)
-			HitFeel.punchIn(1)
-			Sfx.play("impactHeavy")
+			collapse(run)
 		else
 			-- A pulse: the enemies flinch (no hit-stop: four in a row would stutter).
-			for _, target in targets do
-				HitFeel.react(target, center, { knock = 0.6, tilt = 10 })
+			for _, target in run:targets() do
+				HitFeel.react(target, run:chest(), { knock = 1, tilt = 15 })
 			end
 			HitFeel.cameraShake(0.1, 0.15)
 		end
