@@ -89,10 +89,16 @@ return deepFreeze({
 		},
 		ascending_core = {
 			tier = 5,
-			preroll = 0.9,
-			linger = 1.2,
-			look = "casts 1-2: fists clench, yell, gold aura spikes climb (blue sparks into Core III), palm blast, gold eruption on the form change; Core III: hands cupped at the hip, light grows, stones float, stillness, then a held full-board beam along the real line that thins out",
-			wanted = { "power-up roar swell", "charging whine", "beam blast and sustain" },
+			-- The clench and yell, the strain or the cupped-hands charge, stillness, the load, the release on the real hit.
+			preroll = 1.06,
+			linger = 1.25, -- through the follow-through, the beam's fade (+0.7), the aura settling (+0.75) and idle (+1.15)
+			look = "fists clench, a yell, a gold aura climbs; casts 1-2: the strain with blue crackle, one palm thrust and a gold streak to the target on the real hit, a gold eruption on the form change; Core III: hands cupped at the hip, light growing between them, stones float, stillness, both hands thrust: a thick blue-white beam along the real line with a groove, thinning out",
+			wanted = {
+				"windGust low (the yell)",
+				"electricBuzz (the crackle)",
+				"energyCharge (the cupped hands)",
+				"energyRelease + explosion (the release)",
+			},
 		},
 		final_argument = {
 			tier = 5,
