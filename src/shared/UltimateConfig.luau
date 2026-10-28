@@ -114,10 +114,15 @@ return deepFreeze({
 		},
 		boiling_crown = {
 			tier = 5,
-			preroll = 1.05,
-			linger = 1.4,
-			look = "store model: sinks and trembles harder, steam thickens white to orange, a glow in the chest, the ground blackens and cracks; stillness; eruption column and dome on the real hit, he heaves up and back, steam rolls out, scorched ground",
-			wanted = { "kettle rising", "rumble", "steam eruption roar", "hiss tail" },
+			-- The sink, the heat building (trembling), stillness, the load, the heave on the real hit.
+			preroll = 1.18,
+			linger = 1.6, -- through the heave (+0.4), settling (+0.9), idle (+1.3) and the steam's aftermath
+			look = "store model: sinks and trembles harder, steam thickens white to orange, a red-orange glow over him, glowing cracks run outward through the ground; stillness; the eruption on the real hit: steam billows thrown out in a ring and a column over his head (kept off the camera's line), embers, one shock ring; he heaves up and back; steam rolls out",
+			wanted = {
+				"energyCharge low (the sink)",
+				"fireCrackle (the heat building)",
+				"explosion + groundSlam (the eruption)",
+			},
 		},
 		-- Tier 4 -------------------------------------------------------------------------------
 		reelbreaker = {
