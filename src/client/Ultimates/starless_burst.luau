@@ -28,10 +28,10 @@
 -- the snap and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the circle, the
 -- orb, the beam, the groove, the hit stars and the sparks grow with it.
--- Layers (tier 4, within its 34; peak ~17 in the set, ~12 at the beam, estimated): up to 4 ring
--- planes and 8 glyphs (4 rings / 4 glyphs when reduced), the orb (core + halo), ~4 motes in flight,
--- at the beam the beam (core + glow), the groove, a hit star and sparks per enemy, a light (not when
--- reduced); the callout's ring. Camera: a short push at the beam (tier 4 allows it). Poses:
+-- Layers (tier 4, within its 34; peak ~16 in the set with 4 rings, ~12 with 2, ~14 at the beam,
+-- estimated): up to 4 ring planes and one plain glyph each, the orb (core + halo), 4 motes (2 when
+-- reduced), at the beam the beam (core + glow), the groove, a hit star and sparks per enemy, a light
+-- (not when reduced); the callout's ring. Camera: a short push at the beam (tier 4 allows it). Poses:
 -- PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -148,7 +148,7 @@ local SOFT = rgb(205, 230, 255)
 local CALLOUT = PALE
 local SPARKS = ColorSequence.new(WHITE, PALE)
 local RINGS = { base = 2, most = 4 } -- 2, one more per earlier cast this fight
-local GLYPHS = { full = 2, reduced = 1 } -- per ring
+local GLYPHS = 1 -- per ring (plain, not neon: a neon block adds a glow layer, two parts a glyph)
 local BEAM_WIDTH = 0.16 -- the white core, in unit heights: thin, not fat
 local CAST_LIGHT = { brightness = 1.8, range = 1.2, seconds = 0.2 } -- range in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
@@ -324,10 +324,11 @@ local function openCircle(run, plan: Plan, rings: number)
 		Kit.live(run, open, plan.closed, "Block", color, function(part, _u)
 			local d = math.max(0.05, sizeAt())
 			part.Size = Vector3.new(d, d, 0.04)
-			part.CFrame = circleFrame(run) * CFrame.new(0, 0, depth)
+			-- A slow roll, so the held circle turns rather than sitting still like a sticker.
+			part.CFrame = circleFrame(run) * CFrame.new(0, 0, depth) * CFrame.Angles(0, 0, run:now() * spin * 0.3)
 			part.Transparency = if ring then 0.1 else 0.7
 		end, nil, ring)
-		for g = 1, (if run.reduced then GLYPHS.reduced else GLYPHS.full) do
+		for g = 1, GLYPHS do
 			Kit.block(run, open, plan.closed, SOFT, function()
 				local angle = run:now() * spin + g * math.pi
 				local r = sizeAt() / 2
@@ -338,7 +339,7 @@ local function openCircle(run, plan: Plan, rings: number)
 				return Vector3.new(0.2, 0.07, 0.03) * s * view
 			end, function()
 				return if sizeAt() < 0.1 then 1 else 0.1
-			end, Enum.Material.Neon)
+			end)
 		end
 		run:at(open, function()
 			Sfx.play("magicChime", { pitch = 1.3 + 0.12 * i, volume = 0.35 })
@@ -367,7 +368,7 @@ def.beats = {
 				end)
 				Kit.converge(run, plan.set, plan.still, function()
 					return staffHead(run)
-				end, SOFT, 1.8 * s, if run.reduced then 4 else 8)
+				end, SOFT, 1.8 * s * view, if run.reduced then 2 else 4)
 				Sfx.play("energyCharge", { pitch = 1.2, volume = 0.6 })
 			end)
 			-- The beam waits for the real Area event; should it never come, it still plays.
