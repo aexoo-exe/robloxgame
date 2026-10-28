@@ -193,10 +193,16 @@ return deepFreeze({
 		},
 		echo_legion = {
 			tier = 4,
-			preroll = 0.9,
-			linger = 1.3,
-			look = "two shadow clones pop in and help form a blue sphere over his raised hand, four white blades spinning out; clones vanish in smoke; the throw; it opens into a wide wind sphere on the first real hit, pulses and cuts on each of the next, collapses in a burst on the last (no generic clones)",
-			wanted = { "clone pop", "rising wind whine", "throw whoosh", "four wind hits", "collapse burst" },
+			-- The clones pop in, the sphere forming over the raised hand, the clones gone and stillness, the load, the throw on the cast.
+			preroll = 1.06,
+			linger = 1.45, -- through the four real hits (+0.25 to +1.0), the collapse's fade and idle (+1.2)
+			look = "two shadow clones pop in and help form a blue sphere over his raised hand, four white blades spinning out; clones vanish in smoke; stillness; the throw on the cast; it opens into a see-through wind sphere about the area's size on the first real hit, pulses with cuts on each of the next, collapses in a white-blue flash on the last; he shakes his hand out (no generic clones)",
+			wanted = {
+				"energyCharge high (the forming sphere)",
+				"whooshLight (the throw)",
+				"windGust (the sphere opening)",
+				"impactHeavy (the collapse)",
+			},
 		},
 		elastic_wardrum = {
 			tier = 4,
