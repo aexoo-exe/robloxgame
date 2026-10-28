@@ -24,8 +24,8 @@
 -- the snap and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the trail, the
 -- hit star, the dust, the ring and the streaks grow with it (the crackle is sized from his body).
--- Layers (tier 2, within its 18; peak ~9 at the smash, estimated): the crackle (particles, ending at
--- the stillness), the hit star and dust (particles), one shock ring, ~6 streaks (4 when reduced),
+-- Layers (tier 2, within its 18; peak ~11 at the smash, estimated): the crackle (particles, ending at
+-- the stillness), the hit star and 2 dust billows, one shock ring, 4 streaks (3 when reduced),
 -- dust on each line cell (particles); the fist trail (BladeTrail); the callout's ring. Poses:
 -- PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
@@ -145,7 +145,7 @@ local TRAIL = ColorSequence.new({
 	ColorSequenceKeypoint.new(0.5, GREEN),
 	ColorSequenceKeypoint.new(1, GREEN_DEEP),
 })
-local STREAKS = { full = 6, reduced = 4 }
+local STREAKS = { full = 4, reduced = 3 }
 local STEP = 0.35 -- studs (normal size) he steps into the smash (`lunge`)
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
 
@@ -378,7 +378,7 @@ finisher = function(run, target: any?)
 	local view = VfxRecipe.viewScale(hit)
 	local floor = Vector3.new(hit.X, run:ground().Y, hit.Z)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.9 * view, GREEN:Lerp(WHITE, 0.25), view)
-	VfxRecipe.kitDust(floor, UNIT_HEIGHT * 0.6 * s * view, if run.reduced then 2 else 3, 0.6)
+	VfxRecipe.kitDust(floor, UNIT_HEIGHT * 0.6 * s * view, if run.reduced then 1 else 2, 0.6)
 	VfxRecipe.meshRing(floor, UNIT_HEIGHT * 0.6 * s * view, GREEN, 0.35, 0.3)
 	local held = { run.view }
 	for _, view_ in run:targets() do
