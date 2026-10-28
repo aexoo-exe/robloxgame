@@ -10,10 +10,12 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
-**Paused 2026-10-27 (resume here):** to merge (user OK needed): `feature/hold-views` (hold side /
-front34 / back34 views, verified) and `feature/slice-severing_temple` (built, reviewed: no FAIL;
-Studio-checked with 5 held beats and one fix round, fixes not re-captured; contains hold-views). Then
-starless_burst, the cinder_arc / flashline arm sweep, and animation-notes Plan step 2.
+**Session end 2026-10-28 (resume here).** Waiting on the user's explicit OK to merge into `main`:
+`feature/hold-views`, `feature/slice-severing_temple`, `feature/pause-handoff`,
+`feature/slice-starless_burst` (wave 1 complete: built, reviewed, Studio-checked, one fix round each;
+it contains the other three), and `feature/pose-overlap` (head and arms trail the body; needs a look
+in motion, K then S at 0.25x: stills can't show overlap). Found in Studio, not fixed yet:
+**flashline's dash lightning covers ~40% of the screen** (a merged unit, top of the plan below).
 
 **Now**
 

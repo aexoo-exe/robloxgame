@@ -170,10 +170,15 @@ return deepFreeze({
 		},
 		starless_burst = {
 			tier = 4,
-			preroll = 0.85,
-			linger = 0.9,
-			look = "staff up, calm; a white and pale-blue magic circle opens ring by ring (one more ring per earlier cast), glyphs riding it; light gathers; stillness; a clean thin beam along the real line, a bright groove, small impacts; a flickering hexagonal barrier; NOT fiery",
-			wanted = { "soft magic hum", "glyph ring clicks", "clean high beam", "barrier shimmer" },
+			-- Calm, the circle opening ring by ring while light gathers at the staff, stillness, the load, the thrust on the real hit.
+			preroll = 0.98,
+			linger = 1.0, -- through the follow-through, the staff lowered (+0.6), idle (+0.95) and the groove's fade (+0.8)
+			look = "staff upright, calm, the left palm out; a pale magic circle opens ring by ring before her (one more ring per earlier cast), glyphs riding it, light gathering at the staff's head; dead stillness; the staff thrust at the target on the real hit, one thin clean white beam along the real line and a bright groove; small pale hit stars; NOT fiery",
+			wanted = {
+				"magicChime, high, per ring (the circle's clicks)",
+				"energyCharge (the gathering light)",
+				"energyRelease (the beam)",
+			},
 		},
 		echo_legion = {
 			tier = 4,
