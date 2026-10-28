@@ -10,12 +10,13 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
-**Session end 2026-10-28 (resume here).** Waiting on the user's explicit OK to merge into `main`:
-`feature/hold-views`, `feature/slice-severing_temple`, `feature/pause-handoff`,
-`feature/slice-starless_burst` (wave 1 complete: built, reviewed, Studio-checked, one fix round each;
-it contains the other three), and `feature/pose-overlap` (head and arms trail the body; needs a look
-in motion, K then S at 0.25x: stills can't show overlap). Found in Studio, not fixed yet:
-**flashline's dash lightning covers ~40% of the screen** (a merged unit, top of the plan below).
+**Resume here (2026-10-28, later).** Merged: wave 1 (infinite_collapse, severing_temple,
+starless_burst), the hold views, the HANDOFF pause. Waiting on the user's OK to merge:
+`feature/flashline-bolts` (kitBolts chains long paths: flashline's lightning no longer covers ~40%
+of the screen; verified in Studio) and `feature/slice-final_argument` (wave 2's first: built, review
+FAIL fixed (ring cap), Studio-checked with one fix round, not re-captured). `feature/pose-overlap`
+waits for the user's look in motion (K then S). Next: elastic_wardrum, reelbreaker, then the arm
+sweep's 5 remaining candidates.
 
 **Now**
 
