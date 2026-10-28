@@ -21,7 +21,7 @@
 -- the plant, and only past that does everything but the load and the snap shrink evenly. The load,
 -- the snap and everything after the hit never shrink.
 -- Shift into the titan (the real form change, no anticipation):
---    0     his hand to his mouth (no blood); 2-3 big yellow lightning bolts strike down on him from
+--    0     his hand to his mouth (no blood); 2 big yellow lightning bolts strike down on him from
 --          the sky, a beat apart (each a chain of short bolts, VfxRecipe.kitBolts); a yellow core and
 --          a small light where they land, one yellow shock ring; steam billows burst out at his feet
 --          and pale steam rises as the titan emerges; he roars, arms wide; the crack and the boom, a
@@ -30,10 +30,11 @@
 --    0     a steam burst; the giant collapses into steam and he stumbles out
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the trail, the
 -- hit star, the steam, the crack, the dust, the ring, the sparks and the shift's core grow with it.
--- Layers (tier 3, within its 26; cast peak ~11 at the blow, shift peak ~15, estimated): the cast's
--- steam puffs (particles), at the blow a hit star, a steam column, dust, sparks (particles), the
--- crack (1), one shock ring; at the shift 2-3 bolt chains (particles), a core (2), a light (not when
--- reduced), one ring, 4 billows (3 when reduced), steam puffs; the fist trail (BladeTrail); the
+-- Layers (tier 3, within its 26; cast peak ~14 at the blow, shift peak ~15, estimated): the cast's
+-- steam puffs (one every 0.16 s), at the blow a hit star, a steam column, dust, sparks, the crack
+-- (1, 0.5 s), one shock ring; at the shift 2 bolt chains (1 when reduced; each segment an emitter),
+-- a core (2), a light (not when reduced), one ring, 3 billows (2 when reduced; at their size whatever
+-- the camera distance: more covered the board), steam puffs; the fist trail (BladeTrail); the
 -- callout's ring. Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -156,7 +157,7 @@ local TRAIL = ColorSequence.new({
 	ColorSequenceKeypoint.new(1, BOLT),
 })
 local SPARKS = ColorSequence.new(WHITE, BOLT)
-local STRIKE_HEIGHT = 18 -- studs above him the transform's bolts start
+local STRIKE_HEIGHT = 13 -- studs above him the transform's bolts start (lower: fewer chained segments)
 local STEP = 0.35 -- studs (normal size) he steps into the blow (`lunge`)
 local SHIFT_LIGHT = { brightness = 1.8, range = 1.5, seconds = 0.3 } -- range in unit heights
 local UNIT_HEIGHT = RenderConfig.unitSize.Y
@@ -354,9 +355,9 @@ def.beats = {
 			while t < plan.still do
 				run:at(t, function()
 					local at = run:chest()
-					steamBurst(at, if run.reduced then 2 else 4, 0.7 * VfxRecipe.viewScale(at))
+					steamBurst(at, 2, 0.7 * VfxRecipe.viewScale(at))
 				end)
-				t += 0.11
+				t += 0.16
 			end
 			Sfx.play("windGust", { pitch = 0.7, volume = 0.5 })
 			run:at(plan.snap - 0.01, function()
@@ -395,7 +396,7 @@ finisher = function(run, target: any?)
 	VfxRecipe.steamColumn(floor, s * view)
 	VfxRecipe.kitDust(floor, UNIT_HEIGHT * 0.55 * s * view, if run.reduced then 1 else 2, 0.6)
 	VfxRecipe.meshRing(floor, UNIT_HEIGHT * 0.6 * s * view, STEAM, 0.35, 0.3)
-	Kit.groove(run, 0, 0.9, CRACK, floor, floor + forward * UNIT_HEIGHT * 1.2 * view, 0.4 * view)
+	Kit.groove(run, 0, 0.5, CRACK, floor, floor + forward * UNIT_HEIGHT * 1.2 * view, 0.4 * view)
 	local held = { run.view }
 	if target then
 		table.insert(held, target)
@@ -412,9 +413,13 @@ end
 
 function def.event(run, event): boolean
 	if event.kind == "Damage" and event.target and not event.dot then
+		local view = run.context.views[event.target]
 		if not run.memo.finished then
 			run.memo.finished = true
-			finisher(run, run.context.views[event.target])
+			finisher(run, view)
+		elseif view and view ~= run:target() then
+			-- The titan's splash: the units beside the target are knocked back too.
+			HitFeel.react(view, run:chest(), { knock = 1.5, tilt = 18 })
 		end
 		return true
 	end
@@ -432,7 +437,7 @@ function def.shift(run, event): boolean
 		-- The strike: 2-3 big yellow bolts from high above (STRIKE_HEIGHT: inside the match camera's
 		-- view, not above it) clearly hitting him, a beat apart, each from a slightly different point
 		-- in the sky; chains of short bolts (kitBolts), so no bolt is a huge sprite.
-		local strikes = if run.reduced then 2 else 3
+		local strikes = if run.reduced then 1 else 2
 		local land = ground + Vector3.new(0, height * 0.5, 0)
 		for i = 1, strikes do
 			run:at(now + 0.07 * (i - 1), function()
@@ -469,7 +474,7 @@ function def.shift(run, event): boolean
 		end
 		-- Steam billows bursting out at his feet as the titan emerges (few and see-through: at the
 		-- match camera more of them covered the board).
-		local billows = if run.reduced then 3 else 4
+		local billows = if run.reduced then 2 else 3
 		for i = 1, billows do
 			local angle = (i / billows) * math.pi * 2 + math.random() * 0.4
 			local out = Vector3.new(math.cos(angle), 0.35, math.sin(angle)).Unit
@@ -482,8 +487,17 @@ function def.shift(run, event): boolean
 		end
 	else
 		run:pose(STUMBLE)
-		-- The giant collapses into steam.
-		ImpactEffects.ball(run:chest(), STEAM, UNIT_HEIGHT * 0.9 * view, 0.15)
+		-- The giant collapses into steam (the flash behind him as the camera sees it).
+		local flashAt = run:chest()
+		local camera = workspace.CurrentCamera
+		if camera then
+			local away = flashAt - camera.CFrame.Position
+			away = Vector3.new(away.X, 0, away.Z)
+			if away.Magnitude > 1e-3 then
+				flashAt += away.Unit * 0.8
+			end
+		end
+		ImpactEffects.ball(flashAt, STEAM, UNIT_HEIGHT * 0.9 * view, 0.15)
 		steamBurst(run:chest(), 10, 2 * view)
 		Sfx.play("windGust", { pitch = 0.8 })
 	end
