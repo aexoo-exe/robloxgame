@@ -116,14 +116,14 @@ return deepFreeze({
 		-- Tier 4 -------------------------------------------------------------------------------
 		reelbreaker = {
 			tier = 4,
-			preroll = 0.7,
-			linger = 0.9,
-			look = "rod overhead and whipped forward, the line flies to the farthest enemy and holds taut; the free fist draws back glowing yellow-green and growing (push on the fist); yank and punch together, the impact lands as the enemy arrives; aura sheds as sparks",
+			-- The rod overhead, the whip, hooked with the fist drawn back and glowing, stillness, the load, the yank on the real hit.
+			preroll = 1.02,
+			linger = 1.15, -- through the punch (+0.12), the follow-through, the rod shouldered (+0.75) and idle (+1.05)
+			look = "rod overhead and whipped forward (a trail off its tip), the line flies to the farthest enemy and holds taut; the free fist draws far back with a growing yellow-green glow; stillness; the yank on the real hit as the enemy is pulled in, the punch landing as it arrives: a big yellow-green hit star, one shock ring, dust; the glow sheds as sparks; the rod shouldered",
 			wanted = {
-				"rod whip and reel whirr",
-				"rising charge hum in the fist",
-				"line snap",
-				"huge punch thud with crack",
+				"whooshLight (the whip, the yank)",
+				"energyCharge (the glowing fist)",
+				"impactHeavy (the punch)",
 			},
 		},
 		night_command = {
