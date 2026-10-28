@@ -72,16 +72,15 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
 - [x] **Black screenshots.** Not the freeze: Studio was minimized, and a minimized window draws
       nothing. Before a capture session, check the window (`IsIconic`) and restore it without focus
       (`ShowWindow(handle, 4)`, SW_SHOWNOACTIVATE); the user approved doing this (2026-10-27).
-- [ ] **A side / front camera for holds.** The slice camera's default framing is behind the
-      caster's shoulder: poses are judged from the back, faces and chests never show. A `camera`
-      option on `hold` (side, front, 3/4 front) would make every pose judgeable.
+- [x] **A side / front camera for holds.** `hold(beat, offset, "side" | "front34" | "back34")`
+      (`feature/hold-views`). Front 3/4 confirmed infinite_collapse's spread fix in Studio: facing
+      the camera, arms wide, an orb at each hand.
 - [ ] **Pose-only replay.** A key that plays the ultimate's poses with effects off (V hides kit
       textures only), to judge the body without the VFX covering it.
 
 ## Plan
 
-1. A side / front camera option for `hold` (Tooling), then sweep the finished ultimates for the
-   forward + out arm bug.
+1. Sweep cinder_arc and flashline for the forward + out arm bug (judge with `hold` from front34).
 2. PoseAnimator per-channel lag (overlap) with a default per channel: the cheapest broad win, every
    ultimate gets it.
 3. Elbow and knee channels in UnitMotion / Figure (check which avatar parts can bend: catalog
