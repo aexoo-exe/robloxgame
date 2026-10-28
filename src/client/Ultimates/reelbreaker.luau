@@ -224,9 +224,9 @@ local WHIP = pose({
 })
 -- Hooked: the rod held forward, the free fist drawn far back, the left shoulder turned away.
 local HOOKED = pose({
-	crouch = 0.32,
-	lean = -4,
-	twist = 30,
+	crouch = 0.45,
+	lean = -8,
+	twist = 48,
 	rightArm = 75,
 	rightArmOut = 5,
 	leftArm = -55,
@@ -235,14 +235,14 @@ local HOOKED = pose({
 	rightLeg = -28,
 	headYaw = -10,
 })
-local LOAD = with(HOOKED, { crouch = 0.4, twist = 36, leftArm = -65 })
+local LOAD = with(HOOKED, { crouch = 0.55, twist = 56, leftArm = -72 })
 -- The yank: the rod ripped back overhead, the fist still loaded.
 local YANK = with(LOAD, { rightArm = 135, rightArmOut = 20, lean = -10, twist = 22 })
 -- The punch: the fist thrown straight out, the body turning through it.
 local PUNCH = pose({
-	crouch = 0.26,
-	lean = 16,
-	twist = -36,
+	crouch = 0.34,
+	lean = 24,
+	twist = -55,
 	rightArm = 120,
 	rightArmOut = 20,
 	leftArm = 98,
@@ -252,7 +252,7 @@ local PUNCH = pose({
 	headYaw = 10,
 	headPitch = 4,
 })
-local FOLLOW = with(PUNCH, { lean = 13, twist = -32 })
+local FOLLOW = with(PUNCH, { lean = 20, twist = -50 })
 -- Shouldered: the rod back over the shoulder, at ease.
 local SHOULDER = pose({ lean = -4, rightArm = 150, rightArmOut = -30, leftArm = 8, headPitch = -4 })
 
@@ -272,6 +272,7 @@ local function keyframes(T: Plan, step: number): { PoseAnimator.Keyframe }
 		{ at = T.punch, pose = { lunge = 0 } },
 		{ at = T.arrive, ease = "snap", pose = { lunge = step } },
 		{ at = T.follow, ease = "quadOut", hold = T.followEnd - T.follow, pose = FOLLOW },
+		{ at = T.followEnd, ease = "hold", pose = { lunge = step } }, -- the step held through the follow-through
 		-- The rod shouldered, stepping back to where he stands; then idle.
 		{ at = T.shoulder, ease = "inOut", hold = 0.12, pose = SHOULDER },
 		{ at = T.shoulder, ease = "inOut", pose = { lunge = 0 } },
@@ -392,7 +393,7 @@ def.beats = {
 				Kit.orb(run, plan.set, AFTER.shed, GLOW, function()
 					return run:hand("left")
 				end, function(u)
-					return (0.25 + 0.75 * Kit.easeIn(math.min(1, u * 1.3))) * s * view
+					return (0.4 + 1.1 * Kit.easeIn(math.min(1, u * 1.3))) * s * view
 				end)
 				Kit.converge(run, plan.set, plan.still, function()
 					return run:hand("left")
