@@ -19,7 +19,7 @@ Config.STAGE = Config.BASE + Vector3.new(0, 0, -40) -- the preview stage, in fro
 Config.PREVIEW = AnimationConfig.preview
 Config.QUALITIES = { "low", "medium", "high" }
 Config.DUMMY_COLOR = Color3.fromRGB(150, 150, 160)
-Config.SLICE_UNIT = "boiling_crown" -- K: the vertical slice's unit
+Config.SLICE_UNIT = "titanheart" -- K: the vertical slice's unit
 -- The slice camera's orbit (arenaFraming "slice"): degrees around the focus from square-on side,
 -- degrees above level, studs from the focus, studs the focus is raised. `sliceFraming` is what each
 -- K / S replay starts from (P saves the live `sliceView` into it, for this session).

@@ -253,10 +253,15 @@ return deepFreeze({
 		},
 		titanheart = {
 			tier = 3,
-			preroll = 0.4,
-			linger = 0.6,
-			look = "cast: plant and draw back with steam venting, a heavy blow with steam and a crack. Real form change into the titan (a health trigger, not a cast; in the lineup press F): a yellow bolt from the sky, a huge flash, steam explosion, roar with steam; back to human: a steam burst and a stumble",
-			wanted = { "lightning strike", "steam explosion", "titan roar", "steam collapse" },
+			-- The plant, the draw (shivering), stillness, the load, the blow on the real hit.
+			preroll = 0.85,
+			linger = 1.0, -- through the follow-through, the recovery (+0.6), idle (+0.9) and the steam's fade
+			look = "cast: plants with steam venting, draws far back, stillness, a heavy blow on the real hit with a step into it: a steam-white hit star, a steam column, a crack, one ring. Real form change into the titan (a health trigger, not a cast; in the lineup press F): yellow bolts from the sky (chains of short bolts), a yellow core and one ring where they land, steam billows, a roar with arms wide; back to human: a steam burst and a stumble",
+			wanted = {
+				"windGust low (the steam venting)",
+				"impactHeavy + groundSlam (the blow)",
+				"lightningCrack + explosion (the transformation)",
+			},
 		},
 		skyboulder = {
 			tier = 3,
