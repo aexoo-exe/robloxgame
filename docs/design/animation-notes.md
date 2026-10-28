@@ -68,6 +68,10 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
   quarter of it from the front), covering ~40% of the screen. Breaks the quality bar; fix before
   judging its draw pose, which is hidden under them. front34 is the wrong view for dashers (they
   dash toward that camera).
+  Fixed in `VfxRecipe.kitBolts` (all lightning units): a path longer than 3 studs is a zigzag chain
+  of short, narrower bolts. Seen in Studio: a row of crisp gold strands along the dash, nothing
+  covering the screen. Leftover: each strand stands across the path (the bolt art's orientation,
+  as before), not along it.
 - **starless_burst** (2026-10-28): the staff thrust reads (the head tips forward at the target).
   The upright circle never read from the match camera (edge-on) and the first beam was a white bar:
   fixed (ground circle, thin beam), not re-captured.
