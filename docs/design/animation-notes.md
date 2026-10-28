@@ -81,6 +81,11 @@ store models, hand-built looks) on one path, but it limits how expressive a pose
 ## Plan
 
 1. Sweep cinder_arc and flashline for the forward + out arm bug (judge with `hold` from front34).
+   Candidates (forward >= 60 and |out| >= 50 on one arm): cinder_arc STRIKE1 right (95 / -80),
+   STRIKE2 right (160 / 85), FOLLOW2 right (170 / 100), FINISH left (95 / 75); flashline DRAW right
+   (95 / 110: meant "swept wide to the right", likely points forward), FOLLOW right (70 / 130). For
+   a sword the roll also turns the blade, so judge each in Studio before changing it (cinder_arc is
+   the approved template).
 2. PoseAnimator per-channel lag (overlap) with a default per channel: the cheapest broad win, every
    ultimate gets it.
 3. Elbow and knee channels in UnitMotion / Figure (check which avatar parts can bend: catalog
