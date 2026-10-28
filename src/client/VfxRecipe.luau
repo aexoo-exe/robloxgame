@@ -1263,8 +1263,9 @@ end
 -- A long path is a chain of short bolts: the particle is as wide as it is long, so one bolt along a
 -- 12-stud dash was a 12-stud square sprite, a column of lightning over ~40% of the screen (seen on
 -- flashline's dash). Past BOLT_SEGMENT studs each strand zigzags through points jittered off the
--- path, one bolt per segment.
-local BOLT_SEGMENT = 3
+-- path, one bolt per segment. Each segment is its own emitter part, so a chained path draws one
+-- strand fewer (at least one) to stay inside the tier budgets.
+local BOLT_SEGMENT = 4.5
 
 local function bolt(from: Vector3, to: Vector3, color: Color3, life: number?, width: number?, brightness: number?)
 	VfxRecipe.kit((from + to) / 2, "kitBolt", {
@@ -1313,7 +1314,7 @@ function VfxRecipe.kitBolts(
 	-- unless the caller asks for a bright strike.
 	local chainWidth = (width or 1) * 0.6
 	local chainLight = brightness or 1.3
-	for _ = 1, count do
+	for _ = 1, math.max(1, count - 1) do
 		local previous = a
 		for i = 1, segments do
 			local point = a + along * (i / segments)
