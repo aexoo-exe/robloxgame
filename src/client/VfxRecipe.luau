@@ -1260,6 +1260,27 @@ end
 -- white and many studs long, that band read as a straight-edged cream wedge across the screen. So
 -- the bolts keep their color (barely toward white) at moderate light; `brightness` (default 1.8)
 -- for a strike that must read big and bright.
+-- A long path is a chain of short bolts: the particle is as wide as it is long, so one bolt along a
+-- 12-stud dash was a 12-stud square sprite, a column of lightning over ~40% of the screen (seen on
+-- flashline's dash). Past BOLT_SEGMENT studs each strand zigzags through points jittered off the
+-- path, one bolt per segment.
+local BOLT_SEGMENT = 3
+
+local function bolt(from: Vector3, to: Vector3, color: Color3, life: number?, width: number?, brightness: number?)
+	VfxRecipe.kit((from + to) / 2, "kitBolt", {
+		-- the bolt art fills ~85% of its frame's height
+		size = (to - from).Magnitude / 0.85 * (width or 1),
+		color = tinted(color, 0.1),
+		lifetime = (life or 0.22) * (0.8 + 0.4 * math.random()),
+		speed = { 0.01, 0.01 },
+		spread = 0,
+		direction = (to - from).Unit,
+		stretch = true,
+		lightEmission = 0.7,
+		brightness = brightness or 1.8,
+	})
+end
+
 function VfxRecipe.kitBolts(
 	a: Vector3,
 	b: Vector3,
@@ -1274,21 +1295,35 @@ function VfxRecipe.kitBolts(
 	if length < 0.2 then
 		return
 	end
+	local segments = math.max(1, math.ceil(length / BOLT_SEGMENT))
+	if segments == 1 then
+		for _ = 1, count do
+			local jitter = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * length * 0.12
+			bolt(a + jitter * 0.3, b + jitter, color, life, width, brightness)
+		end
+		return
+	end
+	-- Two directions across the path for the zigzag.
+	local unit = along.Unit
+	local side = unit:Cross(Vector3.yAxis)
+	side = if side.Magnitude > 1e-3 then side.Unit else unit:Cross(Vector3.xAxis).Unit
+	local up = side:Cross(unit).Unit
+	local step = length / segments
+	-- Chained frames' glow bands line up into a haze along the path: narrower bolts, and less light
+	-- unless the caller asks for a bright strike.
+	local chainWidth = (width or 1) * 0.6
+	local chainLight = brightness or 1.3
 	for _ = 1, count do
-		local jitter = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * length * 0.12
-		local from, to = a + jitter * 0.3, b + jitter
-		VfxRecipe.kit((from + to) / 2, "kitBolt", {
-			-- the bolt art fills ~85% of its frame's height
-			size = (to - from).Magnitude / 0.85 * (width or 1),
-			color = tinted(color, 0.1),
-			lifetime = (life or 0.22) * (0.8 + 0.4 * math.random()),
-			speed = { 0.01, 0.01 },
-			spread = 0,
-			direction = (to - from).Unit,
-			stretch = true,
-			lightEmission = 0.7,
-			brightness = brightness or 1.8,
-		})
+		local previous = a
+		for i = 1, segments do
+			local point = a + along * (i / segments)
+			if i < segments then
+				local angle = math.random() * 2 * math.pi
+				point += (side * math.cos(angle) + up * math.sin(angle)) * step * 0.25
+			end
+			bolt(previous, point, color, life, chainWidth, chainLight)
+			previous = point
+		end
 	end
 end
 
