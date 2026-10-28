@@ -194,15 +194,15 @@ return deepFreeze({
 		},
 		elastic_wardrum = {
 			tier = 4,
-			preroll = 0.6,
-			linger = 0.8,
-			look = "into Gear 2: bouncing leg pumps, pink-white steam, a gush on the form change; into Gear 3: thumb to mouth, swell, white clouds and white flame, laughing with arms wide; later casts: drumbeat rings, then a giant stretched fist slams down around him, a bouncing cartoon shockwave, shield shimmer",
+			-- The pumps, the swell (by cast: the raised swelling fist, the thumb blow, more pumping), stillness, the load, the payoff.
+			preroll = 0.96,
+			linger = 1.1, -- through the giant fist's snap back (+0.3), the laugh (+0.5) and idle (+1.0)
+			look = "bouncing leg pumps with pink-white steam on every cast; into Gear 2: a steam gush; into Gear 3: thumb to mouth, swell, white clouds and a white flame aura, arms flung wide; later casts: the fist raised and swelling, drumbeat rings, then a giant stretched fist slams down in front of him with a bouncing shock ring; he deflates laughing",
 			wanted = {
-				"steam pump hiss",
-				"thumb blow and inflate",
-				"drumbeats",
-				"rubber fist stretch and slam",
-				"laugh",
+				"punchRush (the drumbeats)",
+				"energyCharge (the thumb blow)",
+				"whooshHeavy (the stretch, the gush)",
+				"impactHeavy (the slam)",
 			},
 		},
 		-- Tier 3 -------------------------------------------------------------------------------
