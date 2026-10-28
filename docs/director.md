@@ -10,15 +10,17 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
-**Resume here (2026-10-28, end).** On `main`: waves 1 and 2's final_argument, the kitBolts fix.
-Waiting on the user's OK to merge: `feature/slice-reelbreaker` (contains
-`feature/slice-elastic_wardrum` and the hold tool's cast number): elastic_wardrum and reelbreaker,
-built, reviewed (elastic_wardrum's ring-cap FAIL fixed), Studio-checked, one fix round each. Wave 2
-is complete. `feature/pose-overlap` still waits for the user's look in motion. Sounds: most library
-sounds the new ultimates call (energyCharge, windGust, punchRush, whooshHeavy, slashMetal,
-magicChime, energyRelease, groundSlam, rockDebris) have no id yet, so they play silent: the sound
-picks are now the biggest gap in how the ultimates land. Next for Claude: wave 3 (ascending_core,
-echo_legion, skybreaker), then the arm sweep's 5 candidates.
+**Resume here (2026-10-29).** On `main`: wave 1, final_argument, the kitBolts fix. Waiting on the
+user's OK to merge: `feature/slice-skybreaker`, which contains the whole stack: elastic_wardrum,
+reelbreaker (wave 2 done), ascending_core, echo_legion, skybreaker (wave 3 done), and the hold
+tool's cast number. Each is built, reviewed (FAILs fixed: elastic_wardrum ring cap, ascending_core
+ViewScale, echo_legion fallback / bloom / ViewScale), Studio-checked with one fix round.
+`feature/pose-overlap` still waits for the user's look in motion. Sounds: nearly every library
+sound the new ultimates call has no id yet (silent): the sound picks are the biggest gap. Leftovers
+worth a system pass: clones read only as sparkles (echo_legion, no clone body), the generic white
+hit flash on every target, the shield bubble covering casters. Next for Claude: wave 4 (titans:
+boiling_crown, titanheart, skyboulder, iron_rush; store models, so check their pose channels
+first), then the arm sweep's 5 candidates.
 
 **Now**
 
