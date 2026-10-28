@@ -13,8 +13,8 @@
 --   -0.18  a 0.12 s load dip: lower, the fist further back
 --   -0.06  the punch's 0.06 s snap
 --    0     THE PUNCH, almost invisible, on the real hit: the arm thrown straight at the target (a
---          short fist trail) with a step into it; a brief white core at the target and a white hit
---          star, a cone of air tearing past it (two cones of rings), one shock ring, a long ground
+--          short fist trail) with a step into it; a brief white flash behind the target and a white
+--          hit star, streaks of air blasting past it along the punch, one shock ring, a long ground
 --          crack along the punch, dust rolling out, a few stones flung (not when reduced), a light;
 --          hit-stop on the bodies; the boom and the slam, a strong shake, the punch-in and the camera
 --          pulling back; the target knocked 2.5 studs and launched 0.8
@@ -28,12 +28,13 @@
 -- Not used from the concept: the full-screen white impact frame (the quality bar: no effect covers
 -- most of the screen); the brief white core at the target is the flash.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the fist trail,
--- the air bend, the dust, the cones, the shock ring, the crack, the core, the hit star and the
--- sparks grow with it.
--- Layers (tier 5, within its 44; peak ~22 at the hit, estimated): the aura spikes (particles), the
--- air bend (1, through the draw), at the hit 12 cone rings (two cones of 6, short), the groove (1),
--- the shock ring (1), the core (1), the hit star, sparks and dust (particles), 3 stones (not when
--- reduced), a light (not when reduced), the fist trail (BladeTrail); the callout's ring. Camera: a
+-- the air bend, the dust, the streaks, the shock ring, the crack, the flash, the hit star and the
+-- sparks grow with it. (The aura's sheets are sized from his body.)
+-- Layers (tier 5, within its 44; peak ~25 at the hit, estimated): the aura spikes (particles, ending
+-- at the load), the air bend (1, through the draw), at the hit 10 streaks (5 when reduced), the
+-- groove (1), the shock ring (1, the only ring), the flash (2), the hit star, sparks and dust
+-- (particles), 3 stones (not when reduced), a light (not when reduced), the fist trail
+-- (BladeTrail); the callout's ring. Camera: a
 -- dim through the build, pushes to the face and fist, a pull at the hit (tier 5 allows them).
 -- Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
@@ -42,7 +43,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RenderConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RenderConfig"))
 
 local BladeTrail = require(script.Parent.Parent.BladeTrail)
-local FxKit = require(script.Parent.Parent.FxKit)
 local HitFeel = require(script.Parent.Parent.HitFeel)
 local ImpactEffects = require(script.Parent.Parent.ImpactEffects)
 local PoseAnimator = require(script.Parent.Parent.PoseAnimator)
@@ -151,6 +151,7 @@ end
 
 local WHITE = Kit.WHITE
 local GOLD = rgb(255, 222, 140)
+local AURA = rgb(255, 185, 50) -- saturated: the pale gold read as cream
 local CRACK = rgb(70, 60, 52)
 local STONE = rgb(150, 140, 128)
 local CALLOUT = GOLD
@@ -161,7 +162,7 @@ local TRAIL = ColorSequence.new({
 })
 local TRAIL_LIFE = 0.16
 local SPARKS = ColorSequence.new(WHITE, GOLD)
-local CONE = { length = 9, angle = math.rad(16), seconds = 0.35 } -- the outer cone; the inner is 2/3 of it
+local BLAST = { count = 10, reduced = 5, length = 14, width = 5 } -- the air torn past the target: streaks, not rings
 local CRACK_LENGTH = 10 -- studs along the punch
 local STONES = 3
 local STEP = 0.8 -- studs (normal size) he steps into the punch (`lunge`)
@@ -337,7 +338,8 @@ def.beats = {
 			run:camera(plan.windup, plan.finisher + 0.4, { key = "dim", dim = 0.22, rise = 0.4, fall = 0.3 })
 			-- The draw: a low aura, the air bending around the fist, dust lifting, a rising wind.
 			run:at(plan.draw, function()
-				VfxRecipe.kitAuraSpike(run, run.view, GOLD, plan.draw, plan.snap - plan.draw, 1)
+				-- Ends at the load: its sheets live ~0.3 s where they were emitted, so none hang behind the step.
+				VfxRecipe.kitAuraSpike(run, run.view, AURA, plan.draw, plan.load - plan.draw, 1)
 				local view = VfxRecipe.viewScale(run:hand("right"))
 				Kit.live(run, plan.draw, plan.finisher, "Ball", WHITE, function(part, u)
 					local pulse = 1 + 0.06 * math.sin(run:now() * 30)
@@ -405,15 +407,34 @@ finisher = function(run, target: any?)
 	local floor = Vector3.new(hit.X, run:ground().Y, hit.Z)
 	local view = VfxRecipe.viewScale(hit)
 	local past = hit + direction * (target and target.part.Size.X * 0.5 or 1)
-	ImpactEffects.ball(hit, WHITE, UNIT_HEIGHT * 0.6 * s * view, 0.1)
+	-- The white flash: behind the target as the camera sees it, so it never covers the hit.
+	local coreAt = hit
+	local camera = workspace.CurrentCamera
+	if camera then
+		local away = hit - camera.CFrame.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		if away.Magnitude > 1e-3 then
+			coreAt += away.Unit * 0.8
+		end
+	end
+	ImpactEffects.ball(coreAt, WHITE, UNIT_HEIGHT * 0.9 * s * view, 0.12)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.8 * view, WHITE, view)
 	VfxRecipe.sparks(hit, 0.7 * view, 12, SPARKS, direction, view)
-	FxKit.pressureCone(past, direction, CONE.length * view, CONE.angle, WHITE, CONE.seconds)
-	FxKit.pressureCone(past, direction, CONE.length * 2 / 3 * view, CONE.angle * 0.7, GOLD, CONE.seconds * 0.85, 0.03)
-	VfxRecipe.shock(floor, UNIT_HEIGHT * 0.5 * s, WHITE, view)
-	FxKit.mark(floor, Kit.DUST, CRACK, UNIT_HEIGHT * 0.7 * s * view, "crack", 1.4)
-	Kit.groove(run, 0, 1.2, CRACK, floor, floor + direction * CRACK_LENGTH * view, 0.5 * view)
-	VfxRecipe.kitDust(floor, UNIT_HEIGHT * 0.6 * s * view, 3, 0.7)
+	-- The air torn past the target: streaks blasting along the punch (no rings: one shock ring is
+	-- the cast's only ring at this point).
+	Kit.streaks(
+		run,
+		0,
+		past,
+		direction,
+		if run.reduced then BLAST.reduced else BLAST.count,
+		BLAST.length * view,
+		BLAST.width * view,
+		WHITE
+	)
+	VfxRecipe.shock(floor, UNIT_HEIGHT * 0.9 * s, WHITE, view)
+	Kit.groove(run, 0, 1.2, CRACK, floor, floor + direction * CRACK_LENGTH * view, 0.8 * view)
+	VfxRecipe.kitDust(floor, UNIT_HEIGHT * 0.9 * s * view, 4, 0.7)
 	for i = 1, 2 do
 		run:at(0.06 * i, function()
 			local at = floor + direction * (i * 3)
