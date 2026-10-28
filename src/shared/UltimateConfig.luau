@@ -265,10 +265,15 @@ return deepFreeze({
 		},
 		skyboulder = {
 			tier = 3,
-			preroll = 0.5,
-			linger = 0.9,
-			look = "store model: a boulder appears at his side and crumbles; he turns far away, sinks, then whips around and lunges; a spray of fragments across the real cone cells, the nearest biggest, dust where they land; an earthen glow for his armor",
-			wanted = { "rock crunch", "big throw grunt", "gravel spray", "stone thuds" },
+			-- The boulder grown and crushed, the wind-up (shivering), stillness, the load, the throw landing on the real hit.
+			preroll = 0.93,
+			linger = 1.0, -- through the follow-through, standing tall (+0.6), idle (+0.9) and the dust's fade
+			look = "store model: a boulder grows at his side and he crushes it; he turns far away, sinks, shivering; stillness; he whips around and lunges, fragments flying over the real cone cells (the nearest biggest) and landing on the real hit: dust where they land, one ring and a hit star on the nearest; he stands tall, an earthen glow for his armor",
+			wanted = {
+				"groundSlam (the crush)",
+				"whooshHeavy (the throw)",
+				"rockDebris + impactHeavy (the spray)",
+			},
 		},
 		volt_spear = {
 			tier = 3,
