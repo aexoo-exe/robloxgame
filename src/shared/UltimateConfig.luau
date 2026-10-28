@@ -347,10 +347,15 @@ return deepFreeze({
 		},
 		skybreaker = {
 			tier = 2,
-			preroll = 0.3,
-			linger = 0.55,
-			look = "green lightning crackles over him, fist drawn back; the smash on the real hit with a pressure cone, and green pressure streaks with dust carrying through the real line behind the target",
-			wanted = { "electric crackle", "smash boom", "air pressure rush" },
+			-- The fist drawn back crackling, the shivering set, stillness, the load, the smash on the real hit.
+			preroll = 0.8,
+			linger = 0.9, -- through the follow-through, the wince (+0.5), idle (+0.8) and the streaks' fade
+			look = "green lightning crackles over him as the fist draws back, low and turned away; stillness; the smash on the real hit with a step into it: a green hit star, dust and one shock ring at the target, green pressure streaks with dust carrying through the real line behind it; the arm hangs, a wince",
+			wanted = {
+				"electricBuzz (the crackle)",
+				"impactHeavy (the smash)",
+				"windGust (the pressure line)",
+			},
 		},
 		-- Tier 1 -------------------------------------------------------------------------------
 		flashline = {
