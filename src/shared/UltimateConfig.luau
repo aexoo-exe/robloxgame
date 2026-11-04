@@ -246,10 +246,16 @@ return deepFreeze({
 		},
 		clockbreaker = {
 			tier = 3,
-			preroll = 0.4,
-			linger = 1.35,
-			look = "hands in his pockets, brim down, the whole time; a purple spirit fades in behind him and lunges past him; fist afterimages pour into the target with a small impact on each real hit; a big burst and hit-stop on the real last hit; the spirit fades back",
-			wanted = { "spirit appear hum", "rapid punch barrage", "final heavy punch" },
+			-- The summon, the set (shivering), stillness, the load, the spirit's lunge on the cast.
+			preroll = 0.62,
+			linger = 1.9, -- through the barrage (+1.0), the follow-through, the spirit's fade (+1.65), idle (+1.85)
+			look = "hands in his pockets, brim down, the whole time; a see-through purple spirit (torso, head, two arms) rises behind his shoulder, cocks its fists, lunges past him on the cast; its fists pump, purple streaks pour into the target with a small hit star on each real hit; on the real last hit its right fist is thrown long: a purple hit star, a core, one ring, hit-stop, the punch-in; he lifts his chin; the spirit sinks back and fades",
+			wanted = {
+				"magicChime low (the spirit rising)",
+				"punchRush (the barrage)",
+				"impactLight (each barrage hit)",
+				"impactHeavy + whooshLight (the last punch)",
+			},
 		},
 		titanheart = {
 			tier = 3,
