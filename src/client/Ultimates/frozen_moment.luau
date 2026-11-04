@@ -26,9 +26,10 @@
 -- the snap and everything after the cast never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the knives, the
 -- glints, the hit stars and the sparks grow with it; the clock is the area's size.
--- Layers (tier 4, within its 34; peak ~16 at the knives with 4 frozen, estimated): the clock (3: the
--- face, two hands), the sphere (1), one knife per frozen enemy (1 each), at the hit a hit star and
--- sparks on each (particles), the healed motes; the callout's ring. The dim is a camera cue.
+-- Layers (tier 4, within its 34; peak ~19 at the knives with 4 frozen, 3 + 3 per frozen + 4,
+-- estimated): the clock (3: the face, two hands), the sphere (1), one knife per frozen enemy (1
+-- each), at the hit a hit star and sparks on each (particles), the healed motes once (4; a Heal comes
+-- with every knife); the callout's ring. The dim is a camera cue.
 -- Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local HitFeel = require(script.Parent.Parent.HitFeel)
@@ -206,13 +207,13 @@ local DRAWN = pose({
 local STOP = with(WIDE, { crouch = 0, lean = -16, rise = 0.12, rightArmOut = 100, leftArmOut = 100, headPitch = -14 })
 local READY = pose({ crouch = 0.06, lean = 2, rightArm = 40, rightArmOut = 25, leftArm = 40, leftArmOut = 25 })
 local FLICK_RIGHT =
-	pose({ crouch = 0.08, lean = 6, twist = 16, rightArm = 105, rightArmOut = 10, leftArm = 25, leftArmOut = 35 })
+	pose({ crouch = 0.1, lean = 14, twist = 38, rightArm = 105, rightArmOut = 10, leftArm = 25, leftArmOut = 35 })
 local FLICK_LEFT =
-	pose({ crouch = 0.08, lean = 6, twist = -16, leftArm = 105, leftArmOut = 10, rightArm = 25, rightArmOut = 35 })
+	pose({ crouch = 0.1, lean = 14, twist = -38, leftArm = 105, leftArmOut = 10, rightArm = 25, rightArmOut = 35 })
 local RAISED = pose({ lean = -4, rightArm = 125, rightArmOut = 20, leftArm = 10, leftArmOut = 15, headPitch = -4 })
 local RAISED_LOAD = with(RAISED, { crouch = 0.08, rightArm = 140, twist = 8 })
 local SEND =
-	pose({ crouch = 0.04, lean = 8, twist = -14, rightArm = 95, rightArmOut = 40, leftArm = 10, leftArmOut = 15 })
+	pose({ crouch = 0.06, lean = 15, twist = -36, rightArm = 95, rightArmOut = 40, leftArm = 10, leftArmOut = 15 })
 local FACE = pose({
 	lean = -8,
 	twist = -10,
@@ -246,7 +247,13 @@ local function keyframes(T: Plan): { PoseAnimator.Keyframe }
 	-- The flicks: a snap out to each, a settle back to ready between them.
 	for i, at in FLICKS do
 		table.insert(keys, { at = at, ease = "snap", pose = if i % 2 == 1 then FLICK_RIGHT else FLICK_LEFT })
-		table.insert(keys, { at = at + 0.1, ease = "quadOut", pose = READY })
+		local settle = at + 0.1
+		if i < #FLICKS then
+			table.insert(keys, { at = settle, ease = "quadOut", pose = READY })
+		elseif settle < T.resumestill - 0.2 then
+			-- Held ready (stillness, not a drift), then 0.12 s into the raised hand.
+			table.insert(keys, { at = settle, ease = "quadOut", hold = T.resumestill - 0.12 - settle, pose = READY })
+		end
 	end
 	for _, key in
 		{
@@ -317,23 +324,23 @@ local function clock(run, plan: Plan)
 		return Kit.smooth((t - plan.resumefinisher) / 0.2)
 	end
 	local to = plan.resumefinisher + 0.2
-	Kit.pool(run, plan.windup, to, GOLD, ground, function()
+	Kit.pool(run, plan.windup, to, GOLD:Lerp(Color3.new(0, 0, 0), 0.35), ground, function()
 		return across()
 	end, function()
-		return 0.55 + 0.45 * fade()
-	end)
+		return 0.5 + 0.5 * fade()
+	end, Enum.Material.SmoothPlastic)
 	-- The hands: they tick (a step every TICK) until time stops, then hold still.
 	for _, hand in { { length = 0.42, turns = 1 }, { length = 0.3, turns = 1 / 12 } } do
 		Kit.live(run, plan.windup, to, "Block", CLOCK, function(part, _u)
 			local t = math.min(run:designTime(), plan.stop)
 			local ticks = math.floor((t - plan.windup) / TICK)
 			local angle = ticks * hand.turns * math.pi / 6
-			local length = across() * hand.length
+			local length = math.max(0.05, across() * hand.length)
 			local along = Vector3.new(math.sin(angle), 0, -math.cos(angle))
-			part.Size = Vector3.new(math.max(0.05, across() * 0.04), 0.05, math.max(0.05, length))
+			part.Size = Vector3.new(math.max(0.05, across() * 0.025), 0.08, length)
 			part.CFrame = CFrame.lookAt(
-				ground + Vector3.new(0, 0.1, 0) + along * length / 2,
-				ground + Vector3.new(0, 0.1, 0) + along * length
+				ground + Vector3.new(0, 0.15, 0) + along * length / 2,
+				ground + Vector3.new(0, 0.15, 0) + along * length
 			)
 			part.Transparency = 0.15 + 0.85 * fade()
 		end, Enum.Material.SmoothPlastic)
@@ -357,7 +364,7 @@ local function knife(run, plan: Plan, view: any, from: number)
 		local flight = Kit.smooth((t - plan.resumesnap) / (plan.resumefinisher - plan.resumesnap))
 		local bob = Vector3.new(0, math.sin(run:now() * 5 + slot) * 0.08 * (1 - flight), 0)
 		local at = hover:Lerp(aim, flight) + bob
-		blade.Size = Vector3.new(0.07, 0.18, 0.9) * scale
+		blade.Size = Vector3.new(0.09, 0.24, 1.2) * scale
 		blade.CFrame = CFrame.lookAt(at, aim + (aim - hover) * 0.01)
 		blade.Transparency = if u < 0.05 then 1 - u * 20 else 0
 	end, Enum.Material.Metal)
@@ -370,7 +377,8 @@ def.beats = {
 		at = planOf(1, 1).windup, -- every plan starts its windup at the same design time (-FULL)
 		run = function(run)
 			local plan = planFor(run)
-			run.memo.knives, run.memo.frozen = {}, {}
+			run.memo.knives = run.memo.knives or {}
+			run.memo.frozen = run.memo.frozen or {}
 			run:face(run:target())
 			UltimateCallout.mark(run.view, CALLOUT, run:span(plan.windup, -plan.windup))
 			-- The small gold sphere around him until time stops, then snapping out over the area.
@@ -384,7 +392,7 @@ def.beats = {
 			Kit.shell(run, plan.stop, plan.stop + 0.3, GOLD, chest, function(u)
 				return UNIT_HEIGHT * 1.3 + (radius * 2.2 - UNIT_HEIGHT * 1.3) * Kit.easeOut(u)
 			end, function(u)
-				return 0.4 + 0.6 * u
+				return 0.6 + 0.4 * u
 			end)
 			clock(run, plan)
 			-- The clock's ticks.
@@ -487,7 +495,11 @@ function def.event(run, event): boolean
 		end
 		return true
 	elseif kind == "Heal" and event.target == run.unitIndex then
-		-- Green motes drift back into him, a few at a time.
+		-- Green motes drift back into him, once (a Heal comes with every knife).
+		if run.memo.healed then
+			return true
+		end
+		run.memo.healed = true
 		local now = run:designTime()
 		Kit.converge(run, now, now + 0.4, function()
 			return run:chest()
