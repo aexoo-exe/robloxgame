@@ -13,7 +13,7 @@
 --   -0.30  stillness, until -0.18
 --   -0.18  a 0.12 s load dip: turned further, lower
 --   -0.06  the throw's 0.06 s snap: he whips around and lunges, the fragments flying out over the
---          cone's real cells (one each, two on the nearest), the nearest ones the biggest
+--          cone's real cells (one each), the nearest ones the biggest
 --    0     THE SPRAY, on the real hit: the fragments land; dust bursting where each lands (bigger
 --          nearer him), one shock ring and a hit star on the nearest, sparks on the near cells; hit-
 --          stop on the bodies; the rocks clatter, a shake, the punch-in; the main target knocked 2.5
@@ -26,8 +26,8 @@
 -- load, the snap and everything after the hit never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the boulder, the
 -- fragments, the dust, the ring, the hit star and the sparks grow with it.
--- Layers (tier 3, within its 26; peak ~13 at the spray, estimated): the boulder (1), its dust and
--- chips, at the throw one fragment per cone cell (+1 on the nearest; ~6-8), at the spray dust per
+-- Layers (tier 3, within its 26; peak ~14 at the spray, estimated): the boulder (1), its dust and
+-- 2 chips, at the throw one fragment per cone cell (~4-5), at the spray one dust billow per
 -- cell and sparks (particles), one shock ring, a hit star, the armor glow (particles); the callout's
 -- ring. Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
@@ -267,30 +267,28 @@ local function nearness(run, at: Vector3): number
 	return math.clamp(1 - (at - run:ground()).Magnitude / (UNIT_HEIGHT * 2.6), 0.3, 1)
 end
 
--- The fragments: thrown at the snap from his side, one over each cell of the cone (two on the
--- nearest), arcing and landing on the hit (t = 0).
+-- The fragments: thrown at the snap from his side, one over each cell of the cone (the nearest the
+-- biggest), arcing and landing on the hit (t = 0), fading as they land.
 local function throw(run, plan: Plan)
 	local area = run:find("Area")
-	local points, nearest = cells(run, area)
+	local points = cells(run, area)
 	local from = side(run)
 	local s = run:scale()
 	for _, at in points do
 		local near = nearness(run, at)
 		local view = VfxRecipe.viewScale(at)
-		for k = 1, (if run.reduced or at ~= nearest then 1 else 2) do
-			local offset = Vector3.new((math.random() - 0.5) * 1.6, 0, (math.random() - 0.5) * 1.6)
-			local spin = math.random() * 5
-			Kit.block(run, plan.snap, 0.05, STONE, function()
-				local u = math.clamp((run:designTime() - plan.snap) / math.max(-plan.snap, 1e-3), 0, 1)
-				local p = from:Lerp(at + offset + Vector3.new(0, 0.4, 0), u)
-					+ Vector3.new(0, math.sin(u * math.pi) * 1.2, 0)
-				return CFrame.new(p) * CFrame.Angles(spin * u, spin, 0)
-			end, function()
-				return Vector3.one * (0.35 + 0.6 * near) * (if k == 1 then 1 else 0.7) * s * view
-			end, function()
-				return 0
-			end, Enum.Material.Slate)
-		end
+		local offset = Vector3.new((math.random() - 0.5) * 1.6, 0, (math.random() - 0.5) * 1.6)
+		local spin = math.random() * 5
+		Kit.block(run, plan.snap, 0.05, STONE, function()
+			local u = math.clamp((run:designTime() - plan.snap) / math.max(-plan.snap, 1e-3), 0, 1)
+			local p = from:Lerp(at + offset + Vector3.new(0, 0.4, 0), u)
+				+ Vector3.new(0, math.sin(u * math.pi) * 1.2, 0)
+			return CFrame.new(p) * CFrame.Angles(spin * u, spin, 0)
+		end, function()
+			return Vector3.one * (0.35 + 0.6 * near) * s * view
+		end, function(u)
+			return if u > 0.75 then (u - 0.75) * 4 else 0
+		end, Enum.Material.Slate)
 	end
 	Sfx.play("whooshHeavy", { pitch = 1.1 })
 end
@@ -321,10 +319,10 @@ def.beats = {
 				VfxRecipe.kitDust(ground, UNIT_HEIGHT * 0.55 * s * VfxRecipe.viewScale(ground), 2, 0.6)
 				VfxRecipe.debris(
 					at - Vector3.new(0, 0.5, 0),
-					if run.reduced then 2 else 3,
-					0.3 * s,
+					2,
+					0.3 * s * VfxRecipe.viewScale(at),
 					DUST:Lerp(STONE, 0.6),
-					1.5
+					1.2
 				)
 				Sfx.play("groundSlam", { volume = 0.6 })
 			end)
@@ -356,12 +354,7 @@ finisher = function(run, area: any?)
 	for _, at in points do
 		local near = nearness(run, at)
 		local view = VfxRecipe.viewScale(at)
-		VfxRecipe.kitDust(
-			at,
-			(0.35 + 0.35 * near) * UNIT_HEIGHT * s * view,
-			if at == nearest and not run.reduced then 2 else 1,
-			0.6
-		)
+		VfxRecipe.kitDust(at, (0.35 + 0.35 * near) * UNIT_HEIGHT * s * view, 1, 0.6)
 		if near > 0.6 then
 			VfxRecipe.sparks(at + Vector3.new(0, 0.5, 0), 0.5 * near * view, 10, SPARKS, Vector3.yAxis, view)
 		end
