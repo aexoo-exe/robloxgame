@@ -168,10 +168,16 @@ return deepFreeze({
 		},
 		restoration_strike = {
 			tier = 4,
-			preroll = 0.85,
-			linger = 0.8,
-			look = "a pink spirit with a tall crest fades in behind him; diamond shards swirl in and lock into the real shield; pink beams to each really healed ally whose cracks close up with sparkles; the spirit throws three quick jabs into the target, a diamond burst each; proud pose",
-			wanted = { "spirit appearing shimmer", "crystal shards tinkling", "repair chime", "three rapid punch hits" },
+			-- The summon, the set (shards swirling in, shivering), stillness, the load, the snap on the cast.
+			preroll = 0.88,
+			linger = 1.0, -- through the heavy jab (+0.16), the proud pose, the spirit's fade (+0.75), idle (+0.95)
+			look = "his palm raised out to the side; a see-through pink spirit with a tall crest rises off his shoulder; diamond shards swirl in and close; he winds, then points: the shards lock into his real shield (a white glint), a pink beam from the spirit's hand to each really healed ally whose cracks close with sparkles, the spirit jabs the target twice and then lands a heavy jab: a big pink hit star, one ring, hit-stop, the punch-in; proud pose; the spirit fades",
+			wanted = {
+				"magicChime (the spirit rising; the shards locking)",
+				"healTwinkle (the shards; the repairs)",
+				"punchRush + impactLight (the jabs)",
+				"impactHeavy (the heavy jab)",
+			},
 		},
 		night_parade = {
 			tier = 4,
