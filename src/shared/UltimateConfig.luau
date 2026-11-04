@@ -426,10 +426,15 @@ return deepFreeze({
 		},
 		iron_rush = {
 			tier = 1,
-			preroll = 0.2,
-			linger = 0.45,
-			look = "store model: plates flash gold, steam vents; shoulder down, a dusty stomp; the ram on the real hit with a gold flash, and a scrape along the real knockback (the stun stars are real)",
-			wanted = { "armor clank", "stomp", "heavy ram crunch", "scrape" },
+			-- The plates hardening, the shoulder down with a stomp, stillness, the load, the charge on the real cast.
+			preroll = 0.68,
+			linger = 0.9, -- through the ram (+0.12), the follow-through, the recovery (+0.6), idle (+0.85) and the scrape's fade
+			look = "store model: plates flash gold, steam vents; shoulder down, a dusty stomp, stillness; the charge on the real cast (the real dash), the ram as he arrives: a gold hit star, sparks, dust, one gold ring; a scrape along the real knockback (the stun stars are real)",
+			wanted = {
+				"windGust low (the steam venting)",
+				"groundSlam (the stomp)",
+				"impactHeavy (the ram)",
+			},
 		},
 		blooming_aid = {
 			tier = 1,
