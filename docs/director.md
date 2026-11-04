@@ -11,17 +11,19 @@ Updated at the end of every task. `(user)` marks an item that needs the user; `/
 exactly that and moves on to the next item it can do alone.
 
 **Resume here (2026-11-03).** On `main`: wave 1, final_argument, the kitBolts fix. Waiting on the
-user's OK to merge: `feature/slice-clockbreaker`, which contains the whole stack: elastic_wardrum,
+user's OK to merge: `feature/slice-restoration_strike`, which contains the whole stack: elastic_wardrum,
 reelbreaker (wave 2), ascending_core, echo_legion, skybreaker (wave 3), boiling_crown, titanheart,
-skyboulder, iron_rush (wave 4 done), clockbreaker (wave 5 started), the hold tool's cast number and
+skyboulder, iron_rush (wave 4), clockbreaker, frozen_moment, restoration_strike (wave 5 done), the
+hold tool's cast number and
 the kitBolts segment fix. Each is built, reviewed (FAILs fixed) and Studio-checked with one fix
 round. `feature/pose-overlap` still waits for the user's look in motion; `feature/models-pilot`
 waits for the user's import and review. Sounds: nearly every library sound the new ultimates call
 has no id yet (silent): the sound picks are the biggest gap. Leftovers worth a system pass: clones
 read only as sparkles (echo_legion), the generic white hit flash on every target, the shield bubble
-covering casters, the shared aura's embers not ViewScaled. Next for Claude: frozen_moment,
-restoration_strike (wave 5; restoration_strike can reuse clockbreaker's spirit body), then wave 6,
-then the arm sweep's 5 candidates.
+covering casters, the shared aura's embers not ViewScaled, the spirit body (a torso, a head, two arms)
+copied in clockbreaker and restoration_strike (worth a shared UltimateKit helper). Unseen in Studio:
+restoration_strike's repairs (the lineup has no hurt allies). Next for Claude: wave 6 (night_command,
+night_parade, shade_pack), then the arm sweep's 5 candidates.
 
 **Now**
 
