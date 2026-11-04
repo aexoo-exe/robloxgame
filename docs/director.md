@@ -10,17 +10,18 @@ and does the top "Now" item. Unit ids only in this file; real names live in `doc
 Updated at the end of every task. `(user)` marks an item that needs the user; `/next` asks for
 exactly that and moves on to the next item it can do alone.
 
-**Resume here (2026-10-29).** On `main`: wave 1, final_argument, the kitBolts fix. Waiting on the
-user's OK to merge: `feature/slice-skybreaker`, which contains the whole stack: elastic_wardrum,
-reelbreaker (wave 2 done), ascending_core, echo_legion, skybreaker (wave 3 done), and the hold
-tool's cast number. Each is built, reviewed (FAILs fixed: elastic_wardrum ring cap, ascending_core
-ViewScale, echo_legion fallback / bloom / ViewScale), Studio-checked with one fix round.
-`feature/pose-overlap` still waits for the user's look in motion. Sounds: nearly every library
-sound the new ultimates call has no id yet (silent): the sound picks are the biggest gap. Leftovers
-worth a system pass: clones read only as sparkles (echo_legion, no clone body), the generic white
-hit flash on every target, the shield bubble covering casters. Next for Claude: wave 4 (titans:
-boiling_crown, titanheart, skyboulder, iron_rush; store models, so check their pose channels
-first), then the arm sweep's 5 candidates.
+**Resume here (2026-11-03).** On `main`: wave 1, final_argument, the kitBolts fix. Waiting on the
+user's OK to merge: `feature/slice-clockbreaker`, which contains the whole stack: elastic_wardrum,
+reelbreaker (wave 2), ascending_core, echo_legion, skybreaker (wave 3), boiling_crown, titanheart,
+skyboulder, iron_rush (wave 4 done), clockbreaker (wave 5 started), the hold tool's cast number and
+the kitBolts segment fix. Each is built, reviewed (FAILs fixed) and Studio-checked with one fix
+round. `feature/pose-overlap` still waits for the user's look in motion; `feature/models-pilot`
+waits for the user's import and review. Sounds: nearly every library sound the new ultimates call
+has no id yet (silent): the sound picks are the biggest gap. Leftovers worth a system pass: clones
+read only as sparkles (echo_legion), the generic white hit flash on every target, the shield bubble
+covering casters, the shared aura's embers not ViewScaled. Next for Claude: frozen_moment,
+restoration_strike (wave 5; restoration_strike can reuse clockbreaker's spirit body), then wave 6,
+then the arm sweep's 5 candidates.
 
 **Now**
 
