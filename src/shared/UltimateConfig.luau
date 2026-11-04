@@ -153,15 +153,17 @@ return deepFreeze({
 		},
 		frozen_moment = {
 			tier = 4,
+			-- The fling, the set (shivering), stillness, the load, the snap on the cast.
 			preroll = 1.0,
-			linger = 2.9, -- the freeze lasts up to 2 s (3-star), then the knives and his pose
-			look = "arms flung wide, a small gold sphere and a ticking clock under him; on the real stun the sphere snaps over the area and the colour drains, frozen enemies glazed grey-green; he flicks knives out that float pointed at each one; a push just before time resumes, then every knife lands at once on the real stun-end hits; motes back into him; hand-to-face pose",
+			linger = 3.1, -- the freeze (up to 2 s at 3 stars), the knives, the hand at his face, idle (+1.0)
+			look = "arms flung wide, a small gold sphere around him and a ticking clock under him; on the real cast the sphere snaps out over the area, the clock spreads over it and its hands stop, the colour drains; a gold glint on each frozen enemy; four flicks, a knife hanging in the air before each frozen enemy; stillness, hand raised, then the flick that sends them: every knife lands on the real stun-end hit, hit-stop, the punch-in; motes into him on the real heal; the hand at his face",
 			wanted = {
-				"clock ticks",
-				"time-stop whoosh into silence",
-				"knife flicks",
-				"all knives landing together",
-				"time resuming swell",
+				"magicChime high (the clock's ticks)",
+				"windGust low (time stopping)",
+				"slashMetal light (the flicks; the knives landing)",
+				"whooshLight (the send)",
+				"impactHeavy (the knives landing)",
+				"healTwinkle (the motes)",
 			},
 		},
 		restoration_strike = {
