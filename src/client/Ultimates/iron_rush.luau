@@ -25,7 +25,8 @@
 -- load, the snap and everything after the cast never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the dust, the hit
 -- star, the sparks, the ring and the scrape grow with it.
--- Layers (tier 1, within its 14; peak ~7 at the ram, estimated): the gold aura and steam (particles),
+-- Layers (tier 1, within its 14; peak ~8 at the ram, estimated): one gold aura pulse (its embers
+-- out by the charge) and the steam (particles; its last wisps over the cell he left),
 -- the stomp's dust, at the ram a hit star, sparks and dust (particles) and one shock ring, the scrape
 -- (1); the callout's ring. Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds:
 -- Sfx.
@@ -230,9 +231,16 @@ def.beats = {
 			local plan = planFor(run)
 			run:face(run:target())
 			UltimateCallout.mark(run.view, CALLOUT, run:span(plan.windup, plan.finisher - plan.windup))
-			-- The armor hardening: a gold aura flaring off the plates (no see-through shell), steam
-			-- venting off them.
-			VfxRecipe.aura(run, run.view, VfxRecipe.energy(GOLD), 1.4, plan.windup, plan.still - plan.windup)
+			-- The armor hardening: one gold flare off the plates (no see-through shell; one pulse, so
+			-- its embers are gone by the charge instead of hanging over the cell he leaves), sized
+			-- for the camera, and steam venting off them.
+			VfxRecipe.aura(run, function()
+				local part = run.view.part
+				if not part.Parent then
+					return nil, 0
+				end
+				return part.Position, part.Size.Y * VfxRecipe.viewScale(part.Position)
+			end, VfxRecipe.energy(GOLD), 1.4, plan.windup, plan.set - plan.windup)
 			local top = run:chest() + Vector3.new(0, run.view.part.Size.Y * 0.2, 0)
 			VfxRecipe.steamColumn(
 				top,
@@ -283,6 +291,7 @@ ram = function(run, target: any?)
 		end
 		HitFeel.hitStop(held, 0.06, { caster = run.view })
 		if target then
+			-- A strike's reaction, not the finisher's launch: the real knockback already shoves it.
 			HitFeel.react(target, run:chest(), { knock = 1, tilt = 15 })
 		end
 		HitFeel.cameraShake(0.08, 0.2)
