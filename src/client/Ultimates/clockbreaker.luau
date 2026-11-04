@@ -4,8 +4,8 @@
 -- his coat pockets, brim down; the spirit does everything.
 -- Designed timeline (real seconds at full length; SEGMENTS):
 --   -0.62  his hands go into his pockets, the brim down; the callout (an outline on him, a ground
---          ring); a tall see-through purple spirit (a torso, a head, two arms; a soft glow behind
---          it) rises in behind his shoulder
+--          ring); a tall see-through purple spirit (a torso, a head, two arms) rises in off his
+--          shoulder
 --   -0.42  set: the spirit's fists cocked back, shivering, until -0.26
 --   -0.26  stillness, until -0.18
 --   -0.18  a 0.12 s load: the spirit draws back further, he settles lower
@@ -13,7 +13,7 @@
 --    0     THE BARRAGE, on the real cast: the spirit's arms pump, fist streaks pour into the target;
 --          a small purple hit star and a flinch on each real hit
 --   +1.00  THE LAST PUNCH on the real last hit: the spirit's right fist thrown long; a purple hit
---          star, sparks, a core behind the target, one shock ring, a short light; hit-stop on the
+--          star, sparks, one shock ring, a short light; hit-stop on the
 --          bodies, a shake, the punch-in; he lifts his chin (the glare under the brim)
 --   +1.12  the follow-through, held to +1.35; the spirit sinks back and fades by +1.65; he is idle
 --          by +1.85, hands still in his pockets
@@ -22,10 +22,11 @@
 -- the summon, and only past that does everything but the load and the snap shrink evenly. The load,
 -- the snap and everything after the cast never shrink.
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the hit stars,
--- the sparks, the fist streaks, the core and the ring grow with it; the spirit is body-sized.
--- Layers (tier 3, within its 26; peak ~13 at the last punch, estimated): the spirit (5: torso, head,
--- two arms, the glow), fist streaks (particles, ~2 alive), each small hit's star and sparks (~2),
--- at the last punch a hit star, sparks, a core, one shock ring and a light (not when reduced); the
+-- the sparks, the fist streaks and the ring grow with it; the spirit is body-sized.
+-- Layers (tier 3, within its 26; peak ~12 at the last punch, estimated): the spirit (4: torso, head,
+-- two arms), fist streaks (particles, ~2 alive), each small hit's star and sparks (~2),
+-- at the last punch a hit star, sparks, one shock ring and a light (not when reduced; no core ball:
+-- the hit star is the flash); the
 -- callout's ring. Poses: PoseAnimator; hit feel: HitFeel; callout: UltimateCallout; sounds: Sfx.
 
 local HitFeel = require(script.Parent.Parent.HitFeel)
@@ -262,24 +263,29 @@ local function spiritIn(T: Plan, t: number): number
 end
 
 -- How far one of the spirit's arms reaches at design time `t` (`side` 1 right, -1 left): 0 hanging,
--- 1 punched straight out, below 0 cocked back.
+-- 1 punched straight out, below 0 cocked back. Eased between beats (no pops).
+local function pump(t: number, side: number): number
+	return 0.25 + 0.95 * math.abs(math.sin(math.pi * 6 * t + (if side > 0 then 0 else math.pi / 2)))
+end
+
 local function spiritReach(T: Plan, t: number, side: number): number
-	if t < T.set then
-		return 0
-	elseif t < T.load then
-		return -0.4
+	local last = if side > 0 then 1.5 else -0.3 -- the last punch: the right thrown long, the left back
+	local pumpEnd = T.finisher - 0.06
+	if t < T.load then
+		return -0.4 * Kit.smooth((t - T.windup) / (T.set + 0.06 - T.windup))
 	elseif t < T.snap then
-		return -0.55
+		return -0.4 - 0.15 * Kit.smooth((t - T.load) / (T.snap - T.load))
 	elseif t < T.barrage then
 		return -0.55 + 1.35 * Kit.smooth((t - T.snap) / (T.barrage - T.snap))
-	elseif t < T.finisher - 0.06 then
-		-- The pumping fists, alternating.
-		return 0.25 + 0.95 * math.abs(math.sin(math.pi * 6 * t + (if side > 0 then 0 else math.pi / 2)))
+	elseif t < pumpEnd then
+		-- The pumping fists, alternating, blended in over the first 0.06 s.
+		local blend = math.min(1, (t - T.barrage) / 0.06)
+		return 0.8 + (pump(t, side) - 0.8) * blend
 	elseif t < T.followEnd then
-		return if side > 0 then 1.5 else -0.3
+		local from = pump(pumpEnd, side)
+		return from + (last - from) * Kit.smooth((t - pumpEnd) / 0.06)
 	end
-	local back = Kit.smooth((t - T.followEnd) / (T.fadeEnd - T.followEnd))
-	return (if side > 0 then 1.5 else -0.3) * (1 - back)
+	return last * (1 - Kit.smooth((t - T.followEnd) / (T.fadeEnd - T.followEnd)))
 end
 
 type Body = {
@@ -289,33 +295,38 @@ type Body = {
 	shoulders: { [number]: Vector3 },
 }
 
--- Where the spirit is at design time `t`: behind his right shoulder, lunged out in front of him.
+-- Where the spirit is at design time `t`: a body's width off his right shoulder at his chest's height
+-- (closer and higher, it stood over his head and covered him from the match camera), lunged out in
+-- front of him, still wide of him; from the lunge on its fists aim at the target.
 local function spiritBody(run, T: Plan, t: number): Body
 	local forward = run:forward()
 	local right = forward:Cross(Vector3.yAxis)
 	local size = run.view.part.Size.Y * 1.25
 	local ground = run:ground()
-	local back = ground - forward * 1.0 + right * 0.8
-	local front = ground + forward * 1.6 + right * 0.5
+	local back = ground - forward * 0.6 + right * 2.6
+	local front = ground + forward * 2.2 + right * 2.0
 	local lunge = spiritLunge(T, t)
 	local shiver = if t > T.set and t < T.still then math.sin(t * 90) * 0.04 else 0
 	local risen = Kit.smooth((t - T.windup) / (T.set - T.windup))
-	local at = back + (front - back) * lunge + Vector3.new(shiver, size * (0.55 + 0.25 * risen), 0)
+	local at = back + (front - back) * lunge + right * shiver + Vector3.new(0, size * (0.3 + 0.15 * risen), 0)
 	local center = CFrame.lookAt(at, at + forward) * CFrame.Angles(-math.rad(12) * math.clamp(lunge, 0, 1), 0, 0)
 	local fists, shoulders = {}, {}
 	local arm = size * 0.5
+	local target = run:target()
+	local aim = if t >= T.snap and t < T.followEnd and target and target.part.Parent then target.part.Position else nil
 	for _, side in { 1, -1 } do
 		local shoulder = (center * CFrame.new(side * size * 0.3, size * 0.2, 0)).Position
 		local reach = spiritReach(T, t, side)
 		local hang = 1 - math.clamp(reach, 0, 1)
 		shoulders[side] = shoulder
-		fists[side] = shoulder + center.LookVector * arm * reach - Vector3.yAxis * arm * 0.6 * hang
+		local toward = if aim and (aim - shoulder).Magnitude > 1e-3 then (aim - shoulder).Unit else center.LookVector
+		fists[side] = shoulder + toward * arm * reach - Vector3.yAxis * arm * 0.6 * hang
 	end
 	return { center = center, size = size, fists = fists, shoulders = shoulders }
 end
 
--- The spirit: a torso, a head and two arms, see-through purple, with a soft glow behind it; drawn
--- from the windup until it has faded. Each part reads the body for the moment it draws.
+-- The spirit: a torso, a head and two arms, see-through purple (no glow ball behind it: from the
+-- match camera it covered him); drawn from the windup until it has faded. Each part reads the body for the moment it draws.
 local function buildSpirit(run, T: Plan)
 	local from, to = T.windup, T.fadeEnd
 	local function now(): (Body, number)
@@ -345,14 +356,6 @@ local function buildSpirit(run, T: Plan)
 			part.Transparency = seen
 		end, material)
 	end
-	-- The glow: a soft purple ball behind the spirit's torso (it never covers him: the spirit stands
-	-- off his shoulder).
-	Kit.live(run, from, to, "Ball", PURPLE, function(part, _u)
-		local body, seen = now()
-		part.Size = Vector3.one * body.size * 0.85
-		part.CFrame = body.center * CFrame.new(0, 0, body.size * 0.2)
-		part.Transparency = 0.8 + 0.2 * (seen - SPIRIT_SEEN) / (1 - SPIRIT_SEEN)
-	end)
 end
 
 -- One fist afterimage: a short purple streak flying from `from` into `to`.
@@ -438,14 +441,14 @@ local function smallHit(run, view: any)
 	local at = view.part.Position
 	local scale = VfxRecipe.viewScale(at)
 	VfxRecipe.kitHitStar(at, UNIT_HEIGHT * 0.45 * scale, SPIRIT, scale)
-	VfxRecipe.sparks(at, 0.35 * scale, 5, SPARKS, run:forward(), scale)
-	HitFeel.react(view, run:chest(), { knock = 0.6, tilt = 8 })
+	VfxRecipe.sparks(at, 0.6 * scale, 8, SPARKS, run:forward(), scale)
+	HitFeel.react(view, run:chest(), { knock = 1, tilt = 12 })
 	HitFeel.cameraShake(0.04, 0.08)
 	Sfx.play("impactLight", { pitch = 1 + (math.random() - 0.5) * 0.2, volume = 0.6 })
 end
 
--- The last punch (AFTER.finisher): a purple hit star, sparks, a core behind the target (as the
--- camera sees it), one shock ring, a short light; hit-stop on the bodies (0.07 s); the shake, the
+-- The last punch (AFTER.finisher): a purple hit star, sparks,
+-- one shock ring, a short light; hit-stop on the bodies (0.07 s); the shake, the
 -- punch-in; the target thrown.
 finisher = function(run, target: any?)
 	local s = run:scale()
@@ -456,16 +459,6 @@ finisher = function(run, target: any?)
 	local floor = Vector3.new(hit.X, run:ground().Y, hit.Z)
 	VfxRecipe.kitHitStar(hit, UNIT_HEIGHT * 0.95 * view, SPIRIT, view)
 	VfxRecipe.sparks(hit, 0.7 * view, 16, SPARKS, run:forward(), view)
-	local coreAt = hit
-	local camera = workspace.CurrentCamera
-	if camera then
-		local away = hit - camera.CFrame.Position
-		away = Vector3.new(away.X, 0, away.Z)
-		if away.Magnitude > 1e-3 then
-			coreAt += away.Unit * 0.7
-		end
-	end
-	ImpactEffects.ball(coreAt, PURPLE:Lerp(Color3.new(1, 1, 1), 0.3), UNIT_HEIGHT * 0.8 * view, 0.16)
 	VfxRecipe.meshRing(floor, UNIT_HEIGHT * 0.6 * s * view, GOLD:Lerp(SPIRIT, 0.5), 0.3, 0.3)
 	if not run.reduced then
 		ImpactEffects.light(

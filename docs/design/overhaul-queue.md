@@ -26,7 +26,7 @@ unit; tick a column as it is done. "Merged" means on `main`.
 | 4 | titanheart | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 4 | skyboulder | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 4 | iron_rush | [x] | [x] | [x] | [x] | [ ] | [ ] |
-| 5 | clockbreaker | [x] | [x] | [ ] | [ ] | [ ] | [ ] |
+| 5 | clockbreaker | [x] | [x] | [x] | [x] | [ ] | [ ] |
 | 5 | frozen_moment | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 5 | restoration_strike | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 6 | night_command | [x] | [ ] | [ ] | [ ] | [ ] | [ ] |
