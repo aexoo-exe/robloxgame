@@ -25,9 +25,9 @@
 -- Readable from the match camera (ViewScale: 1 at close cameras, up to 1.8 there): the shards, the
 -- beams, the cracks, the sparkles, the hit stars, the sparks and the ring grow with it; the spirit is
 -- body-sized.
--- Layers (tier 4, within its 34; peak ~18 at the cast, estimated): the spirit (5: torso, head, crest,
--- two arms), 5 shards (3 when reduced) until the cast; at the cast 2 beams, 2 cracks per healed ally,
--- sparkles (particles), the jabs' hit stars and sparks (particles), at the heavy jab one shock ring
+-- Layers (tier 4, within its 34; peak ~17 at the heavy jab, estimated): the spirit (5: torso, head, crest,
+-- two arms), 5 shards (3 when reduced) until the cast; at the cast 2 beams, a crack per healed ally,
+-- sparkles (particles), the jabs' hit stars, at the heavy jab its sparks, one shock ring
 -- and a light (not when reduced); the callout's ring. Poses: PoseAnimator; hit feel: HitFeel; callout:
 -- UltimateCallout; sounds: Sfx.
 
@@ -339,8 +339,8 @@ local function spiritBody(run, T: Plan, t: number): Body
 	local right = forward:Cross(Vector3.yAxis)
 	local size = run.view.part.Size.Y * 1.25
 	local ground = run:ground()
-	local back = ground - forward * 0.6 + right * 2.6
-	local front = ground + forward * 2.0 + right * 2.0
+	local back = ground - forward * 0.6 + right * 3.0
+	local front = ground + forward * 2.0 + right * 2.6
 	local lunge = spiritLunge(T, t)
 	local shiver = if t > T.set and t < T.still then math.sin(t * 90) * 0.04 else 0
 	local risen = Kit.smooth((t - T.windup) / (T.set - T.windup))
@@ -465,8 +465,8 @@ function def.release(_run): boolean
 	return true
 end
 
--- A repair on a healed ally: a pink beam to it from the spirit's left hand; two cracks across it
--- that close up; sparkles.
+-- A repair on a healed ally: a pink beam to it from the spirit's left hand; a crack across it
+-- that closes up; sparkles.
 local function repair(run, view: any)
 	local plan = planFor(run)
 	local now = run:designTime()
@@ -484,8 +484,8 @@ local function repair(run, view: any)
 		part.CFrame = CFrame.lookAt((from + to) / 2, to)
 		part.Transparency = 0.15 + 0.85 * Kit.easeIn(u)
 	end, Enum.Material.SmoothPlastic)
-	for i = 1, 2 do
-		local tilt = (i - 1.5) * 1.1
+	do
+		local tilt = 0.5
 		Kit.live(run, now + 0.05, now + 0.5, "Block", CRACK, function(part, u)
 			if not view.part.Parent then
 				part.Transparency = 1
@@ -494,7 +494,7 @@ local function repair(run, view: any)
 			local toward = run:chest() - view.part.Position
 			toward = Vector3.new(toward.X, 0, toward.Z)
 			toward = if toward.Magnitude > 1e-3 then toward.Unit else Vector3.zAxis
-			local at = view.part.Position + toward * view.part.Size.Z * 0.55 + Vector3.new(0, (i - 1.5) * 0.6, 0)
+			local at = view.part.Position + toward * view.part.Size.Z * 0.55 + Vector3.new(0, 0.2, 0)
 			part.Size = Vector3.new(math.max(0.05, view.part.Size.X * 0.9 * (1 - Kit.easeIn(u))), 0.07 * scale, 0.05)
 			part.CFrame = CFrame.lookAt(at, at + toward) * CFrame.Angles(0, 0, tilt)
 			part.Transparency = 0.1
@@ -507,7 +507,7 @@ local function repair(run, view: any)
 	end)
 end
 
--- One small jab on `view`: a pink hit star and a few sparks, a flinch.
+-- One small jab on `view`: a pink hit star (no sparks: they outlive the heavy jab), a flinch.
 local function smallJab(run, view: any)
 	if not view or not view.part.Parent then
 		return
@@ -515,7 +515,6 @@ local function smallJab(run, view: any)
 	local at = view.part.Position
 	local scale = VfxRecipe.viewScale(at)
 	VfxRecipe.kitHitStar(at, UNIT_HEIGHT * 0.5 * scale, SPIRIT, scale)
-	VfxRecipe.sparks(at, 0.5 * scale, 8, SPARKS, at - run:chest(), scale)
 	HitFeel.react(view, run:chest(), { knock = 1, tilt = 15 })
 	HitFeel.cameraShake(0.08, 0.1)
 	Sfx.play("impactLight", { pitch = 1.05 + (math.random() - 0.5) * 0.15 })
